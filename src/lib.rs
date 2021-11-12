@@ -1,0 +1,56 @@
+#![allow(dead_code)]
+mod scanner;
+
+use anyhow::Result;
+
+use std::fs::File;
+use std::io::Read;
+use std::path::Path;
+
+fn error(line: usize, message: impl AsRef<str>) {
+    report(line, "", message)
+}
+
+fn report(line: usize, pos: impl AsRef<str>, message: impl AsRef<str>) {
+    eprintln!(
+        "[line {}] Error {}: {}",
+        line,
+        pos.as_ref(),
+        message.as_ref()
+    );
+}
+
+pub struct Lox {
+    had_error: bool,
+}
+
+impl Lox {
+    fn new() -> Self {
+        Self { had_error: false }
+    }
+    pub fn run_file(script: impl AsRef<Path>) -> Result<()> {
+        let mut file = File::open(script)?;
+        let mut data = String::new(); // FIXME: preallocate correct len
+        file.read_to_string(&mut data)?;
+
+        Self::new().run(data)
+    }
+
+    pub fn run_prompt() -> Result<()> {
+        let mut lox = Lox::new();
+        loop {
+            print!("> ");
+            let mut buffer = String::new();
+            if std::io::stdin().read_line(&mut buffer)? == 0 {
+                break;
+            }
+            let _ = lox.run(buffer);
+            lox.had_error = false;
+        }
+        Ok(())
+    }
+
+    fn run(&mut self, _code: impl AsRef<str>) -> Result<()> {
+        Ok(())
+    }
+}
