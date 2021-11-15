@@ -4,7 +4,7 @@ mod scanner;
 use anyhow::Result;
 
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 
 fn error(line: usize, message: impl AsRef<str>) {
@@ -40,6 +40,7 @@ impl Lox {
         let mut lox = Lox::new();
         loop {
             print!("> ");
+            let _ = std::io::stdout().flush();
             let mut buffer = String::new();
             if std::io::stdin().read_line(&mut buffer)? == 0 {
                 break;
@@ -50,7 +51,12 @@ impl Lox {
         Ok(())
     }
 
-    fn run(&mut self, _code: impl AsRef<str>) -> Result<()> {
+    fn run(&mut self, source: impl AsRef<str>) -> Result<()> {
+        let mut scanner = scanner::Scanner::new(source.as_ref());
+        scanner.scan_tokens();
+        for tok in scanner.tokens() {
+            println!("{:?}", tok);
+        }
         Ok(())
     }
 }

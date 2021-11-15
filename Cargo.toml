@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0"
+phf = {version = "0.10.0", features = ["macros"] }
 structopt = "0.3"
