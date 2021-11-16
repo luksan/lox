@@ -1,4 +1,5 @@
 #![allow(dead_code)]
+mod ast;
 mod scanner;
 
 use anyhow::Result;

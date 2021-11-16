@@ -79,17 +79,21 @@ static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
 #[derive(Clone, Debug)]
 pub struct Token {
     typ: TokenType,
-    literal: String,
+    lexeme: String,
     line: usize,
 }
 
 impl Token {
-    fn new(typ: TokenType, literal: impl AsRef<str>, line: usize) -> Self {
+    pub fn new(typ: TokenType, literal: impl AsRef<str>, line: usize) -> Self {
         Self {
             typ,
-            literal: literal.as_ref().to_owned(),
+            lexeme: literal.as_ref().to_owned(),
             line,
         }
+    }
+
+    pub fn lexeme(&self) -> &str {
+        self.lexeme.as_str()
     }
 }
 
@@ -222,7 +226,7 @@ impl<'src> Scanner<'src> {
 
         Ok(Some(Token {
             typ: tok,
-            literal: self.cursor.substring(0, 0).to_owned(),
+            lexeme: self.cursor.substring(0, 0).to_owned(),
             line: self.line,
         }))
     }
