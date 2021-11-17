@@ -1,6 +1,7 @@
 use crate::ast::{Binary, Expr, Grouping, Literal, LoxValue, Unary};
 use crate::scanner::TokenType::{
-    Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Less, LessEqual, Minus, Plus, Slash, Star,
+    Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Less, LessEqual, Minus, Plus, Semicolon,
+    Slash, Star,
 };
 use crate::scanner::{Scanner, Token, TokenType};
 use std::iter::Peekable;
@@ -20,6 +21,10 @@ impl Parser {
         Self {
             tokens: scanner.take_tokens().into_iter().peekable(),
         }
+    }
+
+    pub fn parse(&mut self) -> Result<Ast> {
+        self.expression()
     }
 
     fn expression(&mut self) -> ParseResult {
@@ -72,12 +77,12 @@ impl Parser {
 
     fn primary(&mut self) -> ParseResult {
         let token = self.tokens.next().unwrap();
-        Ok(match token.tok_type() {
-            TokenType::False => Literal::boxed(LoxValue::Bool(false)),
-            TokenType::True => Literal::boxed(LoxValue::Bool(true)),
-            TokenType::Nil => Literal::boxed(LoxValue::Nil),
-            TokenType::Number(num) => Literal::boxed(LoxValue::Number(*num)),
-            TokenType::String(s) => Literal::boxed(LoxValue::String(s.clone())),
+        Ok(Literal::boxed(match token.tok_type() {
+            TokenType::False => LoxValue::Bool(false),
+            TokenType::True => LoxValue::Bool(true),
+            TokenType::Nil => LoxValue::Nil,
+            TokenType::Number(num) => LoxValue::Number(*num),
+            TokenType::String(s) => LoxValue::String(s.clone()),
 
             TokenType::LeftParen => {
                 let expr = self.expression()?;
@@ -85,7 +90,7 @@ impl Parser {
                 return Ok(Grouping::boxed(expr));
             }
             bad => bail!("Expected primary token, got {:?}", bad),
-        })
+        }))
     }
 
     fn at_end(&mut self) -> bool {
@@ -116,5 +121,26 @@ impl Parser {
             }
         }
         None
+    }
+
+    fn synchronize(&mut self) {
+        while let Some(tok) = self.advance() {
+            if tok.tok_type() == &Semicolon {
+                break;
+            }
+
+            match self.peek().tok_type() {
+                TokenType::Class
+                | TokenType::Fun
+                | TokenType::Var
+                | TokenType::For
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return => break,
+
+                _ => {}
+            }
+        }
     }
 }

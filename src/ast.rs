@@ -1,5 +1,6 @@
 use crate::scanner::Token;
 
+use crate::parser::Ast;
 use std::fmt::Write;
 
 #[derive(Debug)]
@@ -111,11 +112,19 @@ impl Expr for Unary {
     }
 }
 
-struct AstPrinter {
+pub struct AstPrinter {
     tree_str: String,
 }
 
 impl AstPrinter {
+    pub fn print(ast: &Ast) -> String {
+        let mut s = Self {
+            tree_str: String::new(),
+        };
+        ast.accept(&mut s);
+        s.tree_str
+    }
+
     fn head(&mut self, name: &str) {
         self.tree_str.push('(');
         self.tree_str.push_str(name);

@@ -5,6 +5,8 @@ mod scanner;
 
 use anyhow::Result;
 
+use crate::ast::AstPrinter;
+use crate::parser::Parser;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -47,7 +49,9 @@ impl Lox {
             if std::io::stdin().read_line(&mut buffer)? == 0 {
                 break;
             }
-            let _ = lox.run(buffer);
+            if let Err(e) = lox.run(buffer) {
+                eprintln!("{}", e);
+            }
             lox.had_error = false;
         }
         Ok(())
@@ -56,9 +60,9 @@ impl Lox {
     fn run(&mut self, source: impl AsRef<str>) -> Result<()> {
         let mut scanner = scanner::Scanner::new(source.as_ref());
         scanner.scan_tokens();
-        for tok in scanner.tokens() {
-            println!("{:?}", tok);
-        }
+        let mut parser = Parser::new(scanner);
+        let ast = parser.parse()?;
+        println!("{}", AstPrinter::print(&ast));
         Ok(())
     }
 }
