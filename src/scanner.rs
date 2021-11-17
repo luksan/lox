@@ -57,6 +57,13 @@ pub enum TokenType {
     Eof,
 }
 
+impl PartialEq for TokenType {
+    fn eq(&self, other: &Self) -> bool {
+        use std::mem::discriminant;
+        discriminant(self) == discriminant(other)
+    }
+}
+
 static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
     "and" => TokenType::And,
     "class" =>TokenType::Class,
@@ -94,6 +101,10 @@ impl Token {
 
     pub fn lexeme(&self) -> &str {
         self.lexeme.as_str()
+    }
+
+    pub fn tok_type(&self) -> &TokenType {
+        &self.typ
     }
 }
 
@@ -166,6 +177,10 @@ impl<'src> Scanner<'src> {
 
     pub fn tokens(&self) -> &[Token] {
         self.tokens.as_slice()
+    }
+
+    pub fn take_tokens(self) -> Vec<Token> {
+        self.tokens
     }
 
     pub fn scan_tokens(&mut self) {
