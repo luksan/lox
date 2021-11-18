@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 mod ast;
+mod interpreter;
 mod parser;
 mod scanner;
 
 use anyhow::Result;
 
-use crate::ast::AstPrinter;
+use crate::interpreter::Interpreter;
 use crate::parser::Parser;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -26,12 +27,17 @@ fn report(line: usize, pos: impl AsRef<str>, message: impl AsRef<str>) {
 
 pub struct Lox {
     had_error: bool,
+    interpreter: Interpreter,
 }
 
 impl Lox {
     fn new() -> Self {
-        Self { had_error: false }
+        Self {
+            had_error: false,
+            interpreter: Interpreter::new(),
+        }
     }
+
     pub fn run_file(script: impl AsRef<Path>) -> Result<()> {
         let mut file = File::open(script)?;
         let mut data = String::new(); // FIXME: preallocate correct len
@@ -62,7 +68,7 @@ impl Lox {
         scanner.scan_tokens();
         let mut parser = Parser::new(scanner);
         let ast = parser.parse()?;
-        println!("{}", AstPrinter::print(&ast));
+        self.interpreter.interpret(&ast);
         Ok(())
     }
 }

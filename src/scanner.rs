@@ -210,7 +210,7 @@ impl<'src> Scanner<'src> {
             '*' => TokenType::Star,
             '!' => self.ch2('=', TokenType::BangEqual, TokenType::Bang),
             '=' => self.ch2('=', TokenType::EqualEqual, TokenType::Equal),
-            '<' => self.ch2('=', TokenType::LessEqual, TokenType::Equal),
+            '<' => self.ch2('=', TokenType::LessEqual, TokenType::Less),
             '>' => self.ch2('=', TokenType::GreaterEqual, TokenType::Greater),
 
             '/' if self.check('/') => {
