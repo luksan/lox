@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{bail, Result};
 
 use crate::ast::{
     expr::{self, Expr},
@@ -6,52 +6,37 @@ use crate::ast::{
 };
 use crate::scanner::TokenType;
 
-pub struct Interpreter {
-    value: Result<Option<LoxValue>>,
-}
+pub struct Interpreter {}
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self { value: Ok(None) }
+        Self {}
     }
 
     pub fn interpret(&mut self, expression: &Expr) {
-        expression.accept(self);
-        if let Some(val) = self.take() {
-            println!("{}", val);
-        } else {
-            eprintln!("{:?}", self.value)
+        match expression.accept(self) {
+            Ok(val) => println!("{}", val),
+            Err(err) => eprintln!("{:?}", err),
         }
-        self.value = Ok(None);
     }
 
     fn evaluate(expr: &Expr) -> Result<LoxValue> {
         let mut v = Self::new();
-        expr.accept(&mut v);
-        v.value
-            .and_then(|o| o.ok_or_else(|| anyhow!("Expression evaluated to None.")))
+        expr.accept(&mut v)
     }
+}
 
-    fn map(&mut self, func: impl FnOnce(LoxValue) -> Result<LoxValue>) {
-        if let Some(value) = self.take() {
-            self.value = func(value).map(|val| Some(val));
-        }
-    }
-
-    fn take(&mut self) -> Option<LoxValue> {
-        self.value.as_mut().map_or(None, |o| o.take())
-    }
-
-    fn bin_expr(&mut self, bin: &expr::Binary) -> Result<LoxValue> {
-        let left = Self::evaluate(&bin.left)?;
-        let right = Self::evaluate(&bin.right)?;
+impl Visitor<expr::Binary, Result<LoxValue>> for Interpreter {
+    fn visit(&mut self, node: &expr::Binary) -> Result<LoxValue> {
+        let left = Self::evaluate(&node.left)?;
+        let right = Self::evaluate(&node.right)?;
 
         macro_rules! floats {
             ($op:tt) => {
                 (left.as_f64()? $op right.as_f64()?).into()
             }
         }
-        Ok(match bin.operator.tok_type() {
+        Ok(match node.operator.tok_type() {
             TokenType::Greater => floats!(>),
             TokenType::GreaterEqual => floats!(>=),
             TokenType::Less => floats!(<),
@@ -75,30 +60,24 @@ impl Interpreter {
         })
     }
 }
-
-impl Visitor<expr::Binary, ()> for Interpreter {
-    fn visit(&mut self, node: &expr::Binary) -> () {
-        self.value = self.bin_expr(node).map(Some);
+impl Visitor<expr::Grouping, Result<LoxValue>> for Interpreter {
+    fn visit(&mut self, node: &expr::Grouping) -> Result<LoxValue> {
+        node.expression.accept(self)
     }
 }
-impl Visitor<expr::Grouping, ()> for Interpreter {
-    fn visit(&mut self, node: &expr::Grouping) -> () {
-        node.expression.accept(self);
+impl Visitor<expr::Literal, Result<LoxValue>> for Interpreter {
+    fn visit(&mut self, node: &expr::Literal) -> Result<LoxValue> {
+        Ok(node.value.clone())
     }
 }
-impl Visitor<expr::Literal, ()> for Interpreter {
-    fn visit(&mut self, node: &expr::Literal) -> () {
-        self.value = Ok(Some(node.value.clone()));
-    }
-}
-impl Visitor<expr::Unary, ()> for Interpreter {
-    fn visit(&mut self, node: &expr::Unary) -> () {
-        node.right.accept(self);
+impl Visitor<expr::Unary, Result<LoxValue>> for Interpreter {
+    fn visit(&mut self, node: &expr::Unary) -> Result<LoxValue> {
+        let right = node.right.accept(self)?;
 
         match node.operator.tok_type() {
-            TokenType::Minus => self.map(|l| l.as_f64().map(|f| (-f).into())),
-            TokenType::Bang => self.map(|l| Ok((!l.is_truthy()).into())),
+            TokenType::Minus => right.as_f64().map(|f| (-f).into()),
+            TokenType::Bang => Ok((!right.is_truthy()).into()),
             _ => unreachable!(),
-        };
+        }
     }
 }
