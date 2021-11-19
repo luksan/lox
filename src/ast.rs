@@ -96,7 +96,7 @@ macro_rules! ast_nodes {
         }
 
         impl $node_type {
-            pub fn new( $($member_name: $member_type),* ) -> Expr {
+            pub fn new( $($member_name: $member_type),* ) -> Box<$enum_name> {
                 Box::new( $enum_name::$node_type($node_type { $($member_name),*}))
             }
         }
@@ -116,6 +116,17 @@ pub mod expr {
 
     pub type Expr = Box<ExprTypes>;
     pub type Object = LoxValue;
+}
+
+pub mod stmt {
+    use super::*;
+
+    ast_nodes! { [ StmtTypes ]
+        Expression : Expr expression;
+        Print      : Expr expression;
+    }
+
+    pub type Stmt = Box<StmtTypes>;
 }
 
 pub struct AstPrinter {

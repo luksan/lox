@@ -1,16 +1,18 @@
+use anyhow::{anyhow, bail, Result};
+
+use crate::ast::stmt::Stmt;
 use crate::ast::{
     expr::{self, Expr},
-    LoxValue,
+    stmt, LoxValue,
 };
 use crate::scanner::TokenType::{
-    Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Less, LessEqual, Minus, Plus, Semicolon,
-    Slash, Star,
+    Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Less, LessEqual, Minus, Plus, Print,
+    Semicolon, Slash, Star,
 };
 use crate::scanner::{Scanner, Token, TokenType};
+
 use std::iter::Peekable;
 use std::vec::IntoIter;
-
-use anyhow::{anyhow, bail, Result};
 
 pub struct Parser {
     tokens: Peekable<IntoIter<Token>>,
@@ -25,10 +27,36 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Expr> {
-        self.expression()
+    pub fn parse(&mut self) -> Result<Vec<Stmt>> {
+        let mut statements = Vec::new();
+        while !self.at_end() {
+            statements.push(self.statement()?);
+        }
+        Ok(statements)
     }
 
+    fn statement(&mut self) -> Result<Stmt> {
+        if let Some(token) = self.match_advance(&[Print]) {
+            match token.tok_type() {
+                Print => self.print_statement(),
+                _ => self.expression_statement(),
+            }
+        } else {
+            self.expression_statement()
+        }
+    }
+
+    fn print_statement(&mut self) -> Result<Stmt> {
+        let expr = self.expression()?;
+        self.consume(Semicolon, "Expect ';' after value.")?;
+        Ok(stmt::Print::new(expr))
+    }
+
+    fn expression_statement(&mut self) -> Result<Stmt> {
+        let expr = self.expression()?;
+        self.consume(Semicolon, "Expect ';' after expression.")?;
+        Ok(stmt::Expression::new(expr))
+    }
     fn expression(&mut self) -> ParseResult {
         self.equality()
     }
