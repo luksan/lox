@@ -92,7 +92,7 @@ impl AstVisitor for Interpreter {
 
         match unary.operator.tok_type() {
             TokenType::Minus => self.map(|l| l.as_f64().map(|f| (-f).into())),
-            TokenType::Bang => self.map(|l| Ok(!l.is_truthy())),
+            TokenType::Bang => self.map(|l| Ok((!l.is_truthy()).into())),
             _ => unreachable!(),
         };
     }

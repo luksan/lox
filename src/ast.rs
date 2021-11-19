@@ -22,11 +22,11 @@ impl LoxValue {
         }
     }
 
-    pub fn is_truthy(&self) -> LoxValue {
+    pub fn is_truthy(&self) -> bool {
         match self {
-            Self::Nil => Self::Bool(false),
-            Self::Bool(_) => self.clone(),
-            _ => Self::Bool(true),
+            Self::Nil => false,
+            Self::Bool(b) => *b,
+            _ => true,
         }
     }
 }
@@ -53,10 +53,7 @@ impl Not for LoxValue {
     type Output = LoxValue;
 
     fn not(self) -> Self::Output {
-        match self.is_truthy() {
-            LoxValue::Bool(b) => LoxValue::Bool(!b),
-            _ => unreachable!(),
-        }
+        LoxValue::Bool(!self.is_truthy())
     }
 }
 
