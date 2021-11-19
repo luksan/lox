@@ -2,6 +2,7 @@ use anyhow::{bail, Result};
 
 use crate::ast::{
     expr::{self, Expr},
+    stmt::{self, Stmt},
     LoxValue, Visitor,
 };
 use crate::scanner::TokenType;
@@ -13,23 +14,26 @@ impl Interpreter {
         Self {}
     }
 
-    pub fn interpret(&mut self, expression: &Expr) {
-        match expression.accept(self) {
-            Ok(val) => println!("{}", val),
-            Err(err) => eprintln!("{:?}", err),
+    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<()> {
+        for stmt in statements {
+            self.execute(stmt)?;
         }
+        Ok(())
     }
 
-    fn evaluate(expr: &Expr) -> Result<LoxValue> {
-        let mut v = Self::new();
-        expr.accept(&mut v)
+    fn execute(&mut self, statement: &Stmt) -> Result<()> {
+        statement.accept(self)
+    }
+
+    fn evaluate(&mut self, expr: &Expr) -> Result<LoxValue> {
+        expr.accept(self)
     }
 }
 
 impl Visitor<expr::Binary, Result<LoxValue>> for Interpreter {
     fn visit(&mut self, node: &expr::Binary) -> Result<LoxValue> {
-        let left = Self::evaluate(&node.left)?;
-        let right = Self::evaluate(&node.right)?;
+        let left = self.evaluate(&node.left)?;
+        let right = self.evaluate(&node.right)?;
 
         macro_rules! floats {
             ($op:tt) => {
@@ -60,6 +64,22 @@ impl Visitor<expr::Binary, Result<LoxValue>> for Interpreter {
         })
     }
 }
+
+impl Visitor<stmt::Expression, Result<()>> for Interpreter {
+    fn visit(&mut self, node: &stmt::Expression) -> Result<()> {
+        self.evaluate(&node.expression)?;
+        Ok(())
+    }
+}
+
+impl Visitor<stmt::Print, Result<()>> for Interpreter {
+    fn visit(&mut self, node: &stmt::Print) -> Result<()> {
+        let val = self.evaluate(&node.expression)?;
+        println!("{}", val);
+        Ok(())
+    }
+}
+
 impl Visitor<expr::Grouping, Result<LoxValue>> for Interpreter {
     fn visit(&mut self, node: &expr::Grouping) -> Result<LoxValue> {
         node.expression.accept(self)
