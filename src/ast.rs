@@ -191,7 +191,7 @@ impl Visitor<expr::Unary, ()> for AstPrinter {
 }
 
 impl Visitor<expr::Variable, ()> for AstPrinter {
-    fn visit(&mut self, node: &Variable) -> () {
+    fn visit(&mut self, _node: &Variable) -> () {
         self.head("var TODO)");
     }
 }

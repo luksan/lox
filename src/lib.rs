@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 mod ast;
+mod environment;
 mod interpreter;
 mod parser;
 mod scanner;

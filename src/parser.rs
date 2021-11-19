@@ -177,7 +177,9 @@ impl Parser {
     }
 
     fn synchronize(&mut self) {
-        while let Some(tok) = self.advance() {
+        while !self.at_end() {
+            let tok = self.advance().unwrap();
+
             if tok.tok_type() == &Semicolon {
                 break;
             }

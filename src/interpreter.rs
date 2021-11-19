@@ -5,13 +5,18 @@ use crate::ast::{
     stmt::{self, Stmt},
     LoxValue, Visitor,
 };
+use crate::environment::Environment;
 use crate::scanner::TokenType;
 
-pub struct Interpreter {}
+pub struct Interpreter {
+    env: Environment<'static>,
+}
 
 impl Interpreter {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            env: Environment::new(),
+        }
     }
 
     pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<()> {
@@ -82,7 +87,9 @@ impl Visitor<stmt::Print, Result<()>> for Interpreter {
 
 impl Visitor<stmt::Var, Result<()>> for Interpreter {
     fn visit(&mut self, node: &stmt::Var) -> Result<()> {
-        todo!()
+        let value = self.evaluate(&node.initializer)?;
+        self.env.define(node.name.lexeme(), value);
+        Ok(())
     }
 }
 
@@ -110,6 +117,6 @@ impl Visitor<expr::Unary, Result<LoxValue>> for Interpreter {
 
 impl Visitor<expr::Variable, Result<LoxValue>> for Interpreter {
     fn visit(&mut self, node: &expr::Variable) -> Result<LoxValue> {
-        todo!()
+        self.env.get(&node.name)
     }
 }
