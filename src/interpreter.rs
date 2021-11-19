@@ -80,6 +80,12 @@ impl Visitor<stmt::Print, Result<()>> for Interpreter {
     }
 }
 
+impl Visitor<stmt::Var, Result<()>> for Interpreter {
+    fn visit(&mut self, node: &stmt::Var) -> Result<()> {
+        todo!()
+    }
+}
+
 impl Visitor<expr::Grouping, Result<LoxValue>> for Interpreter {
     fn visit(&mut self, node: &expr::Grouping) -> Result<LoxValue> {
         node.expression.accept(self)
@@ -99,5 +105,11 @@ impl Visitor<expr::Unary, Result<LoxValue>> for Interpreter {
             TokenType::Bang => Ok((!right.is_truthy()).into()),
             _ => unreachable!(),
         }
+    }
+}
+
+impl Visitor<expr::Variable, Result<LoxValue>> for Interpreter {
+    fn visit(&mut self, node: &expr::Variable) -> Result<LoxValue> {
+        todo!()
     }
 }

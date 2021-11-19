@@ -6,8 +6,8 @@ use crate::ast::{
     stmt, LoxValue,
 };
 use crate::scanner::TokenType::{
-    Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Less, LessEqual, Minus, Plus, Print,
-    Semicolon, Slash, Star,
+    Bang, BangEqual, Equal, EqualEqual, Greater, GreaterEqual, Identifier, Less, LessEqual, Minus,
+    Plus, Print, Semicolon, Slash, Star, Var,
 };
 use crate::scanner::{Scanner, Token, TokenType};
 
@@ -30,9 +30,35 @@ impl Parser {
     pub fn parse(&mut self) -> Result<Vec<Stmt>> {
         let mut statements = Vec::new();
         while !self.at_end() {
-            statements.push(self.statement()?);
+            match self.declaration() {
+                Ok(stmt) => statements.push(stmt),
+                Err(err) => eprintln!("Parse error: {}", err),
+            }
         }
         Ok(statements)
+    }
+
+    fn declaration(&mut self) -> Result<Stmt> {
+        let stmt = if self.match_advance(&[Var]).is_some() {
+            self.var_decl()
+        } else {
+            self.statement()
+        };
+        if stmt.is_err() {
+            self.synchronize()
+        }
+        stmt
+    }
+
+    fn var_decl(&mut self) -> Result<Stmt> {
+        let name = self.consume(Identifier("".into()), "Expect variable name")?;
+        let init = if self.match_advance(&[Equal]).is_some() {
+            self.expression()?
+        } else {
+            expr::Literal::new(LoxValue::Nil)
+        };
+        self.consume(Semicolon, "Expect ';' after variable declaration.")?;
+        Ok(stmt::Var::new(name, init))
     }
 
     fn statement(&mut self) -> Result<Stmt> {
@@ -109,6 +135,7 @@ impl Parser {
             TokenType::Nil => LoxValue::Nil,
             TokenType::Number(num) => LoxValue::Number(*num),
             TokenType::String(s) => LoxValue::String(s.clone()),
+            TokenType::Identifier(_) => return Ok(expr::Variable::new(token)),
 
             TokenType::LeftParen => {
                 let expr = self.expression()?;

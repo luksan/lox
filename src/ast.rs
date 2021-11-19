@@ -112,6 +112,7 @@ pub mod expr {
         Grouping : Expr expression;
         Literal  : Object value;
         Unary    : Token operator, Expr right;
+        Variable : Token name;
     }
 
     pub type Expr = Box<ExprTypes>;
@@ -124,6 +125,7 @@ pub mod stmt {
     ast_nodes! { [ StmtTypes ]
         Expression : Expr expression;
         Print      : Expr expression;
+        Var        : Token name, Expr initializer;
     }
 
     pub type Stmt = Box<StmtTypes>;
@@ -133,6 +135,7 @@ pub struct AstPrinter {
     tree_str: String,
 }
 
+use crate::ast::expr::Variable;
 use expr::Expr;
 
 impl AstPrinter {
@@ -184,5 +187,11 @@ impl Visitor<expr::Unary, ()> for AstPrinter {
     fn visit(&mut self, unary: &expr::Unary) -> () {
         self.head(unary.operator.lexeme());
         self.tail(&unary.right);
+    }
+}
+
+impl Visitor<expr::Variable, ()> for AstPrinter {
+    fn visit(&mut self, node: &Variable) -> () {
+        self.head("var TODO)");
     }
 }
