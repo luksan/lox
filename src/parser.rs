@@ -83,8 +83,23 @@ impl Parser {
         self.consume(Semicolon, "Expect ';' after expression.")?;
         Ok(stmt::Expression::new(expr))
     }
+
     fn expression(&mut self) -> ParseResult {
-        self.equality()
+        self.assignment()
+    }
+
+    fn assignment(&mut self) -> ParseResult {
+        let expr = self.equality()?;
+        if let Some(eq) = self.match_advance(&[Equal]) {
+            let value = self.assignment()?;
+            if let expr::ExprTypes::Variable(var) = *expr {
+                return Ok(expr::Assign::new(var.name, value));
+            } else {
+                // FIXME: register that error was reported set error flag. Chapter 8.4.1
+                eprintln!("Invalid assignment target. Token {:?}", eq);
+            }
+        }
+        Ok(expr)
     }
 
     fn equality(&mut self) -> ParseResult {

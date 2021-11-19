@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 
 use crate::ast::LoxValue;
 
@@ -15,6 +15,15 @@ impl Environment<'_> {
         Environment {
             values: HashMap::new(),
             parent: None,
+        }
+    }
+
+    pub fn assign(&mut self, name: &Token, value: LoxValue) -> Result<()> {
+        if let Some(val) = self.values.get_mut(name.lexeme()) {
+            *val = value;
+            Ok(())
+        } else {
+            bail!("Undefined variable '{}'.", name.lexeme());
         }
     }
 

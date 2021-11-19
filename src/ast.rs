@@ -108,6 +108,7 @@ pub mod expr {
     use super::*;
 
     ast_nodes! { [ ExprTypes ]
+        Assign   : Token name, Expr value;
         Binary   : Expr left, Token operator, Expr right;
         Grouping : Expr expression;
         Literal  : Object value;
@@ -135,7 +136,6 @@ pub struct AstPrinter {
     tree_str: String,
 }
 
-use crate::ast::expr::Variable;
 use expr::Expr;
 
 impl AstPrinter {
@@ -163,6 +163,12 @@ impl AstPrinter {
     }
 }
 
+impl Visitor<expr::Assign, ()> for AstPrinter {
+    fn visit(&mut self, node: &expr::Assign) -> () {
+        self.head(node.name.lexeme());
+        self.tail(&node.value)
+    }
+}
 impl Visitor<expr::Binary, ()> for AstPrinter {
     fn visit(&mut self, bin: &expr::Binary) -> () {
         self.head(bin.operator.lexeme());
@@ -170,7 +176,6 @@ impl Visitor<expr::Binary, ()> for AstPrinter {
         self.tail(&bin.right);
     }
 }
-
 impl Visitor<expr::Grouping, ()> for AstPrinter {
     fn visit(&mut self, grp: &expr::Grouping) -> () {
         self.head("group");
@@ -191,7 +196,7 @@ impl Visitor<expr::Unary, ()> for AstPrinter {
 }
 
 impl Visitor<expr::Variable, ()> for AstPrinter {
-    fn visit(&mut self, _node: &Variable) -> () {
+    fn visit(&mut self, _node: &expr::Variable) -> () {
         self.head("var TODO)");
     }
 }

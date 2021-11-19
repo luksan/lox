@@ -93,6 +93,13 @@ impl Visitor<stmt::Var, Result<()>> for Interpreter {
     }
 }
 
+impl Visitor<expr::Assign, Result<LoxValue>> for Interpreter {
+    fn visit(&mut self, node: &expr::Assign) -> Result<LoxValue> {
+        let value = self.evaluate(&node.value)?;
+        self.env.assign(&node.name, value.clone())?;
+        Ok(value)
+    }
+}
 impl Visitor<expr::Grouping, Result<LoxValue>> for Interpreter {
     fn visit(&mut self, node: &expr::Grouping) -> Result<LoxValue> {
         node.expression.accept(self)
