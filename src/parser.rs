@@ -1,4 +1,7 @@
-use crate::ast::{Binary, Expr, Grouping, Literal, LoxValue, Unary};
+use crate::ast::{
+    expr::{self, Expr},
+    LoxValue,
+};
 use crate::scanner::TokenType::{
     Bang, BangEqual, EqualEqual, Greater, GreaterEqual, Less, LessEqual, Minus, Plus, Semicolon,
     Slash, Star,
@@ -13,8 +16,7 @@ pub struct Parser {
     tokens: Peekable<IntoIter<Token>>,
 }
 
-pub type Ast = Box<dyn Expr>;
-pub type ParseResult = Result<Ast>;
+pub type ParseResult = Result<Expr>;
 
 impl Parser {
     pub fn new(scanner: Scanner) -> Self {
@@ -23,7 +25,7 @@ impl Parser {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Ast> {
+    pub fn parse(&mut self) -> Result<Expr> {
         self.expression()
     }
 
@@ -34,11 +36,7 @@ impl Parser {
     fn equality(&mut self) -> ParseResult {
         let mut expr = self.comparison()?;
         while let Some(operator) = self.match_advance(&[BangEqual, EqualEqual]) {
-            expr = Box::new(Binary {
-                left: expr,
-                operator,
-                right: self.comparison()?,
-            })
+            expr = expr::Binary::new(expr, operator, self.comparison()?)
         }
         Ok(expr)
     }
@@ -46,7 +44,7 @@ impl Parser {
     fn comparison(&mut self) -> ParseResult {
         let mut expr = self.term()?;
         while let Some(operator) = self.match_advance(&[Greater, GreaterEqual, Less, LessEqual]) {
-            expr = Binary::boxed(expr, operator, self.term()?)
+            expr = expr::Binary::new(expr, operator, self.term()?)
         }
         Ok(expr)
     }
@@ -54,7 +52,7 @@ impl Parser {
     fn term(&mut self) -> ParseResult {
         let mut expr = self.factor()?;
         while let Some(operator) = self.match_advance(&[Minus, Plus]) {
-            expr = Binary::boxed(expr, operator, self.factor()?)
+            expr = expr::Binary::new(expr, operator, self.factor()?)
         }
         Ok(expr)
     }
@@ -62,14 +60,14 @@ impl Parser {
     fn factor(&mut self) -> ParseResult {
         let mut expr = self.unary()?;
         while let Some(operator) = self.match_advance(&[Slash, Star]) {
-            expr = Binary::boxed(expr, operator, self.unary()?);
+            expr = expr::Binary::new(expr, operator, self.unary()?);
         }
         Ok(expr)
     }
 
     fn unary(&mut self) -> ParseResult {
         if let Some(operator) = self.match_advance(&[Bang, Minus]) {
-            Ok(Unary::boxed(operator, self.unary()?))
+            Ok(expr::Unary::new(operator, self.unary()?))
         } else {
             self.primary()
         }
@@ -77,7 +75,7 @@ impl Parser {
 
     fn primary(&mut self) -> ParseResult {
         let token = self.tokens.next().unwrap();
-        Ok(Literal::boxed(match token.tok_type() {
+        Ok(expr::Literal::new(match token.tok_type() {
             TokenType::False => LoxValue::Bool(false),
             TokenType::True => LoxValue::Bool(true),
             TokenType::Nil => LoxValue::Nil,
@@ -87,7 +85,7 @@ impl Parser {
             TokenType::LeftParen => {
                 let expr = self.expression()?;
                 self.consume(TokenType::RightParen, "Expected ')' after expression")?;
-                return Ok(Grouping::boxed(expr));
+                return Ok(expr::Grouping::new(expr));
             }
             bad => bail!("Expected primary token, got {:?}", bad),
         }))

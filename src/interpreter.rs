@@ -1,7 +1,9 @@
 use anyhow::{anyhow, bail, Result};
 
-use crate::ast::{AstVisitor, Binary, Expr, Grouping, Literal, LoxValue, Unary};
-use crate::parser::Ast;
+use crate::ast::{
+    expr::{self, Expr},
+    LoxValue, Visitor,
+};
 use crate::scanner::TokenType;
 
 pub struct Interpreter {
@@ -13,7 +15,7 @@ impl Interpreter {
         Self { value: Ok(None) }
     }
 
-    pub fn interpret(&mut self, expression: &dyn Expr) {
+    pub fn interpret(&mut self, expression: &Expr) {
         expression.accept(self);
         if let Some(val) = self.take() {
             println!("{}", val);
@@ -23,9 +25,9 @@ impl Interpreter {
         self.value = Ok(None);
     }
 
-    fn evaluate(ast: &Ast) -> Result<LoxValue> {
+    fn evaluate(expr: &Expr) -> Result<LoxValue> {
         let mut v = Self::new();
-        ast.accept(&mut v);
+        expr.accept(&mut v);
         v.value
             .and_then(|o| o.ok_or_else(|| anyhow!("Expression evaluated to None.")))
     }
@@ -40,7 +42,7 @@ impl Interpreter {
         self.value.as_mut().map_or(None, |o| o.take())
     }
 
-    fn bin_expr(&mut self, bin: &Binary) -> Result<LoxValue> {
+    fn bin_expr(&mut self, bin: &expr::Binary) -> Result<LoxValue> {
         let left = Self::evaluate(&bin.left)?;
         let right = Self::evaluate(&bin.right)?;
 
@@ -74,23 +76,26 @@ impl Interpreter {
     }
 }
 
-impl AstVisitor for Interpreter {
-    fn binary_expr(&mut self, bin: &Binary) {
-        self.value = self.bin_expr(bin).map(Some);
+impl Visitor<expr::Binary, ()> for Interpreter {
+    fn visit(&mut self, node: &expr::Binary) -> () {
+        self.value = self.bin_expr(node).map(Some);
     }
-
-    fn grouping_expr(&mut self, grp: &Grouping) {
-        grp.expression.accept(self);
+}
+impl Visitor<expr::Grouping, ()> for Interpreter {
+    fn visit(&mut self, node: &expr::Grouping) -> () {
+        node.expression.accept(self);
     }
-
-    fn literal_expr(&mut self, lit: &Literal) {
-        self.value = Ok(Some(lit.value.clone()));
+}
+impl Visitor<expr::Literal, ()> for Interpreter {
+    fn visit(&mut self, node: &expr::Literal) -> () {
+        self.value = Ok(Some(node.value.clone()));
     }
+}
+impl Visitor<expr::Unary, ()> for Interpreter {
+    fn visit(&mut self, node: &expr::Unary) -> () {
+        node.right.accept(self);
 
-    fn unary_expr(&mut self, unary: &Unary) {
-        unary.right.accept(self);
-
-        match unary.operator.tok_type() {
+        match node.operator.tok_type() {
             TokenType::Minus => self.map(|l| l.as_f64().map(|f| (-f).into())),
             TokenType::Bang => self.map(|l| Ok((!l.is_truthy()).into())),
             _ => unreachable!(),

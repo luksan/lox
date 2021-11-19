@@ -1,6 +1,5 @@
 use anyhow::{bail, Result};
 
-use crate::parser::Ast;
 use crate::scanner::Token;
 
 use std::fmt::{Display, Formatter, Write};
@@ -69,113 +68,64 @@ impl From<f64> for LoxValue {
     }
 }
 
-pub trait Expr {
-    fn accept(&self, visitor: &mut dyn AstVisitor);
+pub trait Visitor<NodeType, R> {
+    fn visit(&mut self, node: &NodeType) -> R;
 }
 
-impl Expr for Box<dyn Expr> {
-    fn accept(&self, visitor: &mut dyn AstVisitor) {
-        (**self).accept(visitor)
+macro_rules! ast_nodes {
+    { [$enum_name:ident] $($node_type:ident : $($member_type:ident $member_name:ident),* ; )+ } => {
+        #[derive(Clone, Debug)]
+        pub enum $enum_name {
+            $( $node_type ( $node_type ) ),+
+        }
+
+        impl $enum_name {
+            pub fn accept<V, R>(&self, visitor: &mut V) -> R where
+                $( V: Visitor<$node_type, R> ),+ {
+                use $enum_name::*;
+                    match self {
+                        $($node_type(typ) => visitor.visit(typ) ),+
+                    }
+            }
+        }
+
+        $(
+        #[derive(Clone, Debug)]
+        pub struct $node_type {
+            $( pub $member_name: $member_type),*
+        }
+
+        impl $node_type {
+            pub fn new( $($member_name: $member_type),* ) -> Expr {
+                Box::new( $enum_name::$node_type($node_type { $($member_name),*}))
+            }
+        }
+        )+
+    };
+}
+
+pub mod expr {
+    use super::*;
+
+    ast_nodes! { [ ExprTypes ]
+        Binary   : Expr left, Token operator, Expr right;
+        Grouping : Expr expression;
+        Literal  : Object value;
+        Unary    : Token operator, Expr right;
     }
-}
 
-impl<E> Expr for &Box<E>
-where
-    E: Expr,
-{
-    fn accept(&self, visitor: &mut dyn AstVisitor) {
-        E::accept(self, visitor)
-    }
-}
-
-#[allow(unused_variables)]
-pub trait AstVisitor {
-    fn binary_expr(&mut self, bin: &Binary) {}
-    fn grouping_expr(&mut self, grp: &Grouping) {}
-    fn literal_expr(&mut self, lit: &Literal) {}
-    fn unary_expr(&mut self, unary: &Unary) {}
-}
-
-pub type SubExpr = Box<dyn Expr>;
-
-pub struct Binary {
-    pub left: SubExpr,
-    pub operator: Token,
-    pub right: SubExpr,
-}
-
-impl Binary {
-    pub fn boxed(left: SubExpr, operator: Token, right: SubExpr) -> Box<Self> {
-        Box::new(Self {
-            left,
-            operator,
-            right,
-        })
-    }
-}
-
-impl Expr for Binary {
-    fn accept(&self, visitor: &mut dyn AstVisitor) {
-        visitor.binary_expr(self)
-    }
-}
-
-pub struct Grouping {
-    pub expression: SubExpr,
-}
-
-impl Grouping {
-    pub fn boxed(expression: SubExpr) -> Box<Self> {
-        Box::new(Self { expression })
-    }
-}
-
-impl Expr for Grouping {
-    fn accept(&self, visitor: &mut dyn AstVisitor) {
-        visitor.grouping_expr(self);
-    }
-}
-
-#[derive(Debug)]
-pub struct Literal {
-    pub value: LoxValue,
-}
-
-impl Literal {
-    pub fn boxed(value: LoxValue) -> Box<Self> {
-        Box::new(Self { value })
-    }
-}
-
-impl Expr for Literal {
-    fn accept(&self, visitor: &mut dyn AstVisitor) {
-        visitor.literal_expr(self);
-    }
-}
-
-pub struct Unary {
-    pub operator: Token,
-    pub right: SubExpr,
-}
-
-impl Unary {
-    pub fn boxed(operator: Token, right: SubExpr) -> Box<Self> {
-        Box::new(Self { operator, right })
-    }
-}
-
-impl Expr for Unary {
-    fn accept(&self, visitor: &mut dyn AstVisitor) {
-        visitor.unary_expr(self);
-    }
+    pub type Expr = Box<ExprTypes>;
+    pub type Object = LoxValue;
 }
 
 pub struct AstPrinter {
     tree_str: String,
 }
 
+use expr::Expr;
+
 impl AstPrinter {
-    pub fn print(ast: &Ast) -> String {
+    pub fn print(ast: &Expr) -> String {
         let mut s = Self {
             tree_str: String::new(),
         };
@@ -188,34 +138,39 @@ impl AstPrinter {
         self.tree_str.push_str(name);
     }
 
-    fn mid(&mut self, visitable: &dyn Expr) {
+    fn mid(&mut self, visitable: &Expr) {
         self.tree_str.push(' ');
         visitable.accept(self)
     }
 
-    fn tail(&mut self, visitable: &dyn Expr) {
+    fn tail(&mut self, visitable: &Expr) {
         self.mid(visitable);
         self.tree_str.push(')');
     }
 }
 
-impl AstVisitor for AstPrinter {
-    fn binary_expr(&mut self, bin: &Binary) {
+impl Visitor<expr::Binary, ()> for AstPrinter {
+    fn visit(&mut self, bin: &expr::Binary) -> () {
         self.head(bin.operator.lexeme());
         self.mid(&bin.left);
         self.tail(&bin.right);
     }
+}
 
-    fn grouping_expr(&mut self, grp: &Grouping) {
+impl Visitor<expr::Grouping, ()> for AstPrinter {
+    fn visit(&mut self, grp: &expr::Grouping) -> () {
         self.head("group");
         self.tail(&grp.expression);
     }
+}
 
-    fn literal_expr(&mut self, lit: &Literal) {
+impl Visitor<expr::Literal, ()> for AstPrinter {
+    fn visit(&mut self, lit: &expr::Literal) -> () {
         let _ = write!(self.tree_str, "{:?}", lit);
     }
-
-    fn unary_expr(&mut self, unary: &Unary) {
+}
+impl Visitor<expr::Unary, ()> for AstPrinter {
+    fn visit(&mut self, unary: &expr::Unary) -> () {
         self.head(unary.operator.lexeme());
         self.tail(&unary.right);
     }
