@@ -6,8 +6,9 @@ use crate::ast::{
     stmt, LoxValue, TypeMap,
 };
 use crate::scanner::TokenType::{
-    Bang, BangEqual, Equal, EqualEqual, Greater, GreaterEqual, Identifier, LeftBrace, Less,
-    LessEqual, Minus, Plus, Print, RightBrace, Semicolon, Slash, Star, Var,
+    Bang, BangEqual, Else, Equal, EqualEqual, Greater, GreaterEqual, Identifier, If, LeftBrace,
+    LeftParen, Less, LessEqual, Minus, Plus, Print, RightBrace, RightParen, Semicolon, Slash, Star,
+    Var,
 };
 use crate::scanner::{Scanner, Token, TokenType};
 
@@ -62,8 +63,9 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt> {
-        if let Some(token) = self.match_advance(&[LeftBrace, Print]) {
+        if let Some(token) = self.match_advance(&[If, LeftBrace, Print]) {
             match token.tok_type() {
+                If => self.if_statement(),
                 Print => self.print_statement(),
                 LeftBrace => Ok(stmt::Block::new(self.block()?)),
                 _ => self.expression_statement(),
@@ -71,6 +73,18 @@ impl Parser {
         } else {
             self.expression_statement()
         }
+    }
+
+    fn if_statement(&mut self) -> Result<Stmt> {
+        self.consume(LeftParen, "Expect '(' after if.")?;
+        let condition = self.expression()?;
+        self.consume(RightParen, "Expect ')' after if condition")?;
+        let then = self.statement()?;
+        let els = self
+            .match_advance(&[Else])
+            .map(|_| self.statement())
+            .transpose()?;
+        Ok(stmt::If::new(condition, then, els))
     }
 
     fn print_statement(&mut self) -> Result<Stmt> {

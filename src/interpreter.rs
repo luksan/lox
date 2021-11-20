@@ -93,6 +93,18 @@ impl Visitor<stmt::Expression, Result<()>> for Interpreter {
     }
 }
 
+impl Visitor<stmt::If, Result<()>> for Interpreter {
+    fn visit(&mut self, node: &stmt::If) -> Result<()> {
+        if self.evaluate(&node.condition)?.is_truthy() {
+            self.execute(&node.thenBranch)
+        } else if let Some(els) = &node.elseBranch {
+            self.execute(els)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 impl Visitor<stmt::Print, Result<()>> for Interpreter {
     fn visit(&mut self, node: &stmt::Print) -> Result<()> {
         let val = self.evaluate(&node.expression)?;

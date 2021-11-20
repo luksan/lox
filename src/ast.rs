@@ -1,3 +1,5 @@
+#![allow(non_snake_case)]
+
 use anyhow::{bail, Result};
 
 use crate::scanner::Token;
@@ -174,12 +176,14 @@ pub mod stmt {
     ast_nodes! { [ StmtTypes ]
         Block      : ListStmt statements;
         Expression : Expr expression;
+        If         : Expr condition, Stmt thenBranch, OptionStmt elseBranch;
         Print      : Expr expression;
         Var        : Token name, Expr initializer;
     }
 
     pub type Stmt = Box<StmtTypes>;
     pub type ListStmt = Vec<Stmt>;
+    type OptionStmt = Option<Stmt>;
 }
 
 pub struct AstPrinter {
