@@ -4,7 +4,7 @@ use anyhow::{bail, Result};
 
 use crate::scanner::Token;
 
-use std::fmt::{Display, Formatter, Write};
+use std::fmt::{Display, Formatter};
 use std::ops::Not;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -162,6 +162,7 @@ pub mod expr {
         Binary   : Expr left, Token operator, Expr right;
         Grouping : Expr expression;
         Literal  : Object value;
+        Logical  : Expr left, Token operator, Expr right;
         Unary    : Token operator, Expr right;
         Variable : Token name;
     }
@@ -172,6 +173,7 @@ pub mod expr {
 
 pub mod stmt {
     use super::*;
+    use expr::Expr;
 
     ast_nodes! { [ StmtTypes ]
         Block      : ListStmt statements;
@@ -184,73 +186,4 @@ pub mod stmt {
     pub type Stmt = Box<StmtTypes>;
     pub type ListStmt = Vec<Stmt>;
     type OptionStmt = Option<Stmt>;
-}
-
-pub struct AstPrinter {
-    tree_str: String,
-}
-
-use expr::Expr;
-
-impl AstPrinter {
-    pub fn print(ast: &Expr) -> String {
-        let mut s = Self {
-            tree_str: String::new(),
-        };
-        ast.accept(&mut s);
-        s.tree_str
-    }
-
-    fn head(&mut self, name: &str) {
-        self.tree_str.push('(');
-        self.tree_str.push_str(name);
-    }
-
-    fn mid(&mut self, visitable: &Expr) {
-        self.tree_str.push(' ');
-        visitable.accept(self)
-    }
-
-    fn tail(&mut self, visitable: &Expr) {
-        self.mid(visitable);
-        self.tree_str.push(')');
-    }
-}
-
-impl Visitor<expr::Assign, ()> for AstPrinter {
-    fn visit(&mut self, node: &expr::Assign) -> () {
-        self.head(node.name.lexeme());
-        self.tail(&node.value)
-    }
-}
-impl Visitor<expr::Binary, ()> for AstPrinter {
-    fn visit(&mut self, bin: &expr::Binary) -> () {
-        self.head(bin.operator.lexeme());
-        self.mid(&bin.left);
-        self.tail(&bin.right);
-    }
-}
-impl Visitor<expr::Grouping, ()> for AstPrinter {
-    fn visit(&mut self, grp: &expr::Grouping) -> () {
-        self.head("group");
-        self.tail(&grp.expression);
-    }
-}
-
-impl Visitor<expr::Literal, ()> for AstPrinter {
-    fn visit(&mut self, lit: &expr::Literal) -> () {
-        let _ = write!(self.tree_str, "{:?}", lit);
-    }
-}
-impl Visitor<expr::Unary, ()> for AstPrinter {
-    fn visit(&mut self, unary: &expr::Unary) -> () {
-        self.head(unary.operator.lexeme());
-        self.tail(&unary.right);
-    }
-}
-
-impl Visitor<expr::Variable, ()> for AstPrinter {
-    fn visit(&mut self, _node: &expr::Variable) -> () {
-        self.head("var TODO)");
-    }
 }

@@ -138,6 +138,27 @@ impl Visitor<expr::Literal, Result<LoxValue>> for Interpreter {
         Ok(node.value.clone())
     }
 }
+
+impl Visitor<expr::Logical, Result<LoxValue>> for Interpreter {
+    fn visit(&mut self, node: &expr::Logical) -> Result<LoxValue> {
+        let left = self.evaluate(&node.left)?;
+        match node.operator.tok_type() {
+            TokenType::Or => {
+                if left.is_truthy() {
+                    return Ok(left);
+                }
+            }
+            TokenType::And => {
+                if !left.is_truthy() {
+                    return Ok(left);
+                }
+            }
+            _ => unreachable!(),
+        }
+        self.evaluate(&node.right)
+    }
+}
+
 impl Visitor<expr::Unary, Result<LoxValue>> for Interpreter {
     fn visit(&mut self, node: &expr::Unary) -> Result<LoxValue> {
         let right = node.right.accept(self)?;

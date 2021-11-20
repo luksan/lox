@@ -6,9 +6,9 @@ use crate::ast::{
     stmt, LoxValue, TypeMap,
 };
 use crate::scanner::TokenType::{
-    Bang, BangEqual, Else, Equal, EqualEqual, Greater, GreaterEqual, Identifier, If, LeftBrace,
-    LeftParen, Less, LessEqual, Minus, Plus, Print, RightBrace, RightParen, Semicolon, Slash, Star,
-    Var,
+    And, Bang, BangEqual, Else, Equal, EqualEqual, Greater, GreaterEqual, Identifier, If,
+    LeftBrace, LeftParen, Less, LessEqual, Minus, Or, Plus, Print, RightBrace, RightParen,
+    Semicolon, Slash, Star, Var,
 };
 use crate::scanner::{Scanner, Token, TokenType};
 
@@ -113,7 +113,7 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> ParseResult {
-        let expr = self.equality()?;
+        let expr = self.or()?;
         if let Some(eq) = self.match_advance(&[Equal]) {
             let value = self.assignment()?;
             Ok(expr.map_or_else(
@@ -127,6 +127,22 @@ impl Parser {
         } else {
             Ok(expr)
         }
+    }
+
+    fn or(&mut self) -> ParseResult {
+        let mut expr = self.and()?;
+        while let Some(or) = self.match_advance(&[Or]) {
+            expr = expr::Logical::new(expr, or, self.and()?);
+        }
+        Ok(expr)
+    }
+
+    fn and(&mut self) -> ParseResult {
+        let mut expr = self.equality()?;
+        while let Some(and) = self.match_advance(&[And]) {
+            expr = expr::Logical::new(expr, and, self.equality()?);
+        }
+        Ok(expr)
     }
 
     fn equality(&mut self) -> ParseResult {
