@@ -72,6 +72,34 @@ pub trait Visitor<NodeType, R> {
     fn visit(&mut self, node: &NodeType) -> R;
 }
 
+pub trait TypeMap<Inner> {
+    fn map(self, f: impl FnOnce(Inner) -> Self) -> Self;
+    fn map_or_else(self, f: impl FnOnce(Inner) -> Self, dflt: impl FnOnce(Self) -> Self) -> Self
+    where
+        Self: Sized;
+}
+
+impl<T, Inner> TypeMap<Inner> for T
+where
+    T: Sized,
+    Inner: TryFrom<T>,
+    <Inner as TryFrom<T>>::Error: Into<T>,
+{
+    fn map(self, f: impl FnOnce(Inner) -> T) -> T {
+        match self.try_into() {
+            Ok(inner) => f(inner),
+            Err(slf) => slf.into(),
+        }
+    }
+
+    fn map_or_else(self, f: impl FnOnce(Inner) -> Self, dflt: impl FnOnce(Self) -> Self) -> Self {
+        match self.try_into() {
+            Ok(inner) => f(inner),
+            Err(slf) => dflt(slf.into()),
+        }
+    }
+}
+
 macro_rules! ast_nodes {
     { [$enum_name:ident] $($node_type:ident : $($member_type:ident $member_name:ident),* ; )+ } => {
         #[derive(Clone, Debug)]
@@ -98,6 +126,26 @@ macro_rules! ast_nodes {
         impl $node_type {
             pub fn new( $($member_name: $member_type),* ) -> Box<$enum_name> {
                 Box::new( $enum_name::$node_type($node_type { $($member_name),*}))
+            }
+        }
+
+        impl TryFrom<$enum_name> for $node_type {
+            type Error = $enum_name;
+            fn try_from(value: $enum_name) -> Result<Self, Self::Error> {
+                match value {
+                    $enum_name::$node_type(me) => Ok(me),
+                    _ => Err(value),
+                }
+            }
+        }
+
+        impl TryFrom<Box<$enum_name>> for $node_type {
+            type Error = Box<$enum_name>;
+            fn try_from(value: Box<$enum_name>) -> Result<Self, Self::Error> {
+                match *value {
+                    $enum_name::$node_type(me) => Ok(me),
+                    _ => Err(value),
+                }
             }
         }
         )+

@@ -3,7 +3,7 @@ use anyhow::{anyhow, bail, Result};
 use crate::ast::stmt::Stmt;
 use crate::ast::{
     expr::{self, Expr},
-    stmt, LoxValue,
+    stmt, LoxValue, TypeMap,
 };
 use crate::scanner::TokenType::{
     Bang, BangEqual, Equal, EqualEqual, Greater, GreaterEqual, Identifier, Less, LessEqual, Minus,
@@ -92,14 +92,17 @@ impl Parser {
         let expr = self.equality()?;
         if let Some(eq) = self.match_advance(&[Equal]) {
             let value = self.assignment()?;
-            if let expr::ExprTypes::Variable(var) = *expr {
-                return Ok(expr::Assign::new(var.name, value));
-            } else {
-                // FIXME: register that error was reported set error flag. Chapter 8.4.1
-                eprintln!("Invalid assignment target. Token {:?}", eq);
-            }
+            Ok(expr.map_or_else(
+                |var: expr::Variable| expr::Assign::new(var.name, value),
+                |expr| {
+                    // FIXME: register that error was reported set error flag. Chapter 8.4.1
+                    eprintln!("Invalid assignment target. Token {:?}", eq);
+                    expr
+                },
+            ))
+        } else {
+            Ok(expr)
         }
-        Ok(expr)
     }
 
     fn equality(&mut self) -> ParseResult {
