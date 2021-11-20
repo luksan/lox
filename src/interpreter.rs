@@ -121,6 +121,15 @@ impl Visitor<stmt::Var, Result<()>> for Interpreter {
     }
 }
 
+impl Visitor<stmt::While, Result<()>> for Interpreter {
+    fn visit(&mut self, node: &stmt::While) -> Result<()> {
+        while self.evaluate(&node.condition)?.is_truthy() {
+            self.execute(&node.body)?;
+        }
+        Ok(())
+    }
+}
+
 impl Visitor<expr::Assign, Result<LoxValue>> for Interpreter {
     fn visit(&mut self, node: &expr::Assign) -> Result<LoxValue> {
         let value = self.evaluate(&node.value)?;

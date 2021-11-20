@@ -181,6 +181,7 @@ pub mod stmt {
         If         : Expr condition, Stmt thenBranch, OptionStmt elseBranch;
         Print      : Expr expression;
         Var        : Token name, Expr initializer;
+        While      : Expr condition, Stmt body;
     }
 
     pub type Stmt = Box<StmtTypes>;

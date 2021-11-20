@@ -5,11 +5,7 @@ use crate::ast::{
     expr::{self, Expr},
     stmt, LoxValue, TypeMap,
 };
-use crate::scanner::TokenType::{
-    And, Bang, BangEqual, Else, Equal, EqualEqual, Greater, GreaterEqual, Identifier, If,
-    LeftBrace, LeftParen, Less, LessEqual, Minus, Or, Plus, Print, RightBrace, RightParen,
-    Semicolon, Slash, Star, Var,
-};
+use crate::scanner::TokenType::*;
 use crate::scanner::{Scanner, Token, TokenType};
 
 use std::iter::Peekable;
@@ -62,11 +58,20 @@ impl Parser {
         Ok(stmt::Var::new(name, init))
     }
 
+    fn while_statement(&mut self) -> Result<Stmt> {
+        self.consume(LeftParen, "Expect '(' after 'while'")?;
+        let condition = self.expression()?;
+        self.consume(RightParen, "Expect ')' after condition.")?;
+        let body = self.statement()?;
+        Ok(stmt::While::new(condition, body))
+    }
+
     fn statement(&mut self) -> Result<Stmt> {
-        if let Some(token) = self.match_advance(&[If, LeftBrace, Print]) {
+        if let Some(token) = self.match_advance(&[If, LeftBrace, Print, While]) {
             match token.tok_type() {
                 If => self.if_statement(),
                 Print => self.print_statement(),
+                While => self.while_statement(),
                 LeftBrace => Ok(stmt::Block::new(self.block()?)),
                 _ => self.expression_statement(),
             }
