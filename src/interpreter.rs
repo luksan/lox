@@ -1,16 +1,15 @@
 use anyhow::{bail, Result};
 
-use crate::ast::stmt::ListStmt;
 use crate::ast::{
     expr::{self, Expr},
-    stmt::{self, Stmt},
+    stmt::{self, ListStmt, Stmt},
     LoxValue, Visitor,
 };
 use crate::environment::Environment;
 use crate::scanner::TokenType;
 
 pub struct Interpreter {
-    env: Environment<'static>,
+    env: Box<Environment>,
 }
 
 impl Interpreter {
@@ -35,7 +34,10 @@ impl Interpreter {
         expr.accept(self)
     }
 
-    fn execute_block(&mut self, statements: &ListStmt, env: &mut Environment) -> Result<()> {
+    fn execute_block(&mut self, statements: &ListStmt) -> Result<()> {
+        for statement in statements {
+            self.execute(statement)?;
+        }
         Ok(())
     }
 }
@@ -77,7 +79,10 @@ impl Visitor<expr::Binary, Result<LoxValue>> for Interpreter {
 
 impl Visitor<stmt::Block, Result<()>> for Interpreter {
     fn visit(&mut self, node: &stmt::Block) -> Result<()> {
-        self.execute_block(&node.statements, &mut self.env.create_inner())
+        self.env.create_inner();
+        self.execute_block(&node.statements)?;
+        self.env.end_scope();
+        Ok(())
     }
 }
 

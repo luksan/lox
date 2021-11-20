@@ -5,16 +5,31 @@ use crate::ast::LoxValue;
 use crate::scanner::Token;
 use std::collections::HashMap;
 
-pub struct Environment<'parent> {
+pub struct Environment {
     values: HashMap<String, LoxValue>,
-    parent: Option<&'parent mut Environment<'parent>>,
+    parent: Option<Box<Environment>>,
 }
 
-impl Environment<'_> {
-    pub fn new() -> Environment<'static> {
-        Environment {
+impl Environment {
+    pub fn new() -> Box<Environment> {
+        Box::new(Self {
             values: HashMap::new(),
             parent: None,
+        })
+    }
+
+    pub fn create_inner(self: &mut Box<Self>) {
+        let new = Box::new(Self {
+            values: HashMap::new(),
+            parent: None,
+        });
+        let parent = std::mem::replace(self, new);
+        self.parent = Some(parent);
+    }
+
+    pub fn end_scope(self: &mut Box<Self>) {
+        if let Some(parent) = self.parent.take() {
+            let _ = std::mem::replace(self, parent);
         }
     }
 
