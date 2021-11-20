@@ -67,8 +67,9 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt> {
-        if let Some(token) = self.match_advance(&[If, LeftBrace, Print, While]) {
+        if let Some(token) = self.match_advance(&[For, If, LeftBrace, Print, While]) {
             match token.tok_type() {
+                For => self.for_statement(),
                 If => self.if_statement(),
                 Print => self.print_statement(),
                 While => self.while_statement(),
@@ -78,6 +79,43 @@ impl Parser {
         } else {
             self.expression_statement()
         }
+    }
+
+    fn for_statement(&mut self) -> Result<Stmt> {
+        self.consume(LeftParen, "Expect '(' after 'for'.")?;
+        let initializer = if let Some(token) = self.match_advance(&[Semicolon, Var]) {
+            match token.tok_type() {
+                Semicolon => None,
+                Var => Some(self.var_decl()?),
+                _ => unreachable!(),
+            }
+        } else {
+            Some(self.expression_statement()?)
+        };
+
+        let condition = if !self.check(&Semicolon) {
+            self.expression()?
+        } else {
+            expr::Literal::new(LoxValue::Bool(true))
+        };
+        self.consume(Semicolon, "Expect ';' after loop condition.")?;
+        let increment = if !self.check(&RightParen) {
+            Some(self.expression()?)
+        } else {
+            None
+        };
+        self.consume(RightParen, "Expect ')' after for clauses.")?;
+        let mut body = self.statement()?;
+
+        if let Some(increment) = increment {
+            body = stmt::Block::new(vec![body, stmt::Expression::new(increment)]);
+        }
+        body = stmt::While::new(condition, body);
+        if let Some(init) = initializer {
+            body = stmt::Block::new(vec![init, body])
+        }
+
+        Ok(body)
     }
 
     fn if_statement(&mut self) -> Result<Stmt> {
