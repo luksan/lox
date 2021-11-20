@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 
+use crate::ast::stmt::ListStmt;
 use crate::ast::{
     expr::{self, Expr},
     stmt::{self, Stmt},
@@ -32,6 +33,10 @@ impl Interpreter {
 
     fn evaluate(&mut self, expr: &Expr) -> Result<LoxValue> {
         expr.accept(self)
+    }
+
+    fn execute_block(&mut self, statements: &ListStmt, env: &mut Environment) -> Result<()> {
+        Ok(())
     }
 }
 
@@ -67,6 +72,12 @@ impl Visitor<expr::Binary, Result<LoxValue>> for Interpreter {
 
             _ => unreachable!(),
         })
+    }
+}
+
+impl Visitor<stmt::Block, Result<()>> for Interpreter {
+    fn visit(&mut self, node: &stmt::Block) -> Result<()> {
+        self.execute_block(&node.statements, &mut self.env.create_inner())
     }
 }
 

@@ -1,13 +1,13 @@
 use anyhow::{anyhow, bail, Result};
 
-use crate::ast::stmt::Stmt;
+use crate::ast::stmt::{ListStmt, Stmt};
 use crate::ast::{
     expr::{self, Expr},
     stmt, LoxValue, TypeMap,
 };
 use crate::scanner::TokenType::{
-    Bang, BangEqual, Equal, EqualEqual, Greater, GreaterEqual, Identifier, Less, LessEqual, Minus,
-    Plus, Print, Semicolon, Slash, Star, Var,
+    Bang, BangEqual, Equal, EqualEqual, Greater, GreaterEqual, Identifier, LeftBrace, Less,
+    LessEqual, Minus, Plus, Print, RightBrace, Semicolon, Slash, Star, Var,
 };
 use crate::scanner::{Scanner, Token, TokenType};
 
@@ -62,9 +62,10 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt> {
-        if let Some(token) = self.match_advance(&[Print]) {
+        if let Some(token) = self.match_advance(&[LeftBrace, Print]) {
             match token.tok_type() {
                 Print => self.print_statement(),
+                LeftBrace => Ok(stmt::Block::new(self.block()?)),
                 _ => self.expression_statement(),
             }
         } else {
@@ -82,6 +83,15 @@ impl Parser {
         let expr = self.expression()?;
         self.consume(Semicolon, "Expect ';' after expression.")?;
         Ok(stmt::Expression::new(expr))
+    }
+
+    fn block(&mut self) -> Result<ListStmt> {
+        let mut statements = ListStmt::new();
+        while !self.check(&RightBrace) && !self.at_end() {
+            statements.push(self.declaration()?);
+        }
+        self.consume(RightBrace, "Expect '}' after block.")?;
+        Ok(statements)
     }
 
     fn expression(&mut self) -> ParseResult {

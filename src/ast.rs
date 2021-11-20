@@ -172,12 +172,14 @@ pub mod stmt {
     use super::*;
 
     ast_nodes! { [ StmtTypes ]
+        Block      : ListStmt statements;
         Expression : Expr expression;
         Print      : Expr expression;
         Var        : Token name, Expr initializer;
     }
 
     pub type Stmt = Box<StmtTypes>;
+    pub type ListStmt = Vec<Stmt>;
 }
 
 pub struct AstPrinter {

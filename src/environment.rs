@@ -22,6 +22,8 @@ impl Environment<'_> {
         if let Some(val) = self.values.get_mut(name.lexeme()) {
             *val = value;
             Ok(())
+        } else if let Some(parent) = &mut self.parent {
+            parent.assign(name, value)
         } else {
             bail!("Undefined variable '{}'.", name.lexeme());
         }
@@ -33,10 +35,12 @@ impl Environment<'_> {
 
     pub fn get(&self, name: &Token) -> Result<LoxValue> {
         // FIXME: Use Cow values
-        Ok(self
-            .values
-            .get(name.lexeme())
-            .ok_or_else(|| anyhow!("Undefined variable '{}' ", name.lexeme()))?
-            .clone())
+        if let Some(val) = self.values.get(name.lexeme()) {
+            Ok(val.clone())
+        } else if let Some(parent) = &self.parent {
+            parent.get(name)
+        } else {
+            Err(anyhow!("Undefined variable '{}' ", name.lexeme()))
+        }
     }
 }
