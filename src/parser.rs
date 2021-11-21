@@ -14,6 +14,7 @@ use std::vec::IntoIter;
 
 pub struct Parser {
     tokens: Peekable<IntoIter<Token>>,
+    errors: Vec<anyhow::Error>,
 }
 
 pub type ParseResult = Result<Expr>;
@@ -22,6 +23,7 @@ impl Parser {
     pub fn new(scanner: Scanner) -> Self {
         Self {
             tokens: scanner.take_tokens().into_iter().peekable(),
+            errors: vec![],
         }
     }
 
@@ -36,14 +38,19 @@ impl Parser {
         Ok(statements)
     }
 
-    fn error(&self, msg: &str) {
-        eprintln!("Error:  {}", msg);
-        // FIXME: log error internally, also accept token.
+    fn error(&mut self, token: Token, msg: &str) {
+        let err = anyhow!("Error:  <{:?}> {}", token, msg);
+        eprintln!("{}", err);
+        self.errors.push(err);
     }
 
     fn declaration(&mut self) -> Result<Stmt> {
-        let stmt = if self.match_advance(&[Var]).is_some() {
-            self.var_decl()
+        let stmt = if let Some(tok) = self.match_advance(&[Fun, Var]) {
+            match tok.tok_type() {
+                Fun => self.function("function"),
+                Var => self.var_decl(),
+                _ => unreachable!(),
+            }
         } else {
             self.statement()
         };
@@ -148,6 +155,33 @@ impl Parser {
         Ok(stmt::Expression::new(expr))
     }
 
+    fn function(&mut self, kind: &str) -> Result<Stmt> {
+        let ident_match = Identifier("".into());
+        let name = self.consume(
+            ident_match.clone(),
+            format!("Expect {} name.", kind).as_str(),
+        )?;
+        self.consume(LeftParen, "Expect '(' after name.")?;
+
+        let mut parameters = vec![];
+        if !self.check(&RightParen) {
+            loop {
+                if parameters.len() >= 255 {
+                    let tok = self.peek().clone();
+                    self.error(tok, "Can't have more than 255 parameters.");
+                }
+                parameters.push(self.consume(ident_match.clone(), "Expect parameter name.")?);
+                if self.match_advance(&[Comma]).is_none() {
+                    break;
+                }
+            }
+        }
+        self.consume(RightParen, "Expect ')' after parameters.")?;
+        self.consume(LeftBrace, "Expect '{' before body.")?;
+        let body = self.block()?;
+        Ok(stmt::Function::new(name, parameters, body))
+    }
+
     fn block(&mut self) -> Result<ListStmt> {
         let mut statements = ListStmt::new();
         while !self.check(&RightBrace) && !self.at_end() {
@@ -239,7 +273,8 @@ impl Parser {
         if !self.check(&RightParen) {
             loop {
                 if args.len() >= 255 {
-                    self.error("Can't have more than 255 arguments.");
+                    let tok = self.peek().clone();
+                    self.error(tok, "Can't have more than 255 arguments.");
                 }
                 args.push(self.expression()?);
                 if self.match_advance(&[Comma]).is_none() {
