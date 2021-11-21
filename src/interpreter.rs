@@ -43,8 +43,81 @@ impl Interpreter {
     }
 }
 
-impl Visitor<expr::Binary, Result<LoxValue>> for Interpreter {
-    fn visit(&mut self, node: &expr::Binary) -> Result<LoxValue> {
+/* stmt Visitors */
+type StmtVisitResult = Result<()>;
+
+impl Visitor<stmt::Block, StmtVisitResult> for Interpreter {
+    fn visit(&mut self, node: &stmt::Block) -> StmtVisitResult {
+        self.env.create_inner();
+        self.execute_block(&node.statements)?;
+        self.env.end_scope();
+        Ok(())
+    }
+}
+
+impl Visitor<stmt::Expression, StmtVisitResult> for Interpreter {
+    fn visit(&mut self, node: &stmt::Expression) -> StmtVisitResult {
+        self.evaluate(&node.expression)?;
+        Ok(())
+    }
+}
+
+impl Visitor<stmt::Function, StmtVisitResult> for Interpreter {
+    fn visit(&mut self, node: &stmt::Function) -> StmtVisitResult {
+        todo!()
+    }
+}
+
+impl Visitor<stmt::If, StmtVisitResult> for Interpreter {
+    fn visit(&mut self, node: &stmt::If) -> StmtVisitResult {
+        if self.evaluate(&node.condition)?.is_truthy() {
+            self.execute(&node.thenBranch)
+        } else if let Some(els) = &node.elseBranch {
+            self.execute(els)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl Visitor<stmt::Print, StmtVisitResult> for Interpreter {
+    fn visit(&mut self, node: &stmt::Print) -> StmtVisitResult {
+        let val = self.evaluate(&node.expression)?;
+        println!("{}", val);
+        Ok(())
+    }
+}
+
+impl Visitor<stmt::Var, StmtVisitResult> for Interpreter {
+    fn visit(&mut self, node: &stmt::Var) -> StmtVisitResult {
+        let value = self.evaluate(&node.initializer)?;
+        self.env.define(node.name.lexeme(), value);
+        Ok(())
+    }
+}
+
+impl Visitor<stmt::While, StmtVisitResult> for Interpreter {
+    fn visit(&mut self, node: &stmt::While) -> StmtVisitResult {
+        while self.evaluate(&node.condition)?.is_truthy() {
+            self.execute(&node.body)?;
+        }
+        Ok(())
+    }
+}
+
+/* expr Visitors */
+type ExprVisitResult = Result<LoxValue>;
+
+impl Visitor<expr::Assign, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Assign) -> ExprVisitResult {
+        let value = self.evaluate(&node.value)?;
+        self.env.assign(&node.name, value.clone())?;
+        Ok(value)
+    }
+}
+
+impl Visitor<expr::Binary, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Binary) -> ExprVisitResult {
         let left = self.evaluate(&node.left)?;
         let right = self.evaluate(&node.right)?;
 
@@ -78,85 +151,19 @@ impl Visitor<expr::Binary, Result<LoxValue>> for Interpreter {
     }
 }
 
-impl Visitor<stmt::Block, Result<()>> for Interpreter {
-    fn visit(&mut self, node: &stmt::Block) -> Result<()> {
-        self.env.create_inner();
-        self.execute_block(&node.statements)?;
-        self.env.end_scope();
-        Ok(())
-    }
-}
-
-impl Visitor<stmt::Expression, Result<()>> for Interpreter {
-    fn visit(&mut self, node: &stmt::Expression) -> Result<()> {
-        self.evaluate(&node.expression)?;
-        Ok(())
-    }
-}
-
-impl Visitor<stmt::Function, Result<()>> for Interpreter {
-    fn visit(&mut self, node: &stmt::Function) -> Result<()> {
-        todo!()
-    }
-}
-
-impl Visitor<stmt::If, Result<()>> for Interpreter {
-    fn visit(&mut self, node: &stmt::If) -> Result<()> {
-        if self.evaluate(&node.condition)?.is_truthy() {
-            self.execute(&node.thenBranch)
-        } else if let Some(els) = &node.elseBranch {
-            self.execute(els)
-        } else {
-            Ok(())
-        }
-    }
-}
-
-impl Visitor<stmt::Print, Result<()>> for Interpreter {
-    fn visit(&mut self, node: &stmt::Print) -> Result<()> {
-        let val = self.evaluate(&node.expression)?;
-        println!("{}", val);
-        Ok(())
-    }
-}
-
-impl Visitor<stmt::Var, Result<()>> for Interpreter {
-    fn visit(&mut self, node: &stmt::Var) -> Result<()> {
-        let value = self.evaluate(&node.initializer)?;
-        self.env.define(node.name.lexeme(), value);
-        Ok(())
-    }
-}
-
-impl Visitor<stmt::While, Result<()>> for Interpreter {
-    fn visit(&mut self, node: &stmt::While) -> Result<()> {
-        while self.evaluate(&node.condition)?.is_truthy() {
-            self.execute(&node.body)?;
-        }
-        Ok(())
-    }
-}
-
-impl Visitor<expr::Assign, Result<LoxValue>> for Interpreter {
-    fn visit(&mut self, node: &expr::Assign) -> Result<LoxValue> {
-        let value = self.evaluate(&node.value)?;
-        self.env.assign(&node.name, value.clone())?;
-        Ok(value)
-    }
-}
-impl Visitor<expr::Grouping, Result<LoxValue>> for Interpreter {
-    fn visit(&mut self, node: &expr::Grouping) -> Result<LoxValue> {
+impl Visitor<expr::Grouping, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Grouping) -> ExprVisitResult {
         node.expression.accept(self)
     }
 }
-impl Visitor<expr::Literal, Result<LoxValue>> for Interpreter {
-    fn visit(&mut self, node: &expr::Literal) -> Result<LoxValue> {
+impl Visitor<expr::Literal, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Literal) -> ExprVisitResult {
         Ok(node.value.clone())
     }
 }
 
-impl Visitor<expr::Logical, Result<LoxValue>> for Interpreter {
-    fn visit(&mut self, node: &expr::Logical) -> Result<LoxValue> {
+impl Visitor<expr::Logical, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Logical) -> ExprVisitResult {
         let left = self.evaluate(&node.left)?;
         match node.operator.tok_type() {
             TokenType::Or => {
@@ -175,8 +182,8 @@ impl Visitor<expr::Logical, Result<LoxValue>> for Interpreter {
     }
 }
 
-impl Visitor<expr::Unary, Result<LoxValue>> for Interpreter {
-    fn visit(&mut self, node: &expr::Unary) -> Result<LoxValue> {
+impl Visitor<expr::Unary, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Unary) -> ExprVisitResult {
         let right = node.right.accept(self)?;
 
         match node.operator.tok_type() {
@@ -187,14 +194,14 @@ impl Visitor<expr::Unary, Result<LoxValue>> for Interpreter {
     }
 }
 
-impl Visitor<expr::Variable, Result<LoxValue>> for Interpreter {
-    fn visit(&mut self, node: &expr::Variable) -> Result<LoxValue> {
+impl Visitor<expr::Variable, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Variable) -> ExprVisitResult {
         self.env.get(&node.name)
     }
 }
 
-impl Visitor<expr::Call, Result<LoxValue>> for Interpreter {
-    fn visit(&mut self, node: &expr::Call) -> Result<LoxValue> {
+impl Visitor<expr::Call, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Call) -> ExprVisitResult {
         let callee = self.evaluate(&node.callee)?;
 
         let args: Vec<_> = node
