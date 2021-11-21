@@ -51,9 +51,6 @@ pub enum TokenType {
     Var,
     While,
 
-    // comment
-    Comment,
-
     Eof,
 }
 
@@ -220,7 +217,7 @@ impl<'src> Scanner<'src> {
                     }
                 }
                 self.line += 1;
-                TokenType::Comment
+                return Ok(None);
             }
             '/' => TokenType::Slash,
 
