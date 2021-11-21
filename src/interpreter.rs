@@ -96,6 +96,12 @@ impl Visitor<stmt::Print, StmtVisitResult> for Interpreter {
     }
 }
 
+impl Visitor<stmt::Return, StmtVisitResult> for Interpreter {
+    fn visit(&mut self, node: &stmt::Return) -> StmtVisitResult {
+        todo!()
+    }
+}
+
 impl Visitor<stmt::Var, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Var) -> StmtVisitResult {
         let value = self.evaluate(&node.initializer)?;

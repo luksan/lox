@@ -80,11 +80,12 @@ impl Parser {
     }
 
     fn statement(&mut self) -> Result<Stmt> {
-        if let Some(token) = self.match_advance(&[For, If, LeftBrace, Print, While]) {
+        if let Some(token) = self.match_advance(&[For, If, LeftBrace, Print, Return, While]) {
             match token.tok_type() {
                 For => self.for_statement(),
                 If => self.if_statement(),
                 Print => self.print_statement(),
+                Return => self.return_statement(token),
                 While => self.while_statement(),
                 LeftBrace => Ok(stmt::Block::new(self.block()?)),
                 _ => self.expression_statement(),
@@ -147,6 +148,16 @@ impl Parser {
         let expr = self.expression()?;
         self.consume(Semicolon, "Expect ';' after value.")?;
         Ok(stmt::Print::new(expr))
+    }
+
+    fn return_statement(&mut self, return_tok: Token) -> Result<Stmt> {
+        let value = if !self.check(&Semicolon) {
+            self.expression()?
+        } else {
+            expr::Literal::new(LoxType::Nil)
+        };
+        self.consume(Semicolon, "Expect ';' after return value.")?;
+        Ok(stmt::Return::new(return_tok, value))
     }
 
     fn expression_statement(&mut self) -> Result<Stmt> {

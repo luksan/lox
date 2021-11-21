@@ -118,6 +118,7 @@ pub mod stmt {
         Function   : Token name, ListToken params, ListStmt body;
         If         : Expr condition, Stmt thenBranch, OptionStmt elseBranch;
         Print      : Expr expression;
+        Return     : Token keyword, Expr value;
         Var        : Token name, Expr initializer;
         While      : Expr condition, Stmt body;
     }
