@@ -93,6 +93,12 @@ impl Visitor<stmt::Expression, Result<()>> for Interpreter {
     }
 }
 
+impl Visitor<stmt::Function, Result<()>> for Interpreter {
+    fn visit(&mut self, node: &stmt::Function) -> Result<()> {
+        todo!()
+    }
+}
+
 impl Visitor<stmt::If, Result<()>> for Interpreter {
     fn visit(&mut self, node: &stmt::If) -> Result<()> {
         if self.evaluate(&node.condition)?.is_truthy() {
@@ -183,5 +189,19 @@ impl Visitor<expr::Unary, Result<LoxValue>> for Interpreter {
 impl Visitor<expr::Variable, Result<LoxValue>> for Interpreter {
     fn visit(&mut self, node: &expr::Variable) -> Result<LoxValue> {
         self.env.get(&node.name)
+    }
+}
+
+impl Visitor<expr::Call, Result<LoxValue>> for Interpreter {
+    fn visit(&mut self, node: &expr::Call) -> Result<LoxValue> {
+        let callee = self.evaluate(&node.callee)?;
+
+        let args: Vec<_> = node
+            .arguments
+            .iter()
+            .map(|expr| self.evaluate(expr))
+            .collect();
+
+        unimplemented!()
     }
 }

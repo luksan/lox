@@ -160,6 +160,7 @@ pub mod expr {
     ast_nodes! { [ ExprTypes ]
         Assign   : Token name, Expr value;
         Binary   : Expr left, Token operator, Expr right;
+        Call     : Expr callee, Token paren, ListExpr arguments;
         Grouping : Expr expression;
         Literal  : Object value;
         Logical  : Expr left, Token operator, Expr right;
@@ -168,7 +169,8 @@ pub mod expr {
     }
 
     pub type Expr = Box<ExprTypes>;
-    pub type Object = LoxValue;
+    pub type ListExpr = Vec<Expr>;
+    type Object = LoxValue;
 }
 
 pub mod stmt {
@@ -178,6 +180,7 @@ pub mod stmt {
     ast_nodes! { [ StmtTypes ]
         Block      : ListStmt statements;
         Expression : Expr expression;
+        Function   : Token name, ListToken params, ListStmt body;
         If         : Expr condition, Stmt thenBranch, OptionStmt elseBranch;
         Print      : Expr expression;
         Var        : Token name, Expr initializer;
@@ -187,4 +190,5 @@ pub mod stmt {
     pub type Stmt = Box<StmtTypes>;
     pub type ListStmt = Vec<Stmt>;
     type OptionStmt = Option<Stmt>;
+    type ListToken = Vec<Token>;
 }

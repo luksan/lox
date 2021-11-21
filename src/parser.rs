@@ -35,6 +35,11 @@ impl Parser {
         Ok(statements)
     }
 
+    fn error(&self, msg: &str) {
+        eprintln!("Error:  {}", msg);
+        // FIXME: log error internally, also accept token.
+    }
+
     fn declaration(&mut self) -> Result<Stmt> {
         let stmt = if self.match_advance(&[Var]).is_some() {
             self.var_decl()
@@ -224,8 +229,36 @@ impl Parser {
         if let Some(operator) = self.match_advance(&[Bang, Minus]) {
             Ok(expr::Unary::new(operator, self.unary()?))
         } else {
-            self.primary()
+            self.call()
         }
+    }
+
+    fn finish_call(&mut self, callee: Expr) -> ParseResult {
+        let mut args = Vec::new();
+        if !self.check(&RightParen) {
+            loop {
+                if args.len() >= 255 {
+                    self.error("Can't have more than 255 arguments.");
+                }
+                args.push(self.expression()?);
+                if self.match_advance(&[Comma]).is_none() {
+                    break;
+                }
+            }
+        }
+        let paren = self.consume(RightParen, "Expect ')' after arguments.")?;
+        Ok(expr::Call::new(callee, paren, args))
+    }
+
+    fn call(&mut self) -> ParseResult {
+        let mut expr = self.primary()?;
+        while let Some(tok) = self.match_advance(&[LeftParen]) {
+            match tok.tok_type() {
+                LeftParen => expr = self.finish_call(expr)?,
+                _ => unreachable!(),
+            }
+        }
+        Ok(expr)
     }
 
     fn primary(&mut self) -> ParseResult {
