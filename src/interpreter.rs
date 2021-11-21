@@ -7,7 +7,7 @@ use crate::ast::{
 };
 use crate::environment::Environment;
 use crate::scanner::TokenType;
-use crate::LoxValue;
+use crate::LoxType;
 
 pub struct Interpreter {
     env: Box<Environment>,
@@ -27,15 +27,15 @@ impl Interpreter {
         Ok(())
     }
 
-    fn execute(&mut self, statement: &Stmt) -> Result<()> {
+    fn execute(&mut self, statement: &Stmt) -> StmtVisitResult {
         statement.accept(self)
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> Result<LoxValue> {
+    fn evaluate(&mut self, expr: &Expr) -> ExprVisitResult {
         expr.accept(self)
     }
 
-    fn execute_block(&mut self, statements: &ListStmt) -> Result<()> {
+    fn execute_block(&mut self, statements: &ListStmt) -> StmtVisitResult {
         for statement in statements {
             self.execute(statement)?;
         }
@@ -106,7 +106,7 @@ impl Visitor<stmt::While, StmtVisitResult> for Interpreter {
 }
 
 /* expr Visitors */
-type ExprVisitResult = Result<LoxValue>;
+type ExprVisitResult = Result<LoxType>;
 
 impl Visitor<expr::Assign, ExprVisitResult> for Interpreter {
     fn visit(&mut self, node: &expr::Assign) -> ExprVisitResult {
@@ -139,9 +139,9 @@ impl Visitor<expr::Binary, ExprVisitResult> for Interpreter {
             TokenType::Slash => floats!(/),
             TokenType::Star => floats!(*),
             TokenType::Plus => match (&left, &right) {
-                (LoxValue::Number(_), LoxValue::Number(_)) => floats!(+),
-                (LoxValue::String(l), LoxValue::String(r)) => {
-                    LoxValue::String([l.as_str(), r.as_str()].join(""))
+                (LoxType::Number(_), LoxType::Number(_)) => floats!(+),
+                (LoxType::String(l), LoxType::String(r)) => {
+                    LoxType::String([l.as_str(), r.as_str()].join(""))
                 }
                 _ => bail!("Unsupported operand types for addition."),
             },

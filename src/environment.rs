@@ -1,12 +1,12 @@
 use anyhow::{anyhow, bail, Result};
 
 use crate::scanner::Token;
-use crate::LoxValue;
+use crate::LoxType;
 
 use std::collections::HashMap;
 
 pub struct Environment {
-    values: HashMap<String, LoxValue>,
+    values: HashMap<String, LoxType>,
     parent: Option<Box<Environment>>,
 }
 
@@ -33,7 +33,7 @@ impl Environment {
         }
     }
 
-    pub fn assign(&mut self, name: &Token, value: LoxValue) -> Result<()> {
+    pub fn assign(&mut self, name: &Token, value: LoxType) -> Result<()> {
         if let Some(val) = self.values.get_mut(name.lexeme()) {
             *val = value;
             Ok(())
@@ -44,11 +44,11 @@ impl Environment {
         }
     }
 
-    pub fn define(&mut self, name: &str, value: LoxValue) {
+    pub fn define(&mut self, name: &str, value: LoxType) {
         self.values.insert(name.to_owned(), value);
     }
 
-    pub fn get(&self, name: &Token) -> Result<LoxValue> {
+    pub fn get(&self, name: &Token) -> Result<LoxType> {
         // FIXME: Use Cow values
         if let Some(val) = self.values.get(name.lexeme()) {
             Ok(val.clone())

@@ -7,7 +7,7 @@ use crate::ast::{
 };
 use crate::scanner::TokenType::*;
 use crate::scanner::{Scanner, Token, TokenType};
-use crate::LoxValue;
+use crate::LoxType;
 
 use std::iter::Peekable;
 use std::vec::IntoIter;
@@ -58,7 +58,7 @@ impl Parser {
         let init = if self.match_advance(&[Equal]).is_some() {
             self.expression()?
         } else {
-            expr::Literal::new(LoxValue::Nil)
+            expr::Literal::new(LoxType::Nil)
         };
         self.consume(Semicolon, "Expect ';' after variable declaration.")?;
         Ok(stmt::Var::new(name, init))
@@ -102,7 +102,7 @@ impl Parser {
         let condition = if !self.check(&Semicolon) {
             self.expression()?
         } else {
-            expr::Literal::new(LoxValue::Bool(true))
+            expr::Literal::new(LoxType::Bool(true))
         };
         self.consume(Semicolon, "Expect ';' after loop condition.")?;
         let increment = if !self.check(&RightParen) {
@@ -265,11 +265,11 @@ impl Parser {
     fn primary(&mut self) -> ParseResult {
         let token = self.tokens.next().unwrap();
         Ok(expr::Literal::new(match token.tok_type() {
-            TokenType::False => LoxValue::Bool(false),
-            TokenType::True => LoxValue::Bool(true),
-            TokenType::Nil => LoxValue::Nil,
-            TokenType::Number(num) => LoxValue::Number(*num),
-            TokenType::String(s) => LoxValue::String(s.clone()),
+            TokenType::False => LoxType::Bool(false),
+            TokenType::True => LoxType::Bool(true),
+            TokenType::Nil => LoxType::Nil,
+            TokenType::Number(num) => LoxType::Number(*num),
+            TokenType::String(s) => LoxType::String(s.clone()),
             TokenType::Identifier(_) => return Ok(expr::Variable::new(token)),
 
             TokenType::LeftParen => {

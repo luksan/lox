@@ -6,7 +6,7 @@ mod lox_types;
 mod parser;
 mod scanner;
 
-pub use lox_types::LoxValue;
+pub use lox_types::LoxType;
 
 use anyhow::Result;
 

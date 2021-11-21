@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::scanner::Token;
-use crate::LoxValue;
+use crate::LoxType;
 
 pub trait Visitor<NodeType, R> {
     fn visit(&mut self, node: &NodeType) -> R;
@@ -105,7 +105,7 @@ pub mod expr {
 
     pub type Expr = Box<ExprTypes>;
     pub type ListExpr = Vec<Expr>;
-    type Object = LoxValue;
+    type Object = LoxType;
 }
 
 pub mod stmt {
