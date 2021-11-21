@@ -3,10 +3,11 @@ use anyhow::{bail, Result};
 use crate::ast::{
     expr::{self, Expr},
     stmt::{self, ListStmt, Stmt},
-    LoxValue, Visitor,
+    Visitor,
 };
 use crate::environment::Environment;
 use crate::scanner::TokenType;
+use crate::LoxValue;
 
 pub struct Interpreter {
     env: Box<Environment>,

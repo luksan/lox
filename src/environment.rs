@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Result};
 
-use crate::ast::LoxValue;
-
 use crate::scanner::Token;
+use crate::LoxValue;
+
 use std::collections::HashMap;
 
 pub struct Environment {

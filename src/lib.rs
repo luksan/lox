@@ -2,8 +2,11 @@
 mod ast;
 mod environment;
 mod interpreter;
+mod lox_types;
 mod parser;
 mod scanner;
+
+pub use lox_types::LoxValue;
 
 use anyhow::Result;
 

@@ -1,12 +1,13 @@
 use anyhow::{anyhow, bail, Result};
 
-use crate::ast::stmt::{ListStmt, Stmt};
 use crate::ast::{
     expr::{self, Expr},
-    stmt, LoxValue, TypeMap,
+    stmt::{self, ListStmt, Stmt},
+    TypeMap,
 };
 use crate::scanner::TokenType::*;
 use crate::scanner::{Scanner, Token, TokenType};
+use crate::LoxValue;
 
 use std::iter::Peekable;
 use std::vec::IntoIter;
