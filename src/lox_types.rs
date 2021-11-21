@@ -2,6 +2,7 @@ use anyhow::bail;
 
 use crate::ast::stmt;
 
+use crate::environment::Env;
 use crate::interpreter::ExprVisitResult;
 use crate::Interpreter;
 use std::fmt::{Display, Formatter};
@@ -87,12 +88,14 @@ pub trait Callable {
 #[derive(Clone, Debug)]
 pub struct Function {
     declaration: stmt::Function,
+    closure: Env,
 }
 
 impl Function {
-    pub fn new(declaration: &stmt::Function) -> LoxType {
+    pub fn new(declaration: &stmt::Function, closure: Env) -> LoxType {
         LoxType::Function(Self {
             declaration: declaration.clone(),
+            closure,
         })
     }
 }
@@ -109,7 +112,7 @@ impl Callable for Function {
     }
 
     fn call(&mut self, interpreter: &mut Interpreter, arguments: &Vec<LoxType>) -> ExprVisitResult {
-        let env = interpreter.env.create_local();
+        let env = self.closure.create_local();
         for (arg, name) in arguments.iter().zip(self.declaration.params.iter()) {
             env.define(name.lexeme(), arg.clone());
         }

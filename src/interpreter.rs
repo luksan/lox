@@ -70,7 +70,7 @@ impl Visitor<stmt::Expression, StmtVisitResult> for Interpreter {
 
 impl Visitor<stmt::Function, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Function) -> StmtVisitResult {
-        let function = lox_types::Function::new(node);
+        let function = lox_types::Function::new(node, self.env.clone());
         self.env.define(node.name.lexeme(), function);
         Ok(())
     }
