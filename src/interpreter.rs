@@ -5,12 +5,12 @@ use crate::ast::{
     stmt::{self, ListStmt, Stmt},
     Visitor,
 };
-use crate::environment::Environment;
+use crate::environment::{Env, Environment};
 use crate::scanner::TokenType;
-use crate::LoxType;
+use crate::{lox_types, LoxType};
 
 pub struct Interpreter {
-    env: Box<Environment>,
+    pub env: Env,
 }
 
 impl Interpreter {
@@ -35,22 +35,28 @@ impl Interpreter {
         expr.accept(self)
     }
 
-    fn execute_block(&mut self, statements: &ListStmt) -> StmtVisitResult {
+    pub fn execute_block(&mut self, statements: &ListStmt, mut env: Env) -> StmtVisitResult {
+        std::mem::swap(&mut env, &mut self.env);
+        let mut result = Ok(());
         for statement in statements {
-            self.execute(statement)?;
+            result = self.execute(statement);
+            if result.is_err() {
+                break;
+            }
         }
-        Ok(())
+        std::mem::swap(&mut env, &mut self.env);
+
+        result
     }
 }
 
 /* stmt Visitors */
-type StmtVisitResult = Result<()>;
+pub type StmtVisitResult = Result<()>;
 
 impl Visitor<stmt::Block, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Block) -> StmtVisitResult {
-        self.env.create_inner();
-        self.execute_block(&node.statements)?;
-        self.env.end_scope();
+        let env = self.env.create_local();
+        self.execute_block(&node.statements, env)?;
         Ok(())
     }
 }
@@ -64,7 +70,9 @@ impl Visitor<stmt::Expression, StmtVisitResult> for Interpreter {
 
 impl Visitor<stmt::Function, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Function) -> StmtVisitResult {
-        todo!()
+        let function = lox_types::Function::new(node);
+        self.env.define(node.name.lexeme(), function);
+        Ok(())
     }
 }
 
@@ -106,7 +114,7 @@ impl Visitor<stmt::While, StmtVisitResult> for Interpreter {
 }
 
 /* expr Visitors */
-type ExprVisitResult = Result<LoxType>;
+pub type ExprVisitResult = Result<LoxType>;
 
 impl Visitor<expr::Assign, ExprVisitResult> for Interpreter {
     fn visit(&mut self, node: &expr::Assign) -> ExprVisitResult {
@@ -202,14 +210,23 @@ impl Visitor<expr::Variable, ExprVisitResult> for Interpreter {
 
 impl Visitor<expr::Call, ExprVisitResult> for Interpreter {
     fn visit(&mut self, node: &expr::Call) -> ExprVisitResult {
-        let callee = self.evaluate(&node.callee)?;
+        let mut callee = self.evaluate(&node.callee)?;
+        let function = callee.as_callable()?;
+        if node.arguments.len() != function.arity() {
+            bail!(
+                "{:?}: Expected {} arguments but got {}.",
+                node.paren,
+                function.arity(),
+                node.arguments.len()
+            );
+        }
 
-        let args: Vec<_> = node
+        let args = node
             .arguments
             .iter()
             .map(|expr| self.evaluate(expr))
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
-        unimplemented!()
+        function.call(self, &args)
     }
 }
