@@ -114,7 +114,9 @@ impl Callable for Function {
             env.define(name.lexeme(), arg.clone());
         }
 
-        interpreter.execute_block(&self.declaration.body, env);
-        Ok(LoxType::Nil)
+        interpreter
+            .execute_block(&self.declaration.body, env)
+            .err()
+            .map_or(Ok(LoxType::Nil), |err| err.downcast())
     }
 }

@@ -98,7 +98,10 @@ impl Visitor<stmt::Print, StmtVisitResult> for Interpreter {
 
 impl Visitor<stmt::Return, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Return) -> StmtVisitResult {
-        todo!()
+        let value = self.evaluate(&node.value)?;
+        // Abort the tree-walk and return the value as an error to the
+        // place where the callable was called.
+        Err(anyhow::Error::msg(value))
     }
 }
 
