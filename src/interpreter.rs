@@ -6,17 +6,27 @@ use crate::ast::{
     Visitor,
 };
 use crate::environment::{Env, Environment};
+use crate::lox_types::NativeFn;
 use crate::scanner::TokenType;
 use crate::{lox_types, LoxType};
 
 pub struct Interpreter {
     pub env: Env,
+    globals: Env,
+    start_time: std::time::Instant,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
+        let env = Environment::new();
+        let globals = env.clone();
+
+        globals.define("clock", NativeFn::new(0, Self::clock));
+
         Self {
-            env: Environment::new(),
+            env,
+            globals,
+            start_time: std::time::Instant::now(),
         }
     }
 
@@ -25,6 +35,10 @@ impl Interpreter {
             self.execute(stmt)?;
         }
         Ok(())
+    }
+
+    fn clock(&mut self, _args: &Vec<LoxType>) -> Result<LoxType> {
+        Ok(self.start_time.elapsed().as_secs_f64().into())
     }
 
     fn execute(&mut self, statement: &Stmt) -> StmtVisitResult {

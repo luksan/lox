@@ -1,16 +1,17 @@
-use anyhow::bail;
+use anyhow::{bail, Result};
 
 use crate::ast::stmt;
 
 use crate::environment::Env;
 use crate::interpreter::ExprVisitResult;
 use crate::Interpreter;
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ops::Not;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoxType {
     Bool(bool),
+    NativeFn(NativeFn),
     Function(Function),
     Nil,
     Number(f64),
@@ -28,6 +29,7 @@ impl LoxType {
     pub fn as_callable(&mut self) -> anyhow::Result<&mut dyn Callable> {
         match self {
             Self::Function(fun) => Ok(fun),
+            Self::NativeFn(fun) => Ok(fun),
             _ => bail!("{:?} is not callable.", self),
         }
     }
@@ -45,6 +47,7 @@ impl Display for LoxType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Bool(b) => write!(f, "{}", b),
+            Self::NativeFn(_) => write!(f, "<native fn>"),
             Self::Function(fun) => write!(f, "<fn {}>", fun.declaration.name.lexeme()),
             Self::Nil => write!(f, "nil"),
             Self::Number(num) => {
@@ -121,5 +124,42 @@ impl Callable for Function {
             .execute_block(&self.declaration.body, env)
             .err()
             .map_or(Ok(LoxType::Nil), |err| err.downcast())
+    }
+}
+
+#[derive(Clone)]
+pub struct NativeFn {
+    arity: usize,
+    fun: fn(&mut Interpreter, &Vec<LoxType>) -> Result<LoxType>,
+}
+
+impl NativeFn {
+    pub fn new(
+        arity: usize,
+        fun: fn(&mut Interpreter, &Vec<LoxType>) -> Result<LoxType>,
+    ) -> LoxType {
+        LoxType::NativeFn(Self { arity, fun })
+    }
+}
+
+impl Debug for NativeFn {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<native fn {:?}:{}", &self.fun as *const _, self.arity)
+    }
+}
+
+impl PartialEq for NativeFn {
+    fn eq(&self, other: &Self) -> bool {
+        &self.fun as *const _ == &other.fun as *const _
+    }
+}
+
+impl Callable for NativeFn {
+    fn arity(&self) -> usize {
+        self.arity
+    }
+
+    fn call(&mut self, interpreter: &mut Interpreter, arguments: &Vec<LoxType>) -> ExprVisitResult {
+        (self.fun)(interpreter, arguments)
     }
 }
