@@ -14,8 +14,15 @@ use crate::Interpreter;
 
 pub struct Resolver {
     interpreter: Interpreter,
+    curr_func_type: FunctionType,
     scopes: Vec<HashMap<String, bool>>,
     errors: Vec<anyhow::Error>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum FunctionType {
+    Function,
+    None,
 }
 
 impl Resolver {
@@ -25,6 +32,7 @@ impl Resolver {
     ) -> (Interpreter, Vec<anyhow::Error>) {
         let mut me = Self {
             interpreter,
+            curr_func_type: FunctionType::None,
             scopes: vec![],
             errors: vec![],
         };
@@ -53,9 +61,14 @@ impl Resolver {
     }
 
     fn declare(&mut self, name: &Token) {
-        self.scopes
+        if let Some(_) = self
+            .scopes
             .last_mut()
-            .map(|scope| scope.insert(name.lexeme().to_string(), false));
+            .map(|scope| scope.insert(name.lexeme().to_string(), false))
+        {
+            // Variable already declared
+            self.error(name, "Alreadu a variable with this name in scope.");
+        }
     }
 
     fn define(&mut self, name: &Token) {
@@ -72,7 +85,10 @@ impl Resolver {
     fn resolve_stmt(&mut self, statement: &Stmt) -> Ret {
         statement.accept(self)
     }
-    fn resolve_function(&mut self, fun: &stmt::Function) {
+    fn resolve_function(&mut self, fun: &stmt::Function, typ: FunctionType) {
+        let prev_func = self.curr_func_type;
+        self.curr_func_type = typ;
+
         self.begin_scope();
         for param in &fun.params {
             self.declare(param);
@@ -80,6 +96,8 @@ impl Resolver {
         }
         self.resolve_stmt_list(&fun.body);
         self.end_scope();
+
+        self.curr_func_type = prev_func;
     }
 
     fn resolve_expr(&mut self, expr: &Expr) -> Ret {
@@ -136,7 +154,7 @@ impl Visitor<stmt::Function, Ret> for Resolver {
         self.declare(&node.name);
         self.define(&node.name);
 
-        self.resolve_function(node);
+        self.resolve_function(node, FunctionType::Function);
     }
 }
 
@@ -156,6 +174,9 @@ impl Visitor<stmt::Print, Ret> for Resolver {
 
 impl Visitor<stmt::Return, Ret> for Resolver {
     fn visit(&mut self, node: &Return) -> Ret {
+        if self.curr_func_type == FunctionType::None {
+            self.error(&node.keyword, "Can't return from top-level code.");
+        }
         self.resolve_expr(&node.value);
     }
 }
