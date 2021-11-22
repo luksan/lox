@@ -1,18 +1,20 @@
 use anyhow::{bail, Result};
+use std::collections::HashMap;
 
 use crate::ast::{
     expr::{self, Expr},
     stmt::{self, ListStmt, Stmt},
-    Visitor,
+    NodeId, Visitor,
 };
 use crate::environment::{Env, Environment};
 use crate::lox_types::NativeFn;
-use crate::scanner::TokenType;
+use crate::scanner::{Token, TokenType};
 use crate::{lox_types, LoxType};
 
 pub struct Interpreter {
     pub env: Env,
     globals: Env,
+    locals: HashMap<NodeId, usize>,
     start_time: std::time::Instant,
 }
 
@@ -26,6 +28,7 @@ impl Interpreter {
         Self {
             env,
             globals,
+            locals: HashMap::new(),
             start_time: std::time::Instant::now(),
         }
     }
@@ -43,6 +46,18 @@ impl Interpreter {
 
     fn execute(&mut self, statement: &Stmt) -> StmtVisitResult {
         statement.accept(self)
+    }
+
+    pub fn resolve(&mut self, expr: NodeId, scope_idx: usize) {
+        self.locals.insert(expr, scope_idx);
+    }
+
+    fn lookup_variable(&mut self, name: &Token, expr: NodeId) -> ExprVisitResult {
+        if let Some(depth) = self.locals.get(&expr) {
+            self.env.get_at(name, *depth)
+        } else {
+            self.globals.get(name)
+        }
     }
 
     fn evaluate(&mut self, expr: &Expr) -> ExprVisitResult {
@@ -142,7 +157,11 @@ pub type ExprVisitResult = Result<LoxType>;
 impl Visitor<expr::Assign, ExprVisitResult> for Interpreter {
     fn visit(&mut self, node: &expr::Assign) -> ExprVisitResult {
         let value = self.evaluate(&node.value)?;
-        self.env.assign(&node.name, value.clone())?;
+        if let Some(&depth) = self.locals.get(&node.id) {
+            self.env.assign_at(depth, &node.name, value.clone())?;
+        } else {
+            self.globals.assign(&node.name, value.clone())?;
+        }
         Ok(value)
     }
 }
@@ -227,7 +246,7 @@ impl Visitor<expr::Unary, ExprVisitResult> for Interpreter {
 
 impl Visitor<expr::Variable, ExprVisitResult> for Interpreter {
     fn visit(&mut self, node: &expr::Variable) -> ExprVisitResult {
-        self.env.get(&node.name)
+        self.lookup_variable(&node.name, node.id)
     }
 }
 

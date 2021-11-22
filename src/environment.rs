@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use crate::scanner::Token;
 use crate::LoxType;
@@ -28,6 +28,14 @@ impl Environment {
         new
     }
 
+    fn ancestor(&self, distance: usize) -> &Environment {
+        if distance > 0 {
+            self.parent.as_ref().unwrap().ancestor(distance - 1)
+        } else {
+            self
+        }
+    }
+
     pub fn assign(&self, name: &Token, value: LoxType) -> Result<()> {
         if let Some(val) = self.values.try_lock().unwrap().get_mut(name.lexeme()) {
             *val = value;
@@ -55,5 +63,24 @@ impl Environment {
         } else {
             Err(anyhow!("Undefined variable '{}' ", name.lexeme()))
         }
+    }
+
+    pub fn assign_at(&self, distance: usize, name: &Token, value: LoxType) -> Result<()> {
+        self.ancestor(distance)
+            .values
+            .try_lock()
+            .unwrap()
+            .insert(name.lexeme().to_string(), value);
+        Ok(())
+    }
+
+    pub fn get_at(&self, name: &Token, depth: usize) -> Result<LoxType> {
+        self.ancestor(depth)
+            .values
+            .try_lock()
+            .unwrap()
+            .get(name.lexeme())
+            .map(|r| r.clone())
+            .with_context(|| format!("Resolver failure! Undefined variable '{}'.", name.lexeme()))
     }
 }

@@ -4,14 +4,16 @@ mod environment;
 mod interpreter;
 mod lox_types;
 mod parser;
+mod resolver;
 mod scanner;
 
 pub use lox_types::LoxType;
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use crate::interpreter::Interpreter;
 use crate::parser::Parser;
+use crate::resolver::Resolver;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
@@ -72,6 +74,15 @@ impl Lox {
         scanner.scan_tokens();
         let mut parser = Parser::new(scanner);
         let ast = parser.parse()?;
+
+        let (resolved, errors) = Resolver::resolve(
+            std::mem::replace(&mut self.interpreter, Interpreter::new()),
+            &ast,
+        );
+        self.interpreter = resolved;
+        if !errors.is_empty() {
+            bail!("Aborting due to resolver errors.")
+        }
         self.interpreter.interpret(&ast)
     }
 }

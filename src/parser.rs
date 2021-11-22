@@ -35,7 +35,11 @@ impl Parser {
                 Err(err) => eprintln!("Parse error: {}", err),
             }
         }
-        Ok(statements)
+        if self.errors.is_empty() {
+            Ok(statements)
+        } else {
+            bail!("Aborting due to parse errors.")
+        }
     }
 
     fn error(&mut self, token: Token, msg: &str) {

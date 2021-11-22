@@ -1,6 +1,7 @@
 #![allow(non_snake_case)]
 
 use anyhow::Result;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::scanner::Token;
 use crate::LoxType;
@@ -37,6 +38,9 @@ where
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct NodeId(u64);
+
 macro_rules! ast_nodes {
     { [$enum_name:ident] $($node_type:ident : $($member_type:ident $member_name:ident),* ; )+ } => {
         #[derive(Clone, Debug)]
@@ -57,12 +61,16 @@ macro_rules! ast_nodes {
         $(
         #[derive(Clone, Debug)]
         pub struct $node_type {
+            pub id: NodeId,
             $( pub $member_name: $member_type),*
         }
 
         impl $node_type {
             pub fn new( $($member_name: $member_type),* ) -> Box<$enum_name> {
-                Box::new( $enum_name::$node_type($node_type { $($member_name),*}))
+                static ID_COUNTER : AtomicU64 = AtomicU64::new(0);
+                Box::new( $enum_name::$node_type($node_type {
+                    id: NodeId(ID_COUNTER.fetch_add(1, Ordering::SeqCst)),
+                    $($member_name),*}))
             }
         }
 
