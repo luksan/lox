@@ -13,6 +13,7 @@ pub enum LoxType {
     Bool(bool),
     Class(Class),
     Function(Function),
+    Instance(Instance),
     NativeFn(NativeFn),
     Nil,
     Number(f64),
@@ -29,6 +30,7 @@ impl LoxType {
 
     pub fn as_callable(&mut self) -> anyhow::Result<&mut dyn Callable> {
         match self {
+            Self::Class(cls) => Ok(cls),
             Self::Function(fun) => Ok(fun),
             Self::NativeFn(fun) => Ok(fun),
             _ => bail!("{:?} is not callable.", self),
@@ -49,6 +51,7 @@ impl Display for LoxType {
         match self {
             Self::Bool(b) => write!(f, "{}", b),
             Self::Class(class) => write!(f, "{}", class.name),
+            Self::Instance(obj) => write!(f, "{} instance", obj.class.name),
             Self::Function(fun) => write!(f, "<fn {}>", fun.declaration.name.lexeme()),
             Self::NativeFn(_) => write!(f, "<native fn>"),
             Self::Nil => write!(f, "nil"),
@@ -85,6 +88,12 @@ impl From<Class> for LoxType {
     }
 }
 
+impl From<Instance> for LoxType {
+    fn from(obj: Instance) -> Self {
+        Self::Instance(obj)
+    }
+}
+
 impl From<f64> for LoxType {
     fn from(num: f64) -> Self {
         Self::Number(num)
@@ -110,6 +119,33 @@ impl Class {
 }
 
 impl PartialEq for Class {
+    fn eq(&self, other: &Self) -> bool {
+        self as *const _ == other as *const _
+    }
+}
+
+impl Callable for Class {
+    fn arity(&self) -> usize {
+        0
+    }
+
+    fn call(&mut self, interpreter: &mut Interpreter, arguments: &Vec<LoxType>) -> ExprVisitResult {
+        Ok(Instance::new(self.clone()).into())
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct Instance {
+    class: Class,
+}
+
+impl Instance {
+    pub fn new(class: Class) -> Self {
+        Self { class }
+    }
+}
+
+impl PartialEq for Instance {
     fn eq(&self, other: &Self) -> bool {
         self as *const _ == other as *const _
     }
