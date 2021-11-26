@@ -122,6 +122,7 @@ pub mod stmt {
 
     ast_nodes! { [ StmtTypes ]
         Block      : ListStmt statements;
+        Class      : Token name, ListStmt methods;
         Expression : Expr expression;
         Function   : Token name, ListToken params, ListStmt body;
         If         : Expr condition, Stmt thenBranch, OptionStmt elseBranch;

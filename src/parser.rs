@@ -49,8 +49,9 @@ impl Parser {
     }
 
     fn declaration(&mut self) -> Result<Stmt> {
-        let stmt = if let Some(tok) = self.match_advance(&[Fun, Var]) {
+        let stmt = if let Some(tok) = self.match_advance(&[Class, Fun, Var]) {
             match tok.tok_type() {
+                Class => self.class_declaration(),
                 Fun => self.function("function"),
                 Var => self.var_decl(),
                 _ => unreachable!(),
@@ -62,6 +63,17 @@ impl Parser {
             self.synchronize()
         }
         stmt
+    }
+
+    fn class_declaration(&mut self) -> Result<Stmt> {
+        let name = self.consume(Identifier("".into()), "Expect class name.")?;
+        self.consume(LeftBrace, "Expect '{' before class body.")?;
+        let mut methods: Vec<Stmt> = vec![];
+        while !self.check(&RightBrace) && !self.at_end() {
+            methods.push(self.function("method")?);
+        }
+        self.consume(RightBrace, "Expect '}' after class body.")?;
+        Ok(stmt::Class::new(name, methods))
     }
 
     fn var_decl(&mut self) -> Result<Stmt> {

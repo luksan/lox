@@ -143,6 +143,13 @@ impl Visitor<stmt::Block, Ret> for Resolver {
     }
 }
 
+impl Visitor<stmt::Class, Ret> for Resolver {
+    fn visit(&mut self, node: &stmt::Class) -> Ret {
+        self.declare(&node.name);
+        self.define(&node.name);
+    }
+}
+
 impl Visitor<stmt::Expression, Ret> for Resolver {
     fn visit(&mut self, node: &Expression) -> Ret {
         self.resolve_expr(&node.expression);

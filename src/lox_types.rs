@@ -11,8 +11,9 @@ use std::ops::Not;
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoxType {
     Bool(bool),
-    NativeFn(NativeFn),
+    Class(Class),
     Function(Function),
+    NativeFn(NativeFn),
     Nil,
     Number(f64),
     String(String),
@@ -47,8 +48,9 @@ impl Display for LoxType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Bool(b) => write!(f, "{}", b),
-            Self::NativeFn(_) => write!(f, "<native fn>"),
+            Self::Class(class) => write!(f, "{}", class.name),
             Self::Function(fun) => write!(f, "<fn {}>", fun.declaration.name.lexeme()),
+            Self::NativeFn(_) => write!(f, "<native fn>"),
             Self::Nil => write!(f, "nil"),
             Self::Number(num) => {
                 if num.trunc() == *num {
@@ -77,6 +79,12 @@ impl From<bool> for LoxType {
     }
 }
 
+impl From<Class> for LoxType {
+    fn from(c: Class) -> Self {
+        Self::Class(c)
+    }
+}
+
 impl From<f64> for LoxType {
     fn from(num: f64) -> Self {
         Self::Number(num)
@@ -86,6 +94,25 @@ impl From<f64> for LoxType {
 pub trait Callable {
     fn arity(&self) -> usize;
     fn call(&mut self, interpreter: &mut Interpreter, arguments: &Vec<LoxType>) -> ExprVisitResult;
+}
+
+#[derive(Clone, Debug)]
+pub struct Class {
+    name: String,
+}
+
+impl Class {
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+        }
+    }
+}
+
+impl PartialEq for Class {
+    fn eq(&self, other: &Self) -> bool {
+        self as *const _ == other as *const _
+    }
 }
 
 #[derive(Clone, Debug)]
