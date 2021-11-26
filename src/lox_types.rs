@@ -9,6 +9,7 @@ use crate::scanner::Token;
 use crate::Interpreter;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Not;
+use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoxType {
@@ -109,20 +110,20 @@ pub trait Callable {
 
 #[derive(Clone, Debug)]
 pub struct Class {
-    name: String,
+    name: Arc<str>,
 }
 
 impl Class {
     pub fn new(name: &str) -> Self {
         Self {
-            name: name.to_owned(),
+            name: Arc::from(name),
         }
     }
 }
 
 impl PartialEq for Class {
     fn eq(&self, other: &Self) -> bool {
-        self as *const _ == other as *const _
+        Arc::as_ptr(&self.name) == Arc::as_ptr(&other.name)
     }
 }
 
@@ -139,31 +140,37 @@ impl Callable for Class {
 #[derive(Clone, Debug)]
 pub struct Instance {
     class: Class,
-    fields: HashMap<String, LoxType>,
+    fields: Arc<Mutex<HashMap<String, LoxType>>>,
 }
 
 impl Instance {
     pub fn new(class: Class) -> Self {
         Self {
             class,
-            fields: HashMap::new(),
+            fields: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
-    pub fn get(&self, name: &Token) -> Result<&LoxType> {
+    pub fn get(&self, name: &Token) -> Result<LoxType> {
         self.fields
+            .try_lock()
+            .unwrap()
             .get(name.lexeme())
+            .map(|v| v.clone())
             .with_context(|| format!("Undefined property '{}'.", name.lexeme()))
     }
 
     pub fn set(&mut self, name: &Token, value: LoxType) {
-        self.fields.insert(name.lexeme().to_string(), value);
+        self.fields
+            .try_lock()
+            .unwrap()
+            .insert(name.lexeme().to_string(), value);
     }
 }
 
 impl PartialEq for Instance {
     fn eq(&self, other: &Self) -> bool {
-        self as *const _ == other as *const _
+        Arc::as_ptr(&self.fields) == Arc::as_ptr(&other.fields)
     }
 }
 
