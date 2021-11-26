@@ -241,6 +241,18 @@ impl Visitor<expr::Logical, ExprVisitResult> for Interpreter {
     }
 }
 
+impl Visitor<expr::Set, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Set) -> ExprVisitResult {
+        if let LoxType::Instance(mut obj) = self.evaluate(&node.object)? {
+            let value = self.evaluate(&node.value)?;
+            obj.set(&node.name, value.clone());
+            Ok(value)
+        } else {
+            bail!("{} Only instances have fields.", &node.name.lexeme())
+        }
+    }
+}
+
 impl Visitor<expr::Unary, ExprVisitResult> for Interpreter {
     fn visit(&mut self, node: &expr::Unary) -> ExprVisitResult {
         let right = node.right.accept(self)?;
@@ -279,5 +291,15 @@ impl Visitor<expr::Call, ExprVisitResult> for Interpreter {
             .collect::<Result<Vec<_>, _>>()?;
 
         function.call(self, &args)
+    }
+}
+
+impl Visitor<expr::Get, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Get) -> ExprVisitResult {
+        if let LoxType::Instance(object) = self.evaluate(&node.object)? {
+            Ok(object.get(&node.name)?.clone())
+        } else {
+            bail!("Only instances have properties.")
+        }
     }
 }

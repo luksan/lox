@@ -1,9 +1,11 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
+use std::collections::HashMap;
 
 use crate::ast::stmt;
 
 use crate::environment::Env;
 use crate::interpreter::ExprVisitResult;
+use crate::scanner::Token;
 use crate::Interpreter;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Not;
@@ -137,11 +139,25 @@ impl Callable for Class {
 #[derive(Clone, Debug)]
 pub struct Instance {
     class: Class,
+    fields: HashMap<String, LoxType>,
 }
 
 impl Instance {
     pub fn new(class: Class) -> Self {
-        Self { class }
+        Self {
+            class,
+            fields: HashMap::new(),
+        }
+    }
+
+    pub fn get(&self, name: &Token) -> Result<&LoxType> {
+        self.fields
+            .get(name.lexeme())
+            .with_context(|| format!("Undefined property '{}'.", name.lexeme()))
+    }
+
+    pub fn set(&mut self, name: &Token, value: LoxType) {
+        self.fields.insert(name.lexeme().to_string(), value);
     }
 }
 

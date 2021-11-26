@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use std::collections::HashMap;
 
-use crate::ast::expr::{Binary, Call, Expr, Grouping, Literal, Logical, Unary, Variable};
+use crate::ast::expr::{Binary, Call, Expr, Get, Grouping, Literal, Logical, Unary, Variable};
 use crate::ast::stmt::{Expression, If, Print, Return, While};
 use crate::ast::{
     expr,
@@ -226,6 +226,12 @@ impl Visitor<expr::Call, Ret> for Resolver {
     }
 }
 
+impl Visitor<expr::Get, Ret> for Resolver {
+    fn visit(&mut self, node: &Get) -> Ret {
+        self.resolve_expr(&node.object);
+    }
+}
+
 impl Visitor<expr::Grouping, Ret> for Resolver {
     fn visit(&mut self, node: &Grouping) -> Ret {
         self.resolve_expr(&node.expression);
@@ -240,6 +246,13 @@ impl Visitor<expr::Logical, Ret> for Resolver {
     fn visit(&mut self, node: &Logical) -> Ret {
         self.resolve_expr(&node.left);
         self.resolve_expr(&node.right);
+    }
+}
+
+impl Visitor<expr::Set, Ret> for Resolver {
+    fn visit(&mut self, node: &expr::Set) -> Ret {
+        self.resolve_expr(&node.value);
+        self.resolve_expr(&node.object);
     }
 }
 

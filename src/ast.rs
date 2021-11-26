@@ -10,34 +10,6 @@ pub trait Visitor<NodeType, R> {
     fn visit(&mut self, node: &NodeType) -> R;
 }
 
-pub trait TypeMap<Inner> {
-    fn map(self, f: impl FnOnce(Inner) -> Self) -> Self;
-    fn map_or_else(self, f: impl FnOnce(Inner) -> Self, dflt: impl FnOnce(Self) -> Self) -> Self
-    where
-        Self: Sized;
-}
-
-impl<T, Inner> TypeMap<Inner> for T
-where
-    T: Sized,
-    Inner: TryFrom<T>,
-    <Inner as TryFrom<T>>::Error: Into<T>,
-{
-    fn map(self, f: impl FnOnce(Inner) -> T) -> T {
-        match self.try_into() {
-            Ok(inner) => f(inner),
-            Err(slf) => slf.into(),
-        }
-    }
-
-    fn map_or_else(self, f: impl FnOnce(Inner) -> Self, dflt: impl FnOnce(Self) -> Self) -> Self {
-        match self.try_into() {
-            Ok(inner) => f(inner),
-            Err(slf) => dflt(slf.into()),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(u64);
 
@@ -104,9 +76,11 @@ pub mod expr {
         Assign   : Token name, Expr value;
         Binary   : Expr left, Token operator, Expr right;
         Call     : Expr callee, Token paren, ListExpr arguments;
+        Get      : Expr object, Token name;
         Grouping : Expr expression;
         Literal  : Object value;
         Logical  : Expr left, Token operator, Expr right;
+        Set      : Expr object, Token name, Expr value;
         Unary    : Token operator, Expr right;
         Variable : Token name;
     }

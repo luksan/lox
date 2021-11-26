@@ -3,7 +3,6 @@ use anyhow::{anyhow, bail, Result};
 use crate::ast::{
     expr::{self, Expr},
     stmt::{self, ListStmt, Stmt},
-    TypeMap,
 };
 use crate::scanner::TokenType::*;
 use crate::scanner::{Scanner, Token, TokenType};
@@ -223,17 +222,25 @@ impl Parser {
     }
 
     fn assignment(&mut self) -> ParseResult {
-        let expr = self.or()?;
+        let mut expr = self.or()?;
+
+        macro_rules! try_type {
+            ($typ:ty, $val:ident, $cls:expr) => {
+                #[allow(unused_assignments)]
+                match TryInto::<$typ>::try_into(expr) {
+                    Ok($val) => return Ok($cls),
+                    Err(e) => expr = e,
+                }
+            };
+        }
+
         if let Some(eq) = self.match_advance(&[Equal]) {
             let value = self.assignment()?;
-            Ok(expr.map_or_else(
-                |var: expr::Variable| expr::Assign::new(var.name, value),
-                |expr| {
-                    // FIXME: register that error was reported set error flag. Chapter 8.4.1
-                    eprintln!("Invalid assignment target. Token {:?}", eq);
-                    expr
-                },
-            ))
+
+            try_type!(expr::Variable, var, expr::Assign::new(var.name, value));
+            try_type!(expr::Get, get, expr::Set::new(get.object, get.name, value));
+
+            bail!("{:?} Invalid assignment target.", eq)
         } else {
             Ok(expr)
         }
@@ -315,8 +322,13 @@ impl Parser {
 
     fn call(&mut self) -> ParseResult {
         let mut expr = self.primary()?;
-        while let Some(tok) = self.match_advance(&[LeftParen]) {
+        while let Some(tok) = self.match_advance(&[Dot, LeftParen]) {
             match tok.tok_type() {
+                Dot => {
+                    let name =
+                        self.consume(Identifier("".into()), "Expected property name after '.'.")?;
+                    expr = expr::Get::new(expr, name);
+                }
                 LeftParen => expr = self.finish_call(expr)?,
                 _ => unreachable!(),
             }
