@@ -260,7 +260,8 @@ impl<'src> Scanner<'src> {
     }
 
     fn identifier(&mut self) -> Result<TokenType> {
-        self.cursor.advance_while(|c| c.is_alphanumeric());
+        self.cursor
+            .advance_while(|&c| c.is_alphanumeric() || c == '_');
         let ident = self.cursor.substring(0, 0);
         Ok(KEYWORDS
             .get(ident)
