@@ -207,7 +207,11 @@ impl Callable for Function {
             env.define(name.lexeme(), arg.clone());
         }
 
-        interpreter.execute_block(&self.declaration.body, env)
+        if let Err(e) = interpreter.execute_block(&self.declaration.body, env) {
+            e.fun_ret()
+        } else {
+            Ok(LoxType::Nil)
+        }
     }
 }
 

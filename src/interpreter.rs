@@ -68,34 +68,35 @@ impl Interpreter {
         expr.accept(self)
     }
 
-    pub fn execute_block(
-        &mut self,
-        statements: &ListStmt,
-        mut env: Env,
-    ) -> StdResult<LoxType, anyhow::Error> {
+    pub fn execute_block(&mut self, statements: &ListStmt, mut env: Env) -> StmtVisitResult {
         std::mem::swap(&mut env, &mut self.env);
-        let mut result = Ok(LoxType::Nil);
+        let mut result = Ok(());
         for statement in statements {
-            if let Err(stop) = statement.accept(self) {
-                result = match stop {
-                    MaybeFunRet::Return(val) => Ok(val),
-                    MaybeFunRet::Error(e) => Err(e),
-                };
+            result = statement.accept(self);
+            if result.is_err() {
                 break;
             }
         }
         std::mem::swap(&mut env, &mut self.env);
-
         result
     }
 }
 
 #[derive(thiserror::Error, Debug)]
-enum MaybeFunRet {
+pub enum MaybeFunRet {
     #[error("Return value from Lox function call.")]
     Return(LoxType),
     #[error("Lox runtime error")]
     Error(#[from] anyhow::Error),
+}
+
+impl MaybeFunRet {
+    pub fn fun_ret(self) -> StdResult<LoxType, anyhow::Error> {
+        match self {
+            MaybeFunRet::Return(ret) => Ok(ret),
+            MaybeFunRet::Error(err) => Err(err),
+        }
+    }
 }
 
 /* stmt Visitors */
