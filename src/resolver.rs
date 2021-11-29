@@ -61,13 +61,11 @@ impl Resolver {
     }
 
     fn declare(&mut self, name: &Token) {
-        if let Some(_) = self
-            .scopes
-            .last_mut()
-            .map(|scope| scope.insert(name.lexeme().to_string(), false))
-        {
-            // Variable already declared
-            self.error(name, "Alreadu a variable with this name in scope.");
+        if let Some(scope) = self.scopes.last_mut() {
+            if let Some(_exists) = scope.insert(name.lexeme().to_string(), false) {
+                // Variable already declared
+                self.error(name, "Already a variable with this name in scope.");
+            }
         }
     }
 
