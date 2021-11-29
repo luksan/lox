@@ -9,7 +9,7 @@ mod scanner;
 
 pub use lox_types::LoxType;
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, Context};
 
 use crate::interpreter::Interpreter;
 use crate::parser::Parser;
@@ -31,6 +31,12 @@ fn report(line: usize, pos: impl AsRef<str>, message: impl AsRef<str>) {
     );
 }
 
+#[derive(Debug)]
+pub enum LoxError {
+    CompileError(anyhow::Error),
+    RuntimeError(anyhow::Error),
+}
+
 pub struct Lox {
     had_error: bool,
     interpreter: Interpreter,
@@ -44,36 +50,40 @@ impl Lox {
         }
     }
 
-    pub fn run_file(script: impl AsRef<Path>) -> Result<()> {
-        let mut file = File::open(script)?;
+    pub fn run_file(script: impl AsRef<Path>) -> Result<(), LoxError> {
         let mut data = String::new(); // FIXME: preallocate correct len
-        file.read_to_string(&mut data)?;
+        File::open(script)
+            .and_then(|mut file| file.read_to_string(&mut data))
+            .context("Failed to read lox script file.")
+            .map_err(LoxError::CompileError)?;
 
         Self::new().run(data)
     }
 
-    pub fn run_prompt() -> Result<()> {
+    pub fn run_prompt() {
         let mut lox = Lox::new();
         loop {
             print!("> ");
             let _ = std::io::stdout().flush();
             let mut buffer = String::new();
-            if std::io::stdin().read_line(&mut buffer)? == 0 {
+            if std::io::stdin().read_line(&mut buffer).unwrap() == 0 {
                 break;
             }
             if let Err(e) = lox.run(buffer) {
-                eprintln!("{}", e);
+                eprintln!("{:?}", e);
             }
             lox.had_error = false;
         }
-        Ok(())
     }
 
-    fn run(&mut self, source: impl AsRef<str>) -> Result<()> {
+    fn run(&mut self, source: impl AsRef<str>) -> Result<(), LoxError> {
         let mut scanner = scanner::Scanner::new(source.as_ref());
-        scanner.scan_tokens();
+        scanner.scan_tokens()?;
         let mut parser = Parser::new(scanner);
-        let ast = parser.parse()?;
+        let ast = parser.parse().map_err(|e| {
+            self.had_error = true;
+            LoxError::CompileError(e)
+        })?;
 
         let (resolved, errors) = Resolver::resolve(
             std::mem::replace(&mut self.interpreter, Interpreter::new()),
@@ -81,8 +91,12 @@ impl Lox {
         );
         self.interpreter = resolved;
         if !errors.is_empty() {
-            bail!("Aborting due to resolver errors.")
+            return Err(LoxError::CompileError(anyhow!(
+                "Aborting due to resolver errors."
+            )));
         }
-        self.interpreter.interpret(&ast)
+        self.interpreter
+            .interpret(&ast)
+            .map_err(LoxError::RuntimeError)
     }
 }

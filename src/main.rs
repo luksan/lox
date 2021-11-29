@@ -1,6 +1,4 @@
-use anyhow::Result;
-
-use lox::Lox;
+use lox::{Lox, LoxError};
 use std::path::PathBuf;
 use structopt::StructOpt;
 
@@ -11,12 +9,18 @@ struct CmdOpts {
     script: Option<PathBuf>,
 }
 
-fn main() -> Result<()> {
+fn main() {
     let opts = CmdOpts::from_args();
 
     if let Some(script) = opts.script {
-        Lox::run_file(script)
+        if let Err(e) = Lox::run_file(script) {
+            let exit_code = match e {
+                LoxError::CompileError(_) => 65,
+                LoxError::RuntimeError(_) => 70,
+            };
+            std::process::exit(exit_code);
+        }
     } else {
-        Lox::run_prompt()
+        Lox::run_prompt();
     }
 }

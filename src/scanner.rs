@@ -1,6 +1,9 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use phf::phf_map;
 
+use crate::LoxError;
+
+use std::result::Result as StdResult;
 use std::str::{Chars, FromStr};
 
 #[derive(Clone, Debug)]
@@ -157,6 +160,7 @@ impl<'src> SourceCursor<'src> {
 pub struct Scanner<'src> {
     source: &'src str,
     tokens: Vec<Token>,
+    had_error: bool,
 
     cursor: SourceCursor<'src>,
     line: usize, // current line for error reports
@@ -167,8 +171,9 @@ impl<'src> Scanner<'src> {
         Self {
             source,
             tokens: vec![],
+            had_error: false,
             cursor: SourceCursor::new(source),
-            line: 0,
+            line: 1,
         }
     }
 
@@ -180,16 +185,24 @@ impl<'src> Scanner<'src> {
         self.tokens
     }
 
-    pub fn scan_tokens(&mut self) {
+    pub fn scan_tokens(&mut self) -> StdResult<(), LoxError> {
         while !self.is_at_end() {
             self.cursor.set_start();
             match self.scan_token() {
                 Ok(None) => {}
                 Ok(Some(tok)) => self.tokens.push(tok),
-                Err(err) => eprintln!("Scanning error on line {}: {}", self.line, err),
+                Err(err) => {
+                    self.had_error = true;
+                    eprintln!("[line {}] Error: {}", self.line, err);
+                }
             }
         }
         self.tokens.push(Token::new(TokenType::Eof, "", self.line));
+        if self.had_error {
+            Err(LoxError::CompileError(anyhow!("Errors during scanning.")))
+        } else {
+            Ok(())
+        }
     }
 
     fn scan_token(&mut self) -> Result<Option<Token>> {
