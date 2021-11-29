@@ -22,7 +22,7 @@ pub enum LoxType {
     NativeFn(NativeFn),
     Nil,
     Number(f64),
-    String(String),
+    String(Rc<str>),
 }
 
 impl LoxType {

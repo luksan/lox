@@ -343,7 +343,7 @@ impl Parser {
             TokenType::True => LoxType::Bool(true),
             TokenType::Nil => LoxType::Nil,
             TokenType::Number(num) => LoxType::Number(*num),
-            TokenType::String(s) => LoxType::String(s.clone()),
+            TokenType::String(s) => LoxType::String(s.as_str().into()),
             TokenType::Identifier(_) => return Ok(expr::Variable::new(token)),
 
             TokenType::LeftParen => {

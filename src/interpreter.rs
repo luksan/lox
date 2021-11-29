@@ -219,7 +219,7 @@ impl Visitor<expr::Binary, ExprVisitResult> for Interpreter {
             TokenType::Plus => match (&left, &right) {
                 (LoxType::Number(_), LoxType::Number(_)) => floats!(+),
                 (LoxType::String(l), LoxType::String(r)) => {
-                    LoxType::String([l.as_str(), r.as_str()].join(""))
+                    LoxType::String([l.as_ref(), r.as_ref()].join("").into())
                 }
                 _ => bail!("Unsupported operand types for addition."),
             },
