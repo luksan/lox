@@ -131,8 +131,11 @@ impl<'src> SourceCursor<'src> {
     }
 
     pub fn advance(&mut self) -> Option<char> {
-        self.curr_len += 1;
-        self.current.next()
+        let old_len = self.current.as_str().len();
+        let next = self.current.next();
+        let new_len = self.current.as_str().len();
+        self.curr_len += old_len - new_len;
+        next
     }
 
     pub fn advance_while(&mut self, mut test: impl FnMut(&char) -> bool) {
