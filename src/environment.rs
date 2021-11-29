@@ -3,20 +3,21 @@ use anyhow::{anyhow, bail, Context, Result};
 use crate::scanner::Token;
 use crate::LoxType;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 
-pub type Env = Arc<Environment>;
+pub type Env = Rc<Environment>;
 
 #[derive(Debug)]
 pub struct Environment {
-    values: Mutex<HashMap<String, LoxType>>,
+    values: RefCell<HashMap<String, LoxType>>,
     parent: Option<Env>,
 }
 
 impl Environment {
     pub fn new() -> Env {
-        Arc::new(Environment {
+        Rc::new(Environment {
             values: HashMap::new().into(),
             parent: None,
         })
@@ -24,7 +25,7 @@ impl Environment {
 
     pub fn create_local(self: &Env) -> Env {
         let mut new = Self::new();
-        Arc::get_mut(&mut new).unwrap().parent = Some(Arc::clone(self));
+        Rc::get_mut(&mut new).unwrap().parent = Some(Rc::clone(self));
         new
     }
 
@@ -37,7 +38,7 @@ impl Environment {
     }
 
     pub fn assign(&self, name: &Token, value: LoxType) -> Result<()> {
-        if let Some(val) = self.values.try_lock().unwrap().get_mut(name.lexeme()) {
+        if let Some(val) = self.values.borrow_mut().get_mut(name.lexeme()) {
             *val = value;
             Ok(())
         } else if let Some(parent) = &self.parent {
@@ -48,15 +49,11 @@ impl Environment {
     }
 
     pub fn define(&self, name: &str, value: LoxType) {
-        self.values
-            .try_lock()
-            .unwrap()
-            .insert(name.to_owned(), value);
+        self.values.borrow_mut().insert(name.to_owned(), value);
     }
 
     pub fn get(&self, name: &Token) -> Result<LoxType> {
-        // FIXME: Use Cow values
-        if let Some(val) = self.values.try_lock().unwrap().get(name.lexeme()) {
+        if let Some(val) = self.values.borrow().get(name.lexeme()) {
             Ok(val.clone())
         } else if let Some(parent) = &self.parent {
             parent.get(name)
@@ -68,8 +65,7 @@ impl Environment {
     pub fn assign_at(&self, distance: usize, name: &Token, value: LoxType) -> Result<()> {
         self.ancestor(distance)
             .values
-            .try_lock()
-            .unwrap()
+            .borrow_mut()
             .insert(name.lexeme().to_string(), value);
         Ok(())
     }
@@ -77,8 +73,7 @@ impl Environment {
     pub fn get_at(&self, name: &Token, depth: usize) -> Result<LoxType> {
         self.ancestor(depth)
             .values
-            .try_lock()
-            .unwrap()
+            .borrow_mut()
             .get(name.lexeme())
             .map(|r| r.clone())
             .with_context(|| format!("Resolver failure! Undefined variable '{}'.", name.lexeme()))
