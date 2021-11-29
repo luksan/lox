@@ -1,5 +1,4 @@
 use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
 
 use crate::ast::stmt;
 
@@ -7,9 +6,12 @@ use crate::environment::Env;
 use crate::interpreter::ExprVisitResult;
 use crate::scanner::Token;
 use crate::Interpreter;
+
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Not;
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum LoxType {
@@ -110,20 +112,20 @@ pub trait Callable {
 
 #[derive(Clone, Debug)]
 pub struct Class {
-    name: Arc<str>,
+    name: Rc<str>,
 }
 
 impl Class {
     pub fn new(name: &str) -> Self {
         Self {
-            name: Arc::from(name),
+            name: Rc::from(name),
         }
     }
 }
 
 impl PartialEq for Class {
     fn eq(&self, other: &Self) -> bool {
-        Arc::as_ptr(&self.name) == Arc::as_ptr(&other.name)
+        Rc::as_ptr(&self.name) == Rc::as_ptr(&other.name)
     }
 }
 
@@ -140,21 +142,20 @@ impl Callable for Class {
 #[derive(Clone, Debug)]
 pub struct Instance {
     class: Class,
-    fields: Arc<Mutex<HashMap<String, LoxType>>>,
+    fields: Rc<RefCell<HashMap<String, LoxType>>>,
 }
 
 impl Instance {
     pub fn new(class: Class) -> Self {
         Self {
             class,
-            fields: Arc::new(Mutex::new(HashMap::new())),
+            fields: Rc::new(RefCell::new(HashMap::new())),
         }
     }
 
     pub fn get(&self, name: &Token) -> Result<LoxType> {
         self.fields
-            .try_lock()
-            .unwrap()
+            .borrow()
             .get(name.lexeme())
             .map(|v| v.clone())
             .with_context(|| format!("Undefined property '{}'.", name.lexeme()))
@@ -162,15 +163,14 @@ impl Instance {
 
     pub fn set(&mut self, name: &Token, value: LoxType) {
         self.fields
-            .try_lock()
-            .unwrap()
+            .borrow_mut()
             .insert(name.lexeme().to_string(), value);
     }
 }
 
 impl PartialEq for Instance {
     fn eq(&self, other: &Self) -> bool {
-        Arc::as_ptr(&self.fields) == Arc::as_ptr(&other.fields)
+        Rc::as_ptr(&self.fields) == Rc::as_ptr(&other.fields)
     }
 }
 
@@ -206,10 +206,7 @@ impl Callable for Function {
             env.define(name.lexeme(), arg.clone());
         }
 
-        interpreter
-            .execute_block(&self.declaration.body, env)
-            .err()
-            .map_or(Ok(LoxType::Nil), |err| err.downcast())
+        interpreter.execute_block(&self.declaration.body, env)
     }
 }
 

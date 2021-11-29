@@ -1,5 +1,7 @@
 use anyhow::{bail, Result};
+
 use std::collections::HashMap;
+use std::result::Result as StdResult;
 
 use crate::ast::{
     expr::{self, Expr},
@@ -35,7 +37,9 @@ impl Interpreter {
 
     pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<()> {
         for stmt in statements {
-            self.execute(stmt)?;
+            if let Err(MaybeFunRet::Error(err)) = self.execute(stmt) {
+                return Err(err);
+            }
         }
         Ok(())
     }
@@ -64,12 +68,19 @@ impl Interpreter {
         expr.accept(self)
     }
 
-    pub fn execute_block(&mut self, statements: &ListStmt, mut env: Env) -> StmtVisitResult {
+    pub fn execute_block(
+        &mut self,
+        statements: &ListStmt,
+        mut env: Env,
+    ) -> StdResult<LoxType, anyhow::Error> {
         std::mem::swap(&mut env, &mut self.env);
-        let mut result = Ok(());
+        let mut result = Ok(LoxType::Nil);
         for statement in statements {
-            result = self.execute(statement);
-            if result.is_err() {
+            if let Err(stop) = statement.accept(self) {
+                result = match stop {
+                    MaybeFunRet::Return(val) => Ok(val),
+                    MaybeFunRet::Error(e) => Err(e),
+                };
                 break;
             }
         }
@@ -79,8 +90,16 @@ impl Interpreter {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+enum MaybeFunRet {
+    #[error("Return value from Lox function call.")]
+    Return(LoxType),
+    #[error("Lox runtime error")]
+    Error(#[from] anyhow::Error),
+}
+
 /* stmt Visitors */
-pub type StmtVisitResult = Result<()>;
+type StmtVisitResult = StdResult<(), MaybeFunRet>;
 
 impl Visitor<stmt::Block, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Block) -> StmtVisitResult {
@@ -139,7 +158,7 @@ impl Visitor<stmt::Return, StmtVisitResult> for Interpreter {
         let value = self.evaluate(&node.value)?;
         // Abort the tree-walk and return the value as an error to the
         // place where the callable was called.
-        Err(anyhow::Error::msg(value))
+        Err(MaybeFunRet::Return(value))
     }
 }
 
