@@ -103,11 +103,9 @@ impl Resolver {
     }
 
     fn resolve_local(&mut self, expr: NodeId, name: &Token) {
-        let mut scope_idx = self.scopes.len();
-        for scope in self.scopes.iter().rev() {
-            scope_idx -= 1;
+        for (idx, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(name.lexeme()) {
-                self.interpreter.resolve(expr, scope_idx);
+                self.interpreter.resolve(expr, idx);
                 return;
             }
         }
