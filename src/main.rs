@@ -16,7 +16,10 @@ fn main() {
         if let Err(e) = Lox::run_file(script) {
             let exit_code = match e {
                 LoxError::CompileError(_) => 65,
-                LoxError::RuntimeError(_) => 70,
+                LoxError::RuntimeError(e) => {
+                    eprintln!("{}", e);
+                    70
+                }
             };
             std::process::exit(exit_code);
         }
