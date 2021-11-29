@@ -125,7 +125,7 @@ impl Class {
 
 impl PartialEq for Class {
     fn eq(&self, other: &Self) -> bool {
-        Rc::as_ptr(&self.name) == Rc::as_ptr(&other.name)
+        Rc::ptr_eq(&self.name, &other.name)
     }
 }
 
@@ -170,20 +170,20 @@ impl Instance {
 
 impl PartialEq for Instance {
     fn eq(&self, other: &Self) -> bool {
-        Rc::as_ptr(&self.fields) == Rc::as_ptr(&other.fields)
+        Rc::ptr_eq(&self.fields, &other.fields)
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct Function {
-    declaration: stmt::Function,
+    declaration: Rc<stmt::Function>,
     closure: Env,
 }
 
 impl Function {
     pub fn new(declaration: &stmt::Function, closure: Env) -> LoxType {
         LoxType::Function(Self {
-            declaration: declaration.clone(),
+            declaration: Rc::from(declaration.clone()),
             closure,
         })
     }
@@ -191,7 +191,8 @@ impl Function {
 
 impl PartialEq for Function {
     fn eq(&self, other: &Self) -> bool {
-        self as *const _ == other as *const _
+        Rc::ptr_eq(&self.declaration, &other.declaration)
+            && Rc::ptr_eq(&self.closure, &other.closure)
     }
 }
 
