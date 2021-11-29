@@ -13,7 +13,7 @@ use std::vec::IntoIter;
 
 pub struct Parser {
     tokens: Peekable<IntoIter<Token>>,
-    errors: Vec<anyhow::Error>,
+    had_error: bool,
 }
 
 pub type ParseResult = Result<Expr>;
@@ -22,7 +22,7 @@ impl Parser {
     pub fn new(scanner: Scanner) -> Self {
         Self {
             tokens: scanner.take_tokens().into_iter().peekable(),
-            errors: vec![],
+            had_error: false,
         }
     }
 
@@ -31,10 +31,13 @@ impl Parser {
         while !self.at_end() {
             match self.declaration() {
                 Ok(stmt) => statements.push(stmt),
-                Err(err) => eprintln!("Parse error: {}", err),
+                Err(err) => {
+                    self.had_error = true;
+                    eprintln!("{}", err);
+                }
             }
         }
-        if self.errors.is_empty() {
+        if !self.had_error {
             Ok(statements)
         } else {
             bail!("Aborting due to parse errors.")
@@ -42,9 +45,8 @@ impl Parser {
     }
 
     fn error(&mut self, token: Token, msg: &str) {
-        let err = anyhow!("Error:  <{:?}> {}", token, msg);
-        eprintln!("{}", err);
-        self.errors.push(err);
+        eprintln!("{:?} {}", token, msg);
+        self.had_error = true;
     }
 
     fn declaration(&mut self) -> Result<Stmt> {
@@ -351,7 +353,7 @@ impl Parser {
                 self.consume(TokenType::RightParen, "Expected ')' after expression")?;
                 return Ok(expr::Grouping::new(expr));
             }
-            bad => bail!("Expected primary token, got {:?}", bad),
+            _bad => bail!("{:?} Expect expression.", token),
         }))
     }
 

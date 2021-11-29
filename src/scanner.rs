@@ -1,5 +1,6 @@
 use anyhow::{anyhow, bail, Context, Result};
 use phf::phf_map;
+use std::fmt::{Debug, Formatter};
 
 use crate::LoxError;
 
@@ -83,7 +84,7 @@ static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
     "while" => TokenType::While,
 };
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Token {
     typ: TokenType,
     lexeme: String,
@@ -105,6 +106,12 @@ impl Token {
 
     pub fn tok_type(&self) -> &TokenType {
         &self.typ
+    }
+}
+
+impl Debug for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[line {}] Error at '{}':", self.line, self.lexeme)
     }
 }
 
