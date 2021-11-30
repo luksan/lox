@@ -12,7 +12,7 @@ use crate::ast::{
 };
 
 use crate::scanner::Token;
-use crate::Interpreter;
+use crate::{Interpreter, LoxType};
 
 pub struct Resolver {
     interpreter: Interpreter,
@@ -24,6 +24,7 @@ pub struct Resolver {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum FunctionType {
+    Initializer,
     Function,
     Method,
     None,
@@ -165,7 +166,11 @@ impl Visitor<stmt::Class, Ret> for Resolver {
             .insert("this".to_string(), true);
 
         for method in &node.methods {
-            let decl = FunctionType::Method;
+            let decl = if method.name.lexeme() == "init" {
+                FunctionType::Initializer
+            } else {
+                FunctionType::Method
+            };
             self.resolve_function(method, decl);
         }
         self.end_scope();
@@ -207,6 +212,12 @@ impl Visitor<stmt::Return, Ret> for Resolver {
         if self.curr_func_type == FunctionType::None {
             self.error(&node.keyword, "Can't return from top-level code.");
         }
+        /*
+        if self.curr_func_type == FunctionType::Initializer
+            && node.value != expr::Literal::new(LoxType::Nil)
+        {
+            self.error(&node.keyword, "Can't return a value from an initializer.")
+        }*/
         self.resolve_expr(&node.value);
     }
 }

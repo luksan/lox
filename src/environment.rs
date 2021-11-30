@@ -130,12 +130,12 @@ impl Environment {
         Ok(())
     }
 
-    pub fn get_at(&self, name: &Token, depth: usize) -> Result<LoxType> {
+    pub fn get_at(&self, name: &str, depth: usize) -> Result<LoxType> {
         self.ancestor(depth)
             .values
             .borrow_mut()
-            .get(name.lexeme())
+            .get(name)
             .map(|r| r.clone())
-            .with_context(|| format!("Resolver failure! Undefined variable '{}'.", name.lexeme()))
+            .with_context(|| format!("Resolver failure! Undefined variable '{}'.", name))
     }
 }

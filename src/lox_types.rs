@@ -93,6 +93,12 @@ impl From<Class> for LoxType {
     }
 }
 
+impl From<Function> for LoxType {
+    fn from(fun: Function) -> Self {
+        Self::Function(fun)
+    }
+}
+
 impl From<Instance> for LoxType {
     fn from(obj: Instance) -> Self {
         Self::Instance(obj)
@@ -137,11 +143,15 @@ impl PartialEq for Class {
 
 impl Callable for Class {
     fn arity(&self) -> usize {
-        0
+        self.find_method("init").map_or(0, |init| init.arity())
     }
 
     fn call(&mut self, interpreter: &mut Interpreter, arguments: &Vec<LoxType>) -> ExprVisitResult {
-        Ok(Instance::new(self.clone()).into())
+        let instance = Instance::new(self.clone());
+        if let Some(init) = self.find_method("init") {
+            init.bind(&instance).call(interpreter, arguments)?;
+        }
+        Ok(instance.into())
     }
 }
 
@@ -167,7 +177,7 @@ impl Instance {
             .or_else(|| {
                 self.class
                     .find_method(name.lexeme())
-                    .map(|fun| fun.bind(self))
+                    .map(|fun| fun.bind(self).into())
             })
             .with_context(|| format!("Undefined property '{}'.", name.lexeme()))
     }
@@ -189,6 +199,7 @@ impl PartialEq for Instance {
 pub struct Function {
     declaration: Rc<stmt::Function>,
     pub closure: Env,
+    pub is_init: bool,
 }
 
 impl Function {
@@ -196,16 +207,17 @@ impl Function {
         LoxType::Function(Self {
             declaration: Rc::from(declaration.clone()),
             closure,
+            is_init: false,
         })
     }
 
-    pub fn bind(&self, instance: &Instance) -> LoxType {
+    pub fn bind(&self, instance: &Instance) -> Function {
         let mut bound = self.clone();
         bound.closure = Environment::new(Some(bound.closure));
         bound
             .closure
             .define("this", LoxType::Instance(instance.clone()));
-        LoxType::Function(bound)
+        bound
     }
 }
 
@@ -227,7 +239,13 @@ impl Callable for Function {
         }
 
         if let Err(e) = interpreter.execute_block(&self.declaration.body, env) {
-            e.fun_ret()
+            e.fun_ret().map(|val| {
+                if self.is_init {
+                    self.closure.get_at("this", 0).unwrap()
+                } else {
+                    val
+                }
+            })
         } else {
             Ok(LoxType::Nil)
         }

@@ -58,7 +58,7 @@ impl Interpreter {
 
     fn lookup_variable(&mut self, name: &Token, expr: NodeId) -> ExprVisitResult {
         if let Some(depth) = self.locals.get(&expr) {
-            self.env.get_at(name, *depth)
+            self.env.get_at(name.lexeme(), *depth)
         } else {
             self.globals.get(name)
         }
@@ -116,7 +116,10 @@ impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
         let mut methods = HashMap::new();
         // FIXME: track circular references here.
         for method in &node.methods {
-            if let LoxType::Function(fun) = lox_types::Function::new(method, self.env.clone()) {
+            if let LoxType::Function(mut fun) = lox_types::Function::new(method, self.env.clone()) {
+                if method.name.lexeme() == "init" {
+                    fun.is_init = true;
+                }
                 methods.insert(method.name.lexeme().to_string(), fun);
             }
         }
