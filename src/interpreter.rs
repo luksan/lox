@@ -22,7 +22,7 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
-        let env = Environment::new();
+        let env = Environment::new(None);
         let globals = env.clone();
 
         globals.define("clock", NativeFn::new(0, Self::clock));

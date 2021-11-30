@@ -177,7 +177,7 @@ impl PartialEq for Instance {
 #[derive(Clone, Debug)]
 pub struct Function {
     declaration: Rc<stmt::Function>,
-    closure: Env,
+    pub closure: Env,
 }
 
 impl Function {
@@ -191,8 +191,7 @@ impl Function {
 
 impl PartialEq for Function {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.declaration, &other.declaration)
-            && Rc::ptr_eq(&self.closure, &other.closure)
+        Rc::ptr_eq(&self.declaration, &other.declaration) && self.closure == other.closure
     }
 }
 
