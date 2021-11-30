@@ -179,7 +179,13 @@ impl Instance {
                     .find_method(name.lexeme())
                     .map(|fun| fun.bind(self).into())
             })
-            .with_context(|| format!("Undefined property '{}'.", name.lexeme()))
+            .with_context(|| {
+                format!(
+                    "Undefined property '{}'.\n[line {}]",
+                    name.lexeme(),
+                    name.line()
+                )
+            })
     }
 
     pub fn set(&mut self, name: &Token, value: LoxType) {

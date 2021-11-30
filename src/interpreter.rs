@@ -284,7 +284,7 @@ impl Visitor<expr::Set, ExprVisitResult> for Interpreter {
             obj.set(&node.name, value.clone());
             Ok(value)
         } else {
-            bail!("{} Only instances have fields.", &node.name.lexeme())
+            bail!("Only instances have fields.\n[line {}]", node.name.line())
         }
     }
 }
@@ -348,7 +348,10 @@ impl Visitor<expr::Get, ExprVisitResult> for Interpreter {
         if let LoxType::Instance(object) = self.evaluate(&node.object)? {
             Ok(object.get(&node.name)?.clone())
         } else {
-            bail!("Only instances have properties.")
+            bail!(
+                "Only instances have properties.\n[line {}]",
+                node.name.line()
+            )
         }
     }
 }

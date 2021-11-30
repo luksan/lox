@@ -331,7 +331,7 @@ impl Parser {
             match tok.tok_type() {
                 Dot => {
                     let name =
-                        self.consume(Identifier("".into()), "Expected property name after '.'.")?;
+                        self.consume(Identifier("".into()), "Expect property name after '.'.")?;
                     expr = expr::Get::new(expr, name);
                 }
                 LeftParen => expr = self.finish_call(expr)?,

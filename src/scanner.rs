@@ -115,7 +115,11 @@ impl Token {
 
 impl Debug for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[line {}] Error at '{}':", self.line, self.lexeme)
+        if self.typ == TokenType::Eof {
+            write!(f, "[line {}] Error at end:", self.line)
+        } else {
+            write!(f, "[line {}] Error at '{}':", self.line, self.lexeme)
+        }
     }
 }
 
