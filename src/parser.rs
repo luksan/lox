@@ -69,9 +69,12 @@ impl Parser {
     fn class_declaration(&mut self) -> Result<Stmt> {
         let name = self.consume(Identifier("".into()), "Expect class name.")?;
         self.consume(LeftBrace, "Expect '{' before class body.")?;
-        let mut methods: Vec<Stmt> = vec![];
+        let mut methods: Vec<stmt::Function> = vec![];
         while !self.check(&RightBrace) && !self.at_end() {
-            methods.push(self.function("method")?);
+            methods.push(
+                stmt::Function::try_from(self.function("method")?)
+                    .map_err(|_| anyhow!("Error: Expected function as method."))?,
+            );
         }
         self.consume(RightBrace, "Expect '}' after class body.")?;
         Ok(stmt::Class::new(name, methods))

@@ -113,13 +113,19 @@ pub trait Callable {
 #[derive(Clone, Debug)]
 pub struct Class {
     name: Rc<str>,
+    methods: Rc<HashMap<String, LoxType>>,
 }
 
 impl Class {
-    pub fn new(name: &str) -> Self {
+    pub fn new(name: &str, methods: HashMap<String, LoxType>) -> Self {
         Self {
             name: Rc::from(name),
+            methods: Rc::from(methods),
         }
+    }
+
+    pub fn find_method(&self, name: &str) -> Option<LoxType> {
+        self.methods.get(name).map(|v| v.clone())
     }
 }
 
@@ -158,6 +164,7 @@ impl Instance {
             .borrow()
             .get(name.lexeme())
             .map(|v| v.clone())
+            .or_else(|| self.class.find_method(name.lexeme()))
             .with_context(|| format!("Undefined property '{}'.", name.lexeme()))
     }
 

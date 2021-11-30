@@ -113,7 +113,13 @@ impl Visitor<stmt::Block, StmtVisitResult> for Interpreter {
 impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Class) -> StmtVisitResult {
         self.env.define(&node.name.lexeme(), LoxType::Nil);
-        let class = lox_types::Class::new(node.name.lexeme());
+        let mut methods = HashMap::new();
+        // FIXME: track circular references here.
+        for method in &node.methods {
+            let fun = lox_types::Function::new(method, self.env.clone());
+            methods.insert(method.name.lexeme().to_string(), fun);
+        }
+        let class = lox_types::Class::new(node.name.lexeme(), methods);
         self.env.assign(&node.name, class.into())?;
         Ok(())
     }

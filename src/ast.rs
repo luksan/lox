@@ -102,7 +102,7 @@ pub mod stmt {
 
     ast_nodes! { [ StmtTypes ]
         Block      : ListStmt statements;
-        Class      : Token name, ListStmt methods;
+        Class      : Token name, ListFunc methods;
         Expression : Expr expression;
         Function   : Token name, ListToken params, ListStmt body;
         If         : Expr condition, Stmt thenBranch, OptionStmt elseBranch;
@@ -116,4 +116,5 @@ pub mod stmt {
     pub type ListStmt = Vec<Stmt>;
     type OptionStmt = Option<Stmt>;
     type ListToken = Vec<Token>;
+    type ListFunc = Vec<Function>;
 }

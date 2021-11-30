@@ -22,6 +22,7 @@ pub struct Resolver {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum FunctionType {
     Function,
+    Method,
     None,
 }
 
@@ -143,6 +144,11 @@ impl Visitor<stmt::Class, Ret> for Resolver {
     fn visit(&mut self, node: &stmt::Class) -> Ret {
         self.declare(&node.name);
         self.define(&node.name);
+
+        for method in &node.methods {
+            let decl = FunctionType::Method;
+            self.resolve_function(method, decl);
+        }
     }
 }
 
