@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
 use std::collections::HashMap;
 use std::result::Result as StdResult;
@@ -201,9 +201,12 @@ impl Visitor<expr::Binary, ExprVisitResult> for Interpreter {
         let right = self.evaluate(&node.right)?;
 
         macro_rules! floats {
-            ($op:tt) => {
-                (left.as_f64()? $op right.as_f64()?).into()
-            }
+            ($op:tt) => {{
+                let ctx = || format!("Operands must be numbers.\n[line {}]", node.operator.line());
+                let left = left.as_f64().with_context(ctx)?;
+                let right = right.as_f64().with_context(ctx)?;
+                (left $op right).into()
+            }}
         }
         Ok(match node.operator.tok_type() {
             TokenType::Greater => floats!(>),
@@ -222,7 +225,10 @@ impl Visitor<expr::Binary, ExprVisitResult> for Interpreter {
                 (LoxType::String(l), LoxType::String(r)) => {
                     LoxType::String([l.as_ref(), r.as_ref()].join("").into())
                 }
-                _ => bail!("Unsupported operand types for addition."),
+                _ => bail!(
+                    "Operands must be two numbers or two strings.\n[line {}]",
+                    node.operator.line()
+                ),
             },
 
             _ => unreachable!(),
@@ -278,7 +284,9 @@ impl Visitor<expr::Unary, ExprVisitResult> for Interpreter {
         let right = node.right.accept(self)?;
 
         match node.operator.tok_type() {
-            TokenType::Minus => right.as_f64().map(|f| (-f).into()),
+            TokenType::Minus => right.as_f64().map(|f| (-f).into()).with_context(|| {
+                format!("Operand must be a number.\n[line {}]", node.operator.line())
+            }),
             TokenType::Bang => Ok((!right.is_truthy()).into()),
             _ => unreachable!(),
         }
@@ -294,13 +302,18 @@ impl Visitor<expr::Variable, ExprVisitResult> for Interpreter {
 impl Visitor<expr::Call, ExprVisitResult> for Interpreter {
     fn visit(&mut self, node: &expr::Call) -> ExprVisitResult {
         let mut callee = self.evaluate(&node.callee)?;
-        let function = callee.as_callable()?;
+        let function = callee.as_callable().with_context(|| {
+            format!(
+                "Can only call functions and classes.\n[line {}]",
+                node.paren.line()
+            )
+        })?;
         if node.arguments.len() != function.arity() {
             bail!(
-                "{:?}: Expected {} arguments but got {}.",
-                node.paren,
+                "Expected {} arguments but got {}.\n[line {}]",
                 function.arity(),
-                node.arguments.len()
+                node.arguments.len(),
+                node.paren.line(),
             );
         }
 

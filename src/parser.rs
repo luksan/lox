@@ -78,7 +78,7 @@ impl Parser {
     }
 
     fn var_decl(&mut self) -> Result<Stmt> {
-        let name = self.consume(Identifier("".into()), "Expect variable name")?;
+        let name = self.consume(Identifier("".into()), "Expect variable name.")?;
         let init = if self.match_advance(&[Equal]).is_some() {
             self.expression()?
         } else {
@@ -205,7 +205,7 @@ impl Parser {
             }
         }
         self.consume(RightParen, "Expect ')' after parameters.")?;
-        self.consume(LeftBrace, "Expect '{' before body.")?;
+        self.consume(LeftBrace, "Expect '{' before function body.")?;
         let body = self.block()?;
         Ok(stmt::Function::new(name, parameters, body))
     }
@@ -371,7 +371,7 @@ impl Parser {
 
     fn consume(&mut self, tok: TokenType, error: &str) -> Result<Token> {
         self.match_advance(&[tok])
-            .ok_or_else(|| anyhow!("{}", error))
+            .ok_or_else(|| anyhow!("{:?} {}", self.peek(), error))
     }
 
     fn peek(&mut self) -> &Token {

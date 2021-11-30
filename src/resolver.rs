@@ -64,7 +64,7 @@ impl Resolver {
         if let Some(scope) = self.scopes.last_mut() {
             if let Some(_exists) = scope.insert(name.lexeme().to_string(), false) {
                 // Variable already declared
-                self.error(name, "Already a variable with this name in scope.");
+                self.error(name, "Already a variable with this name in this scope.");
             }
         }
     }
