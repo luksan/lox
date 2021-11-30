@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 
 use crate::ast::stmt;
 
-use crate::environment::Env;
+use crate::environment::{Env, Environment};
 use crate::interpreter::ExprVisitResult;
 use crate::scanner::Token;
 use crate::Interpreter;
@@ -113,18 +113,18 @@ pub trait Callable {
 #[derive(Clone, Debug)]
 pub struct Class {
     name: Rc<str>,
-    methods: Rc<HashMap<String, LoxType>>,
+    methods: Rc<HashMap<String, Function>>,
 }
 
 impl Class {
-    pub fn new(name: &str, methods: HashMap<String, LoxType>) -> Self {
+    pub fn new(name: &str, methods: HashMap<String, Function>) -> Self {
         Self {
             name: Rc::from(name),
             methods: Rc::from(methods),
         }
     }
 
-    pub fn find_method(&self, name: &str) -> Option<LoxType> {
+    pub fn find_method(&self, name: &str) -> Option<Function> {
         self.methods.get(name).map(|v| v.clone())
     }
 }
@@ -164,7 +164,11 @@ impl Instance {
             .borrow()
             .get(name.lexeme())
             .map(|v| v.clone())
-            .or_else(|| self.class.find_method(name.lexeme()))
+            .or_else(|| {
+                self.class
+                    .find_method(name.lexeme())
+                    .map(|fun| fun.bind(self))
+            })
             .with_context(|| format!("Undefined property '{}'.", name.lexeme()))
     }
 
@@ -193,6 +197,15 @@ impl Function {
             declaration: Rc::from(declaration.clone()),
             closure,
         })
+    }
+
+    pub fn bind(&self, instance: &Instance) -> LoxType {
+        let mut bound = self.clone();
+        bound.closure = Environment::new(Some(bound.closure));
+        bound
+            .closure
+            .define("this", LoxType::Instance(instance.clone()));
+        LoxType::Function(bound)
     }
 }
 

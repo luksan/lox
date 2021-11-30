@@ -116,8 +116,9 @@ impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
         let mut methods = HashMap::new();
         // FIXME: track circular references here.
         for method in &node.methods {
-            let fun = lox_types::Function::new(method, self.env.clone());
-            methods.insert(method.name.lexeme().to_string(), fun);
+            if let LoxType::Function(fun) = lox_types::Function::new(method, self.env.clone()) {
+                methods.insert(method.name.lexeme().to_string(), fun);
+            }
         }
         let class = lox_types::Class::new(node.name.lexeme(), methods);
         self.env.assign(&node.name, class.into())?;
@@ -282,6 +283,12 @@ impl Visitor<expr::Set, ExprVisitResult> for Interpreter {
         } else {
             bail!("{} Only instances have fields.", &node.name.lexeme())
         }
+    }
+}
+
+impl Visitor<expr::This, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::This) -> ExprVisitResult {
+        self.lookup_variable(&node.keyword, node.id)
     }
 }
 

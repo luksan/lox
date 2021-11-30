@@ -349,6 +349,7 @@ impl Parser {
             TokenType::Nil => LoxType::Nil,
             TokenType::Number(num) => LoxType::Number(*num),
             TokenType::String(s) => LoxType::String(s.as_str().into()),
+            TokenType::This => return Ok(expr::This::new(token)),
             TokenType::Identifier(_) => return Ok(expr::Variable::new(token)),
 
             TokenType::LeftParen => {

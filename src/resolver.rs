@@ -1,7 +1,9 @@
 use anyhow::anyhow;
 use std::collections::HashMap;
 
-use crate::ast::expr::{Binary, Call, Expr, Get, Grouping, Literal, Logical, Unary, Variable};
+use crate::ast::expr::{
+    Binary, Call, Expr, Get, Grouping, Literal, Logical, This, Unary, Variable,
+};
 use crate::ast::stmt::{Expression, If, Print, Return, While};
 use crate::ast::{
     expr,
@@ -15,6 +17,7 @@ use crate::Interpreter;
 pub struct Resolver {
     interpreter: Interpreter,
     curr_func_type: FunctionType,
+    curr_class: ClassType,
     scopes: Vec<HashMap<String, bool>>,
     errors: Vec<anyhow::Error>,
 }
@@ -26,6 +29,12 @@ enum FunctionType {
     None,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+enum ClassType {
+    Class,
+    None,
+}
+
 impl Resolver {
     pub fn resolve(
         interpreter: Interpreter,
@@ -34,6 +43,7 @@ impl Resolver {
         let mut me = Self {
             interpreter,
             curr_func_type: FunctionType::None,
+            curr_class: ClassType::None,
             scopes: vec![],
             errors: vec![],
         };
@@ -142,13 +152,24 @@ impl Visitor<stmt::Block, Ret> for Resolver {
 
 impl Visitor<stmt::Class, Ret> for Resolver {
     fn visit(&mut self, node: &stmt::Class) -> Ret {
+        let enclosing_class = self.curr_class;
+        self.curr_class = ClassType::Class;
+
         self.declare(&node.name);
         self.define(&node.name);
+
+        self.begin_scope();
+        self.scopes
+            .last_mut()
+            .unwrap()
+            .insert("this".to_string(), true);
 
         for method in &node.methods {
             let decl = FunctionType::Method;
             self.resolve_function(method, decl);
         }
+        self.end_scope();
+        self.curr_class = enclosing_class;
     }
 }
 
@@ -255,6 +276,16 @@ impl Visitor<expr::Set, Ret> for Resolver {
     fn visit(&mut self, node: &expr::Set) -> Ret {
         self.resolve_expr(&node.value);
         self.resolve_expr(&node.object);
+    }
+}
+
+impl Visitor<expr::This, Ret> for Resolver {
+    fn visit(&mut self, node: &This) -> Ret {
+        if self.curr_class == ClassType::None {
+            self.error(&node.keyword, "Can't use 'this' outside of a class.");
+            return;
+        }
+        self.resolve_local(node.id, &node.keyword)
     }
 }
 
