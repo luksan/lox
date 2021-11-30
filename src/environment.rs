@@ -44,7 +44,11 @@ impl Environment {
         } else if let Some(parent) = &self.parent {
             parent.assign(name, value)
         } else {
-            bail!("Undefined variable '{}'.", name.lexeme());
+            bail!(
+                "Undefined variable '{}'.\n[line {}]",
+                name.lexeme(),
+                name.line()
+            );
         }
     }
 
@@ -58,7 +62,11 @@ impl Environment {
         } else if let Some(parent) = &self.parent {
             parent.get(name)
         } else {
-            Err(anyhow!("Undefined variable '{}' ", name.lexeme()))
+            Err(anyhow!(
+                "Undefined variable '{}'.\n[line {}]",
+                name.lexeme(),
+                name.line()
+            ))
         }
     }
 

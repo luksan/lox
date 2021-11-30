@@ -107,6 +107,10 @@ impl Token {
     pub fn tok_type(&self) -> &TokenType {
         &self.typ
     }
+
+    pub fn line(&self) -> usize {
+        self.line
+    }
 }
 
 impl Debug for Token {
