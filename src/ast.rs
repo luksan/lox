@@ -13,6 +13,13 @@ pub trait Visitor<NodeType, R> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(u64);
 
+impl NodeId {
+    fn new() -> Self {
+        static ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+        Self(ID_COUNTER.fetch_add(1, Ordering::SeqCst))
+    }
+}
+
 macro_rules! ast_nodes {
     { [$enum_name:ident] $($node_type:ident : $($member_type:ident $member_name:ident),* ; )+ } => {
         #[derive(Clone, Debug)]
@@ -39,9 +46,8 @@ macro_rules! ast_nodes {
 
         impl $node_type {
             pub fn new( $($member_name: $member_type),* ) -> Box<$enum_name> {
-                static ID_COUNTER : AtomicU64 = AtomicU64::new(0);
                 Box::new( $enum_name::$node_type($node_type {
-                    id: NodeId(ID_COUNTER.fetch_add(1, Ordering::SeqCst)),
+                    id: NodeId::new(),
                     $($member_name),*}))
             }
         }
