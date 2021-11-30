@@ -243,17 +243,14 @@ impl Callable for Function {
         for (arg, name) in arguments.iter().zip(self.declaration.params.iter()) {
             env.define(name.lexeme(), arg.clone());
         }
-
-        if let Err(e) = interpreter.execute_block(&self.declaration.body, env) {
-            e.fun_ret().map(|val| {
-                if self.is_init {
-                    self.closure.get_at("this", 0).unwrap()
-                } else {
-                    val
-                }
-            })
+        let val = match interpreter.execute_block(&self.declaration.body, env) {
+            Ok(_) => LoxType::Nil,
+            Err(e) => e.fun_ret()?,
+        };
+        if self.is_init {
+            Ok(self.closure.get_at("this", 0).unwrap())
         } else {
-            Ok(LoxType::Nil)
+            Ok(val)
         }
     }
 }
