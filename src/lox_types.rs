@@ -119,7 +119,7 @@ pub trait Callable {
 #[derive(Clone, Debug)]
 pub struct Class {
     name: Rc<str>,
-    methods: Rc<HashMap<String, Function>>,
+    pub methods: Rc<HashMap<String, Function>>,
 }
 
 impl Class {

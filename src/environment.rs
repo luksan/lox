@@ -38,10 +38,20 @@ impl Drop for Env {
         }
         let mut circ_ref_cnt = 0;
         for val in hashmap.values() {
-            if let LoxType::Function(ref fun) = val {
-                if fun.closure == *self {
-                    circ_ref_cnt += 1;
+            match val {
+                LoxType::Class(cls) => {
+                    for fun in cls.methods.values() {
+                        if fun.closure == *self {
+                            circ_ref_cnt += 1;
+                        }
+                    }
                 }
+                LoxType::Function(fun) => {
+                    if fun.closure == *self {
+                        circ_ref_cnt += 1;
+                    }
+                }
+                _ => {}
             }
         }
         std::mem::drop(hashmap);
