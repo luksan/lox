@@ -379,7 +379,7 @@ impl Parser {
     }
 
     fn peek(&mut self) -> &Token {
-        &self.tokens.peek().unwrap()
+        self.tokens.peek().unwrap()
     }
 
     fn match_advance(&mut self, types: &[TokenType]) -> Option<Token> {

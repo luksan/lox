@@ -280,7 +280,7 @@ impl<'src> Scanner<'src> {
         let ident = self.cursor.substring(0, 0);
         Ok(KEYWORDS
             .get(ident)
-            .map(|i| i.clone())
+            .cloned()
             .unwrap_or_else(|| TokenType::Identifier(ident.to_owned())))
     }
 

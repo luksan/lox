@@ -105,6 +105,12 @@ impl From<Instance> for LoxType {
     }
 }
 
+impl From<NativeFn> for LoxType {
+    fn from(func: NativeFn) -> Self {
+        Self::NativeFn(func)
+    }
+}
+
 impl From<f64> for LoxType {
     fn from(num: f64) -> Self {
         Self::Number(num)
@@ -113,7 +119,7 @@ impl From<f64> for LoxType {
 
 pub trait Callable {
     fn arity(&self) -> usize;
-    fn call(&mut self, interpreter: &mut Interpreter, arguments: &Vec<LoxType>) -> ExprVisitResult;
+    fn call(&mut self, interpreter: &mut Interpreter, arguments: &[LoxType]) -> ExprVisitResult;
 }
 
 #[derive(Clone, Debug)]
@@ -131,7 +137,7 @@ impl Class {
     }
 
     pub fn find_method(&self, name: &str) -> Option<Function> {
-        self.methods.get(name).map(|v| v.clone())
+        self.methods.get(name).cloned()
     }
 }
 
@@ -146,7 +152,7 @@ impl Callable for Class {
         self.find_method("init").map_or(0, |init| init.arity())
     }
 
-    fn call(&mut self, interpreter: &mut Interpreter, arguments: &Vec<LoxType>) -> ExprVisitResult {
+    fn call(&mut self, interpreter: &mut Interpreter, arguments: &[LoxType]) -> ExprVisitResult {
         let instance = Instance::new(self.clone());
         if let Some(init) = self.find_method("init") {
             init.bind(&instance).call(interpreter, arguments)?;
@@ -173,7 +179,7 @@ impl Instance {
         self.fields
             .borrow()
             .get(name.lexeme())
-            .map(|v| v.clone())
+            .cloned()
             .or_else(|| {
                 self.class
                     .find_method(name.lexeme())
@@ -209,12 +215,12 @@ pub struct Function {
 }
 
 impl Function {
-    pub fn new(declaration: &stmt::Function, closure: Env) -> LoxType {
-        LoxType::Function(Self {
+    pub fn new(declaration: &stmt::Function, closure: Env) -> Self {
+        Self {
             declaration: Rc::from(declaration.clone()),
             closure,
             is_init: false,
-        })
+        }
     }
 
     pub fn bind(&self, instance: &Instance) -> Function {
@@ -238,7 +244,7 @@ impl Callable for Function {
         self.declaration.params.len()
     }
 
-    fn call(&mut self, interpreter: &mut Interpreter, arguments: &Vec<LoxType>) -> ExprVisitResult {
+    fn call(&mut self, interpreter: &mut Interpreter, arguments: &[LoxType]) -> ExprVisitResult {
         let env = self.closure.create_local();
         for (arg, name) in arguments.iter().zip(self.declaration.params.iter()) {
             env.define(name.lexeme(), arg.clone());
@@ -258,15 +264,12 @@ impl Callable for Function {
 #[derive(Clone)]
 pub struct NativeFn {
     arity: usize,
-    fun: fn(&mut Interpreter, &Vec<LoxType>) -> Result<LoxType>,
+    fun: fn(&mut Interpreter, &[LoxType]) -> Result<LoxType>,
 }
 
 impl NativeFn {
-    pub fn new(
-        arity: usize,
-        fun: fn(&mut Interpreter, &Vec<LoxType>) -> Result<LoxType>,
-    ) -> LoxType {
-        LoxType::NativeFn(Self { arity, fun })
+    pub fn new(arity: usize, fun: fn(&mut Interpreter, &[LoxType]) -> Result<LoxType>) -> Self {
+        Self { arity, fun }
     }
 }
 
@@ -278,7 +281,7 @@ impl Debug for NativeFn {
 
 impl PartialEq for NativeFn {
     fn eq(&self, other: &Self) -> bool {
-        &self.fun as *const _ == &other.fun as *const _
+        std::ptr::eq(&self.fun, &other.fun)
     }
 }
 
@@ -287,7 +290,7 @@ impl Callable for NativeFn {
         self.arity
     }
 
-    fn call(&mut self, interpreter: &mut Interpreter, arguments: &Vec<LoxType>) -> ExprVisitResult {
+    fn call(&mut self, interpreter: &mut Interpreter, arguments: &[LoxType]) -> ExprVisitResult {
         (self.fun)(interpreter, arguments)
     }
 }

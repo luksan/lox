@@ -45,6 +45,7 @@ macro_rules! ast_nodes {
         }
 
         impl $node_type {
+            #[allow(clippy::new_ret_no_self)]
             pub fn new( $($member_name: $member_type),* ) -> Box<$enum_name> {
                 Box::new( $enum_name::$node_type($node_type {
                     id: NodeId::new(),

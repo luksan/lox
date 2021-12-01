@@ -12,7 +12,7 @@ use crate::ast::{
 };
 
 use crate::scanner::Token;
-use crate::{Interpreter, LoxType};
+use crate::Interpreter;
 
 pub struct Resolver {
     interpreter: Interpreter,
@@ -197,7 +197,9 @@ impl Visitor<stmt::If, Ret> for Resolver {
     fn visit(&mut self, node: &If) -> Ret {
         self.resolve_expr(&node.condition);
         self.resolve_stmt(&node.thenBranch);
-        node.elseBranch.as_ref().map(|stmt| self.resolve_stmt(stmt));
+        if let Some(stmt) = &node.elseBranch {
+            self.resolve_stmt(stmt);
+        }
     }
 }
 

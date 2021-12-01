@@ -84,6 +84,7 @@ pub struct Environment {
 }
 
 impl Environment {
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(parent: Option<Env>) -> Env {
         Env::new(Environment {
             values: HashMap::new().into(),
@@ -145,7 +146,7 @@ impl Environment {
             .values
             .borrow_mut()
             .get(name)
-            .map(|r| r.clone())
+            .cloned()
             .with_context(|| format!("Resolver failure! Undefined variable '{}'.", name))
     }
 }

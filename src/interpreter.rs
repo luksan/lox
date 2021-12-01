@@ -25,7 +25,7 @@ impl Interpreter {
         let env = Environment::new(None);
         let globals = env.clone();
 
-        globals.define("clock", NativeFn::new(0, Self::clock));
+        globals.define("clock", NativeFn::new(0, Self::clock).into());
 
         Self {
             env,
@@ -35,7 +35,7 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: &Vec<Stmt>) -> Result<()> {
+    pub fn interpret(&mut self, statements: &[Stmt]) -> Result<()> {
         for stmt in statements {
             if let Err(MaybeFunRet::Error(err)) = self.execute(stmt) {
                 return Err(err);
@@ -44,7 +44,7 @@ impl Interpreter {
         Ok(())
     }
 
-    fn clock(&mut self, _args: &Vec<LoxType>) -> Result<LoxType> {
+    fn clock(&mut self, _args: &[LoxType]) -> Result<LoxType> {
         Ok(self.start_time.elapsed().as_secs_f64().into())
     }
 
@@ -112,16 +112,15 @@ impl Visitor<stmt::Block, StmtVisitResult> for Interpreter {
 
 impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Class) -> StmtVisitResult {
-        self.env.define(&node.name.lexeme(), LoxType::Nil);
+        self.env.define(node.name.lexeme(), LoxType::Nil);
         let mut methods = HashMap::new();
         // FIXME: track circular references here.
         for method in &node.methods {
-            if let LoxType::Function(mut fun) = lox_types::Function::new(method, self.env.clone()) {
-                if method.name.lexeme() == "init" {
-                    fun.is_init = true;
-                }
-                methods.insert(method.name.lexeme().to_string(), fun);
+            let mut fun = lox_types::Function::new(method, self.env.clone());
+            if method.name.lexeme() == "init" {
+                fun.is_init = true;
             }
+            methods.insert(method.name.lexeme().to_string(), fun);
         }
         let class = lox_types::Class::new(node.name.lexeme(), methods);
         self.env.assign(&node.name, class.into())?;
@@ -139,7 +138,7 @@ impl Visitor<stmt::Expression, StmtVisitResult> for Interpreter {
 impl Visitor<stmt::Function, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Function) -> StmtVisitResult {
         let function = lox_types::Function::new(node, self.env.clone());
-        self.env.define(node.name.lexeme(), function);
+        self.env.define(node.name.lexeme(), function.into());
         Ok(())
     }
 }
@@ -346,7 +345,7 @@ impl Visitor<expr::Call, ExprVisitResult> for Interpreter {
 impl Visitor<expr::Get, ExprVisitResult> for Interpreter {
     fn visit(&mut self, node: &expr::Get) -> ExprVisitResult {
         if let LoxType::Instance(object) = self.evaluate(&node.object)? {
-            Ok(object.get(&node.name)?.clone())
+            Ok(object.get(&node.name)?)
         } else {
             bail!(
                 "Only instances have properties.\n[line {}]",
