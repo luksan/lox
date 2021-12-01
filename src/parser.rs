@@ -356,6 +356,12 @@ impl Parser {
             TokenType::Nil => LoxType::Nil,
             TokenType::Number(num) => LoxType::Number(*num),
             TokenType::String(s) => LoxType::String(s.as_str().into()),
+            TokenType::Super => {
+                let _dot = self.consume(Dot, "Expect '.' after 'super'.")?;
+                let method =
+                    self.consume(Identifier("".into()), "Expect superclass method name.")?;
+                return Ok(expr::Super::new(token, method));
+            }
             TokenType::This => return Ok(expr::This::new(token)),
             TokenType::Identifier(_) => return Ok(expr::Variable::new(token)),
 

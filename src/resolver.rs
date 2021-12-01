@@ -1,7 +1,9 @@
 use anyhow::anyhow;
 use std::collections::HashMap;
 
-use crate::ast::expr::{Binary, Call, Get, Grouping, Literal, Logical, This, Unary, Variable};
+use crate::ast::expr::{
+    Binary, Call, Get, Grouping, Literal, Logical, Super, This, Unary, Variable,
+};
 use crate::ast::stmt::{Expression, If, Print, Return, While};
 use crate::ast::{
     expr,
@@ -31,6 +33,7 @@ enum FunctionType {
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum ClassType {
     Class,
+    Subclass,
     None,
 }
 
@@ -161,7 +164,13 @@ impl Visitor<stmt::Class, Ret> for Resolver {
             if sup.name.lexeme() == node.name.lexeme() {
                 self.error(&sup.name, "A class can't inherit from itself.")
             }
+            self.curr_class = ClassType::Subclass;
             self.resolve_expr(sup);
+            self.begin_scope(); // "super" env
+            self.scopes
+                .last_mut()
+                .unwrap()
+                .insert("super".to_string(), true);
         }
         self.begin_scope();
         self.scopes
@@ -178,6 +187,9 @@ impl Visitor<stmt::Class, Ret> for Resolver {
             self.resolve_function(method, decl);
         }
         self.end_scope();
+        if node.superclass.is_some() {
+            self.end_scope();
+        }
         self.curr_class = enclosing_class;
     }
 }
@@ -292,6 +304,19 @@ impl Visitor<expr::Set, Ret> for Resolver {
     fn visit(&mut self, node: &expr::Set) -> Ret {
         self.resolve_expr(&node.value);
         self.resolve_expr(&node.object);
+    }
+}
+
+impl Visitor<expr::Super, Ret> for Resolver {
+    fn visit(&mut self, node: &Super) -> Ret {
+        match &self.curr_class {
+            ClassType::Class => self.error(
+                &node.keyword,
+                "Can't use 'super' in a class with no superclass.",
+            ),
+            ClassType::Subclass => self.resolve_local(node.id, &node.keyword),
+            ClassType::None => self.error(&node.keyword, "Can't use 'super' outside of a class."),
+        }
     }
 }
 

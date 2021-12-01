@@ -115,6 +115,7 @@ pub mod expr {
         Literal  : Object value;
         Logical  : Expr left, Token operator, Expr right;
         Set      : Expr object, Token name, Expr value;
+        Super    : Token keyword, Token method;
         This     : Token keyword;
         Unary    : Token operator, Expr right;
         Variable : Token name;

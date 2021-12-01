@@ -127,9 +127,17 @@ impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
         };
         self.env.define(node.name.lexeme(), LoxType::Nil);
 
+        let method_env = if let Some(superclass) = superclass.as_ref() {
+            let env = self.env.create_local();
+            env.define("super", superclass.clone().into());
+            env
+        } else {
+            self.env.clone()
+        };
+
         let mut methods = HashMap::new();
         for method in &node.methods {
-            let mut fun = lox_types::Function::new(method, self.env.clone());
+            let mut fun = lox_types::Function::new(method, method_env.clone());
             if method.name.lexeme() == "init" {
                 fun.is_init = true;
             }
@@ -301,6 +309,37 @@ impl Visitor<expr::Set, ExprVisitResult> for Interpreter {
             Ok(value)
         } else {
             bail!("Only instances have fields.\n[line {}]", node.name.line())
+        }
+    }
+}
+
+impl Visitor<expr::Super, ExprVisitResult> for Interpreter {
+    fn visit(&mut self, node: &expr::Super) -> ExprVisitResult {
+        let distance = self
+            .locals
+            .get(&node.id)
+            .expect("Resolver error! 'super' node missing in locals.");
+        let superclass = self.env.get_at("super", *distance).unwrap();
+        let object = self
+            .env
+            .get_at("this", *distance - 1)
+            .expect("Resolver error! 'this' not at dist -1.");
+
+        if let LoxType::Class(sup) = superclass {
+            let method = sup.find_method(node.method.lexeme()).with_context(|| {
+                format!(
+                    "Undefined property '{}'.\n[line {}]",
+                    node.method.lexeme(),
+                    node.method.line()
+                )
+            })?;
+            if let LoxType::Instance(ref object) = object {
+                return Ok(method.bind(object).into());
+            } else {
+                bail!("Object is not an instance.")
+            }
+        } else {
+            bail!("Superclass is not a class.")
         }
     }
 }
