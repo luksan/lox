@@ -68,6 +68,13 @@ impl Parser {
 
     fn class_declaration(&mut self) -> Result<Stmt> {
         let name = self.consume(Identifier("".into()), "Expect class name.")?;
+        let superclass = if let Some(_less) = self.match_advance(&[Less]) {
+            // FIXME: make consume generic over type?
+            let ident = self.consume(Identifier("".into()), "Expect superclass name.")?;
+            Some(expr::Variable::new(ident).try_into().unwrap())
+        } else {
+            None
+        };
         self.consume(LeftBrace, "Expect '{' before class body.")?;
         let mut methods: Vec<stmt::Function> = vec![];
         while !self.check(&RightBrace) && !self.at_end() {
@@ -77,7 +84,7 @@ impl Parser {
             );
         }
         self.consume(RightBrace, "Expect '}' after class body.")?;
-        Ok(stmt::Class::new(name, methods))
+        Ok(stmt::Class::new(name, superclass, methods))
     }
 
     fn var_decl(&mut self) -> Result<Stmt> {

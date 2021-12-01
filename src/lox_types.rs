@@ -125,13 +125,16 @@ pub trait Callable {
 #[derive(Clone, Debug)]
 pub struct Class {
     name: Rc<str>,
+    superclass: Option<Box<Class>>,
     pub methods: Rc<HashMap<String, Function>>,
 }
 
 impl Class {
-    pub fn new(name: &str, methods: HashMap<String, Function>) -> Self {
+    pub fn new(name: &str, superclass: Option<Class>, methods: HashMap<String, Function>) -> Self {
+        let superclass = superclass.map(|cls| Box::new(cls));
         Self {
             name: Rc::from(name),
+            superclass,
             methods: Rc::from(methods),
         }
     }

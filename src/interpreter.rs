@@ -1,12 +1,12 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use std::collections::HashMap;
 use std::result::Result as StdResult;
 
 use crate::ast::{
-    expr::{self, Expr},
+    expr,
     stmt::{self, ListStmt, Stmt},
-    NodeId, Visitor,
+    Accepts, NodeId, Visitor,
 };
 use crate::environment::{Env, Environment};
 use crate::lox_types::NativeFn;
@@ -64,7 +64,7 @@ impl Interpreter {
         }
     }
 
-    fn evaluate(&mut self, expr: &Expr) -> ExprVisitResult {
+    fn evaluate(&mut self, expr: &dyn Accepts<Self, ExprVisitResult>) -> ExprVisitResult {
         expr.accept(self)
     }
 
@@ -112,9 +112,22 @@ impl Visitor<stmt::Block, StmtVisitResult> for Interpreter {
 
 impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Class) -> StmtVisitResult {
+        let superclass = if let Some(sup) = &node.superclass {
+            if let LoxType::Class(cls) = self.evaluate(sup)? {
+                Some(cls)
+            } else {
+                Err(anyhow!(
+                    "Superclass must be a class.\n[line {}]",
+                    sup.name.line()
+                ))?;
+                unreachable!();
+            }
+        } else {
+            None
+        };
         self.env.define(node.name.lexeme(), LoxType::Nil);
+
         let mut methods = HashMap::new();
-        // FIXME: track circular references here.
         for method in &node.methods {
             let mut fun = lox_types::Function::new(method, self.env.clone());
             if method.name.lexeme() == "init" {
@@ -122,7 +135,8 @@ impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
             }
             methods.insert(method.name.lexeme().to_string(), fun);
         }
-        let class = lox_types::Class::new(node.name.lexeme(), methods);
+
+        let class = lox_types::Class::new(node.name.lexeme(), superclass, methods);
         self.env.assign(&node.name, class.into())?;
         Ok(())
     }

@@ -74,6 +74,12 @@ macro_rules! ast_nodes {
             }
         }
 
+        impl From<$node_type> for Box<$enum_name> {
+            fn from(val: $node_type) -> Self {
+                Box::new($enum_name::$node_type(val))
+            }
+        }
+
         impl TryFrom<$enum_name> for $node_type {
             type Error = $enum_name;
             fn try_from(value: $enum_name) -> Result<Self, Self::Error> {
@@ -125,7 +131,7 @@ pub mod stmt {
 
     ast_nodes! { [ StmtTypes ]
         Block      : ListStmt statements;
-        Class      : Token name, ListFunc methods;
+        Class      : Token name, OptionVar superclass, ListFunc methods;
         Expression : Expr expression;
         Function   : Token name, ListToken params, ListStmt body;
         If         : Expr condition, Stmt thenBranch, OptionStmt elseBranch;
@@ -141,4 +147,5 @@ pub mod stmt {
     type OptionStmt = Option<Stmt>;
     type ListToken = Vec<Token>;
     type ListFunc = Vec<Function>;
+    type OptionVar = Option<expr::Variable>;
 }

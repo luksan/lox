@@ -1,14 +1,12 @@
 use anyhow::anyhow;
 use std::collections::HashMap;
 
-use crate::ast::expr::{
-    Binary, Call, Expr, Get, Grouping, Literal, Logical, This, Unary, Variable,
-};
+use crate::ast::expr::{Binary, Call, Get, Grouping, Literal, Logical, This, Unary, Variable};
 use crate::ast::stmt::{Expression, If, Print, Return, While};
 use crate::ast::{
     expr,
     stmt::{self, ListStmt, Stmt},
-    NodeId, Visitor,
+    Accepts, NodeId, Visitor,
 };
 
 use crate::scanner::Token;
@@ -110,7 +108,7 @@ impl Resolver {
         self.curr_func_type = prev_func;
     }
 
-    fn resolve_expr(&mut self, expr: &Expr) -> Ret {
+    fn resolve_expr(&mut self, expr: &dyn Accepts<Self, Ret>) -> Ret {
         expr.accept(self)
     }
 
@@ -159,6 +157,12 @@ impl Visitor<stmt::Class, Ret> for Resolver {
         self.declare(&node.name);
         self.define(&node.name);
 
+        if let Some(sup) = &node.superclass {
+            if sup.name.lexeme() == node.name.lexeme() {
+                self.error(&sup.name, "A class can't inherit from itself.")
+            }
+            self.resolve_expr(sup);
+        }
         self.begin_scope();
         self.scopes
             .last_mut()
