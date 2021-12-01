@@ -10,6 +10,10 @@ pub trait Visitor<NodeType, R> {
     fn visit(&mut self, node: &NodeType) -> R;
 }
 
+pub trait Accepts<V, R> {
+    fn accept(&self, visitor: &mut V) -> R;
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct NodeId(u64);
 
@@ -37,7 +41,24 @@ macro_rules! ast_nodes {
             }
         }
 
+        impl<V, R> Accepts<V, R> for Box<$enum_name> where
+                $( V: Visitor<$node_type, R> ),+ {
+            fn accept(&self, visitor: &mut V) -> R {
+                use $enum_name::*;
+                    match **self {
+                        $($node_type(ref typ) => visitor.visit(typ) ),+
+                    }
+            }
+        }
+
         $(
+        impl<V, R> Accepts<V, R> for $node_type where
+            V: Visitor<$node_type, R>  {
+            fn accept(&self, visitor: &mut V) -> R {
+                visitor.visit(self)
+            }
+        }
+
         #[derive(Clone, Debug)]
         pub struct $node_type {
             pub id: NodeId,
