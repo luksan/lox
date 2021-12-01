@@ -109,13 +109,14 @@ pub mod stmt {
         Function   : Token name, ListToken params, ListStmt body;
         If         : Expr condition, Stmt thenBranch, OptionStmt elseBranch;
         Print      : Expr expression;
-        Return     : Token keyword, Expr value;
+        Return     : Token keyword, OptionExpr value;
         Var        : Token name, Expr initializer;
         While      : Expr condition, Stmt body;
     }
 
     pub type Stmt = Box<StmtTypes>;
     pub type ListStmt = Vec<Stmt>;
+    type OptionExpr = Option<Expr>;
     type OptionStmt = Option<Stmt>;
     type ListToken = Vec<Token>;
     type ListFunc = Vec<Function>;

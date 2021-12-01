@@ -172,9 +172,9 @@ impl Parser {
 
     fn return_statement(&mut self, return_tok: Token) -> Result<Stmt> {
         let value = if !self.check(&Semicolon) {
-            self.expression()?
+            Some(self.expression()?)
         } else {
-            expr::Literal::new(LoxType::Nil)
+            None
         };
         self.consume(Semicolon, "Expect ';' after return value.")?;
         Ok(stmt::Return::new(return_tok, value))

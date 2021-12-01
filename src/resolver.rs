@@ -214,13 +214,12 @@ impl Visitor<stmt::Return, Ret> for Resolver {
         if self.curr_func_type == FunctionType::None {
             self.error(&node.keyword, "Can't return from top-level code.");
         }
-        /*
-        if self.curr_func_type == FunctionType::Initializer
-            && node.value != expr::Literal::new(LoxType::Nil)
-        {
+        if self.curr_func_type == FunctionType::Initializer && node.value.is_some() {
             self.error(&node.keyword, "Can't return a value from an initializer.")
-        }*/
-        self.resolve_expr(&node.value);
+        }
+        if let Some(expr) = &node.value {
+            self.resolve_expr(expr);
+        }
     }
 }
 
