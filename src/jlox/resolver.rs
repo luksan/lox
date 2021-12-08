@@ -1,11 +1,11 @@
 use anyhow::anyhow;
 use std::collections::HashMap;
 
-use crate::ast::expr::{
+use crate::jlox::ast::expr::{
     Binary, Call, Get, Grouping, Literal, Logical, Super, This, Unary, Variable,
 };
-use crate::ast::stmt::{Expression, If, Print, Return, While};
-use crate::ast::{
+use crate::jlox::ast::stmt::{Expression, If, Print, Return, While};
+use crate::jlox::ast::{
     expr,
     stmt::{self, ListStmt, Stmt},
     Accepts, NodeId, Visitor,

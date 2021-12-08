@@ -1,19 +1,15 @@
 #![allow(dead_code)]
-mod ast;
-mod environment;
-mod interpreter;
-mod lox_types;
-mod parser;
-mod resolver;
+
+mod jlox;
 mod scanner;
 
-pub use lox_types::LoxType;
+pub use jlox::lox_types::LoxType;
 
 use anyhow::{anyhow, Context};
 
-use crate::interpreter::Interpreter;
-use crate::parser::Parser;
-use crate::resolver::Resolver;
+use jlox::interpreter::Interpreter;
+use jlox::parser::Parser;
+use jlox::resolver::Resolver;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;

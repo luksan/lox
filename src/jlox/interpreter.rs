@@ -3,15 +3,14 @@ use anyhow::{anyhow, bail, Context, Result};
 use std::collections::HashMap;
 use std::result::Result as StdResult;
 
-use crate::ast::{
+use crate::jlox::ast::{
     expr,
     stmt::{self, ListStmt, Stmt},
     Accepts, NodeId, Visitor,
 };
-use crate::environment::{Env, Environment};
-use crate::lox_types::NativeFn;
+use crate::jlox::environment::{Env, Environment};
+use crate::jlox::lox_types::{self, LoxType, NativeFn};
 use crate::scanner::{Token, TokenType};
-use crate::{lox_types, LoxType};
 
 pub struct Interpreter {
     pub env: Env,

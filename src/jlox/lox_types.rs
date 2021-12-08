@@ -1,9 +1,8 @@
 use anyhow::{bail, Context, Result};
 
-use crate::ast::stmt;
-
-use crate::environment::{Env, Environment};
-use crate::interpreter::ExprVisitResult;
+use crate::jlox::ast::stmt;
+use crate::jlox::environment::{Env, Environment};
+use crate::jlox::interpreter::ExprVisitResult;
 use crate::scanner::Token;
 use crate::Interpreter;
 

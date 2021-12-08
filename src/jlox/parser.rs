@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Result};
 
-use crate::ast::{
+use crate::jlox::ast::{
     expr::{self, Expr},
     stmt::{self, ListStmt, Stmt},
 };
