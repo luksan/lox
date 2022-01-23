@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+pub mod clox;
 mod jlox;
 mod scanner;
 
