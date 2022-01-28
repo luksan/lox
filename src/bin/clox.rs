@@ -1,10 +1,12 @@
+use std::result::Result as StdResult;
+
 use lox::clox::Vm;
-use lox::{Lox, LoxError};
+use lox::LoxError;
 use std::io::Write;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -30,14 +32,18 @@ fn main() {
             std::process::exit(exit_code);
         }
     } else {
-        repl()
+        repl();
     }
 }
 
-fn run_file(path: impl AsRef<Path>) -> Result<()> {
-    let source = std::fs::read_to_string(path)?;
+fn run_file(path: impl AsRef<Path>) -> StdResult<(), LoxError> {
+    let source = std::fs::read_to_string(path)
+        .context("Failed to read source file.")
+        .map_err(|e| LoxError::CompileError(e))?;
     let mut vm = Vm::new();
-    vm.interpret(source.as_ref())?;
+    vm.interpret(source.as_ref())
+        .context("Runtime error")
+        .map_err(|e| LoxError::RuntimeError(e))?;
     Ok(())
 }
 
@@ -46,12 +52,12 @@ fn repl() -> Result<()> {
     let mut line = String::new();
     loop {
         print!("> ");
-        std::io::stdout().flush();
+        std::io::stdout().flush()?;
         if std::io::stdin().read_line(&mut line)? == 0 {
             println!();
             break;
         }
-        vm.interpret(&line);
+        vm.interpret(&line)?;
         line.clear();
     }
     Ok(())

@@ -28,9 +28,11 @@ fn report(line: usize, pos: impl AsRef<str>, message: impl AsRef<str>) {
     );
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum LoxError {
+    #[error("Compilation error")]
     CompileError(anyhow::Error),
+    #[error("Runtime error")]
     RuntimeError(anyhow::Error),
 }
 

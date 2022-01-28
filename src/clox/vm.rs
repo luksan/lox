@@ -1,10 +1,12 @@
+use crate::clox::compiler::compile;
 use crate::clox::value::Value;
 use crate::clox::{Chunk, OpCode};
+use crate::LoxError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
     #[error("Compilation error")]
-    CompileError,
+    CompileError(#[from] LoxError),
     #[error("VM runtime error")]
     RuntimeError(#[from] anyhow::Error),
 }
@@ -20,8 +22,9 @@ impl Vm {
         }
     }
 
-    pub fn interpret(&mut self, chunk: &Chunk) -> Result<(), VmError> {
-        self.run(chunk)
+    pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
+        let chunk = compile(source)?;
+        self.run(&chunk)
     }
 
     fn run(&mut self, chunk: &Chunk) -> Result<(), VmError> {
