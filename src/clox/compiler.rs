@@ -151,13 +151,13 @@ impl Compiler {
             TokenType::Slash => p!(None, binary, Precedence::Factor),
             TokenType::Star => p!(None, binary, Precedence::Factor),
             TokenType::Bang => p!(unary, None, Precedence::None),
-            TokenType::BangEqual => (None, None, Precedence::None),
+            TokenType::BangEqual => p!(None, binary, Precedence::Equality),
             TokenType::Equal => (None, None, Precedence::None),
-            TokenType::EqualEqual => (None, None, Precedence::None),
-            TokenType::Greater => (None, None, Precedence::None),
-            TokenType::GreaterEqual => (None, None, Precedence::None),
-            TokenType::Less => (None, None, Precedence::None),
-            TokenType::LessEqual => (None, None, Precedence::None),
+            TokenType::EqualEqual => p!(None, binary, Precedence::Equality),
+            TokenType::Greater => p!(None, binary, Precedence::Comparison),
+            TokenType::GreaterEqual => p!(None, binary, Precedence::Comparison),
+            TokenType::Less => p!(None, binary, Precedence::Comparison),
+            TokenType::LessEqual => p!(None, binary, Precedence::Comparison),
             TokenType::Identifier => (None, None, Precedence::None),
             TokenType::String => (None, None, Precedence::None),
             TokenType::Number => p!(number, None, Precedence::None),
@@ -186,13 +186,29 @@ impl Compiler {
         let typ = self.previous.tok_type();
         let rule = self.get_rule(typ);
         self.parse_precedence(rule.precedence.next_higher());
-        self.emit_byte(match typ {
-            TokenType::Plus => OpCode::Add,
-            TokenType::Minus => OpCode::Subtract,
-            TokenType::Star => OpCode::Multiply,
-            TokenType::Slash => OpCode::Divide,
-            _ => unreachable!("Hah!"),
-        });
+        macro_rules! b {
+            ($b1:ident) => {
+                self.emit_byte(OpCode::$b1)
+            };
+            ($b1:ident, $b2:ident) => {
+                self.emit_bytes(OpCode::$b1, OpCode::$b2)
+            };
+        }
+
+        match typ {
+            TokenType::BangEqual => b!(Equal, Not),
+            TokenType::EqualEqual => b!(Equal),
+            TokenType::Greater => b!(Greater),
+            TokenType::GreaterEqual => b!(Less, Not),
+            TokenType::Less => b!(Less),
+            TokenType::LessEqual => b!(Greater, Not),
+
+            TokenType::Plus => b!(Add),
+            TokenType::Minus => b!(Subtract),
+            TokenType::Star => b!(Multiply),
+            TokenType::Slash => b!(Divide),
+            _ => unreachable!("Unexpected binary op token."),
+        };
     }
 
     fn literal(&mut self) {

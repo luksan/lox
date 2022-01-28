@@ -62,6 +62,13 @@ impl Vm {
                 OpCode::Nil => self.push(Value::Nil),
                 OpCode::True => self.push(Value::Bool(true)),
                 OpCode::False => self.push(Value::Bool(false)),
+                OpCode::Equal => {
+                    let a = self.pop();
+                    let b = self.pop();
+                    self.push(a == b);
+                }
+                OpCode::Greater => binary_op!(>),
+                OpCode::Less => binary_op!(<),
                 OpCode::Add => binary_op!(+),
                 OpCode::Subtract => binary_op!(-),
                 OpCode::Multiply => binary_op!(*),
