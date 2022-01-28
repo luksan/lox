@@ -29,9 +29,9 @@ impl ValueArray {
     pub fn new() -> Self {
         Self { values: vec![] }
     }
-    pub fn write(&mut self, val: Value) -> u8 {
+    pub fn write(&mut self, val: Value) -> usize {
         self.values.push(val);
-        (self.values.len() - 1).try_into().unwrap()
+        self.values.len() - 1
     }
 }
 

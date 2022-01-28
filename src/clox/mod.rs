@@ -45,7 +45,7 @@ impl Chunk {
         }
     }
 
-    pub fn add_constant(&mut self, val: impl Into<Value>) -> u8 {
+    pub fn add_constant(&mut self, val: impl Into<Value>) -> usize {
         self.constants.write(val.into())
     }
 
