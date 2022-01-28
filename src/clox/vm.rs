@@ -2,6 +2,7 @@ use crate::clox::compiler::compile;
 use crate::clox::value::Value;
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
+use anyhow::Context;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
@@ -17,6 +18,8 @@ pub struct Vm {
 
 impl Vm {
     pub fn new() -> Self {
+        println!("Created new VM.");
+        println!("Value size: {}", std::mem::size_of::<Value>());
         Self {
             stack: Vec::with_capacity(256),
         }
@@ -46,8 +49,9 @@ impl Vm {
 
         macro_rules! binary_op {
             ($op:tt) => {{
-                let b = self.pop().as_f64()?;
-                let a = self.pop().as_f64()?;
+                let b = self.peek().as_f64().context("Operands must be numbers.")?;
+                let a = self.peek().as_f64().context("Operands must be numbers.")?;
+                self.pop(); self.pop();
                 self.push(a $op b);}}
         }
         loop {
@@ -55,13 +59,17 @@ impl Vm {
             let op: OpCode = instr.into();
             match op {
                 OpCode::Constant => self.stack.push(read_constant!()),
+                OpCode::Nil => self.push(Value::Nil),
+                OpCode::True => self.push(Value::Bool(true)),
+                OpCode::False => self.push(Value::Bool(false)),
                 OpCode::Add => binary_op!(+),
                 OpCode::Subtract => binary_op!(-),
                 OpCode::Multiply => binary_op!(*),
                 OpCode::Divide => binary_op!(/),
                 OpCode::Negate => {
-                    let x = -self.pop().as_f64()?;
-                    self.push(x);
+                    let x = self.peek().as_f64().context("Operand must be a number.")?;
+                    self.pop();
+                    self.push(-x);
                 }
                 OpCode::Return => {
                     println!("{:?}", self.pop());
@@ -74,6 +82,10 @@ impl Vm {
 
     fn push(&mut self, val: impl Into<Value>) {
         self.stack.push(val.into())
+    }
+
+    fn peek(&self) -> Value {
+        *self.stack.last().unwrap()
     }
 
     fn pop(&mut self) -> Value {

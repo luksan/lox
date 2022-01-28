@@ -6,7 +6,7 @@ use std::io::Write;
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -57,7 +57,10 @@ fn repl() -> Result<()> {
             println!();
             break;
         }
-        vm.interpret(&line)?;
+        if let Err(e) = vm.interpret(&line) {
+            println!("{:?}", e);
+            bail!("Error.");
+        }
         line.clear();
     }
     Ok(())

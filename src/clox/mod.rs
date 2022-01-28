@@ -14,6 +14,9 @@ use std::fmt::Debug;
 #[repr(u8)]
 enum OpCode {
     Constant,
+    Nil,
+    True,
+    False,
     Add,
     Subtract,
     Multiply,
@@ -85,6 +88,9 @@ impl Chunk {
         };
         match op {
             OpCode::Constant => constant_instr(),
+            OpCode::Nil => simple_instr(),
+            OpCode::True => simple_instr(),
+            OpCode::False => simple_instr(),
             OpCode::Add => simple_instr(),
             OpCode::Subtract => simple_instr(),
             OpCode::Multiply => simple_instr(),

@@ -1,23 +1,26 @@
-use anyhow::Result;
+use anyhow::{bail, Result};
 
 use std::ops::{Deref, Index};
 
 #[derive(Copy, Clone, Debug)]
 pub enum Value {
-    Float(f64),
+    Bool(bool),
+    Nil,
+    Number(f64),
 }
 
 impl Value {
     pub fn as_f64(self) -> Result<f64> {
         match self {
-            Self::Float(f) => Ok(f),
+            Self::Number(f) => Ok(f),
+            _ => bail!("Not a number."),
         }
     }
 }
 
 impl From<f64> for Value {
     fn from(f: f64) -> Self {
-        Self::Float(f)
+        Self::Number(f)
     }
 }
 

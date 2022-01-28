@@ -164,17 +164,17 @@ impl Compiler {
             TokenType::And => (None, None, Precedence::None),
             TokenType::Class => (None, None, Precedence::None),
             TokenType::Else => (None, None, Precedence::None),
-            TokenType::False => (None, None, Precedence::None),
+            TokenType::False => p!(literal, None, Precedence::None),
             TokenType::Fun => (None, None, Precedence::None),
             TokenType::For => (None, None, Precedence::None),
-            TokenType::Nil => (None, None, Precedence::None),
+            TokenType::Nil => p!(literal, None, Precedence::None),
             TokenType::If => (None, None, Precedence::None),
             TokenType::Or => (None, None, Precedence::None),
             TokenType::Print => (None, None, Precedence::None),
             TokenType::Return => (None, None, Precedence::None),
             TokenType::Super => (None, None, Precedence::None),
             TokenType::This => (None, None, Precedence::None),
-            TokenType::True => (None, None, Precedence::None),
+            TokenType::True => p!(literal, None, Precedence::None),
             TokenType::Var => (None, None, Precedence::None),
             TokenType::While => (None, None, Precedence::None),
             TokenType::Eof => (None, None, Precedence::None),
@@ -192,6 +192,15 @@ impl Compiler {
             TokenType::Star => OpCode::Multiply,
             TokenType::Slash => OpCode::Divide,
             _ => unreachable!("Hah!"),
+        });
+    }
+
+    fn literal(&mut self) {
+        self.emit_byte(match self.previous.tok_type() {
+            TokenType::False => OpCode::False,
+            TokenType::Nil => OpCode::Nil,
+            TokenType::True => OpCode::True,
+            _ => unreachable!("Strange literal."),
         });
     }
 
