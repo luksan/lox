@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 
 use std::ops::{Deref, Index};
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Value {
     Bool(bool),
     Nil,
@@ -15,6 +15,16 @@ impl Value {
             Self::Number(f) => Ok(f),
             _ => bail!("Not a number."),
         }
+    }
+
+    pub fn is_falsey(self) -> bool {
+        self == Self::Nil || self == Self::Bool(false)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(b: bool) -> Self {
+        Self::Bool(b)
     }
 }
 

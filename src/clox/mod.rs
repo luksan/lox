@@ -21,6 +21,7 @@ enum OpCode {
     Subtract,
     Multiply,
     Divide,
+    Not,
     Negate,
     Return,
     #[num_enum(default)]
@@ -95,6 +96,7 @@ impl Chunk {
             OpCode::Subtract => simple_instr(),
             OpCode::Multiply => simple_instr(),
             OpCode::Divide => simple_instr(),
+            OpCode::Not => simple_instr(),
             OpCode::Negate => simple_instr(),
             OpCode::Return => simple_instr(),
 

@@ -150,7 +150,7 @@ impl Compiler {
             TokenType::Semicolon => (None, None, Precedence::None),
             TokenType::Slash => p!(None, binary, Precedence::Factor),
             TokenType::Star => p!(None, binary, Precedence::Factor),
-            TokenType::Bang => (None, None, Precedence::None),
+            TokenType::Bang => p!(unary, None, Precedence::None),
             TokenType::BangEqual => (None, None, Precedence::None),
             TokenType::Equal => (None, None, Precedence::None),
             TokenType::EqualEqual => (None, None, Precedence::None),
@@ -222,6 +222,7 @@ impl Compiler {
         let typ = self.previous.tok_type();
         self.parse_precedence(Precedence::Unary);
         match typ {
+            TokenType::Bang => self.emit_byte(OpCode::Not),
             TokenType::Minus => self.emit_byte(OpCode::Negate),
             _ => unimplemented!(),
         }

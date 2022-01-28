@@ -66,6 +66,10 @@ impl Vm {
                 OpCode::Subtract => binary_op!(-),
                 OpCode::Multiply => binary_op!(*),
                 OpCode::Divide => binary_op!(/),
+                OpCode::Not => {
+                    let neg = self.pop().is_falsey();
+                    self.push(neg)
+                }
                 OpCode::Negate => {
                     let x = self.peek().as_f64().context("Operand must be a number.")?;
                     self.pop();
