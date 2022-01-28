@@ -77,7 +77,7 @@ impl Parser {
         };
         self.consume(LeftBrace, "Expect '{' before class body.")?;
         let mut methods: Vec<stmt::Function> = vec![];
-        while !self.check(&RightBrace) && !self.at_end() {
+        while !self.check(RightBrace) && !self.at_end() {
             methods.push(
                 stmt::Function::try_from(self.function("method")?)
                     .map_err(|_| anyhow!("Error: Expected function as method."))?,
@@ -134,13 +134,13 @@ impl Parser {
             Some(self.expression_statement()?)
         };
 
-        let condition = if !self.check(&Semicolon) {
+        let condition = if !self.check(Semicolon) {
             self.expression()?
         } else {
             expr::Literal::new(LoxType::Bool(true))
         };
         self.consume(Semicolon, "Expect ';' after loop condition.")?;
-        let increment = if !self.check(&RightParen) {
+        let increment = if !self.check(RightParen) {
             Some(self.expression()?)
         } else {
             None
@@ -178,7 +178,7 @@ impl Parser {
     }
 
     fn return_statement(&mut self, return_tok: Token) -> Result<Stmt> {
-        let value = if !self.check(&Semicolon) {
+        let value = if !self.check(Semicolon) {
             Some(self.expression()?)
         } else {
             None
@@ -198,7 +198,7 @@ impl Parser {
         self.consume(LeftParen, "Expect '(' after name.")?;
 
         let mut parameters = vec![];
-        if !self.check(&RightParen) {
+        if !self.check(RightParen) {
             loop {
                 if parameters.len() >= 255 {
                     let tok = self.peek().clone();
@@ -218,7 +218,7 @@ impl Parser {
 
     fn block(&mut self) -> Result<ListStmt> {
         let mut statements = ListStmt::new();
-        while !self.check(&RightBrace) && !self.at_end() {
+        while !self.check(RightBrace) && !self.at_end() {
             statements.push(self.declaration()?);
         }
         self.consume(RightBrace, "Expect '}' after block.")?;
@@ -312,7 +312,7 @@ impl Parser {
 
     fn finish_call(&mut self, callee: Expr) -> ParseResult {
         let mut args = Vec::new();
-        if !self.check(&RightParen) {
+        if !self.check(RightParen) {
             loop {
                 if args.len() >= 255 {
                     let tok = self.peek().clone();
@@ -369,14 +369,14 @@ impl Parser {
     }
 
     fn at_end(&mut self) -> bool {
-        self.peek().tok_type() == &TokenType::Eof
+        self.peek().tok_type() == TokenType::Eof
     }
 
     fn advance(&mut self) -> Option<Token> {
         self.tokens.next()
     }
 
-    fn check(&mut self, tok: &TokenType) -> bool {
+    fn check(&mut self, tok: TokenType) -> bool {
         self.peek().tok_type() == tok
     }
 
@@ -391,7 +391,7 @@ impl Parser {
 
     fn match_advance(&mut self, types: &[TokenType]) -> Option<Token> {
         for t in types {
-            if self.check(t) {
+            if self.check(*t) {
                 return Some(self.advance().unwrap());
             }
         }
@@ -402,7 +402,7 @@ impl Parser {
         while !self.at_end() {
             let tok = self.advance().unwrap();
 
-            if tok.tok_type() == &Semicolon {
+            if tok.tok_type() == Semicolon {
                 break;
             }
 

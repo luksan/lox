@@ -45,7 +45,7 @@ impl<'src> Compiler<'src> {
     }
 
     fn consume(&mut self, typ: TokenType, err_msg: &str) {
-        if self.current.tok_type() == &typ {
+        if self.current.tok_type() == typ {
             self.advance()
         } else {
             self.error_current(err_msg)

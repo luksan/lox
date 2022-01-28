@@ -112,8 +112,8 @@ impl Token {
         self.lexeme.as_str()
     }
 
-    pub fn tok_type(&self) -> &TokenType {
-        &self.typ
+    pub fn tok_type(&self) -> TokenType {
+        self.typ
     }
 
     pub fn line(&self) -> usize {
