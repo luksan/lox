@@ -7,7 +7,7 @@ use crate::LoxError;
 use std::result::Result as StdResult;
 use std::str::{Chars, FromStr};
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum TokenType {
     // Single-character tokens.
     LeftParen,
@@ -33,9 +33,9 @@ pub enum TokenType {
     LessEqual,
 
     // Literals.
-    Identifier(String),
-    String(String),
-    Number(f64),
+    Identifier,
+    String,
+    Number,
 
     // Keywords.
     And,
@@ -84,11 +84,18 @@ static KEYWORDS: phf::Map<&'static str, TokenType> = phf_map! {
     "while" => TokenType::While,
 };
 
+#[derive(Clone, Debug)]
+enum Literal {
+    Number(f64),
+    String(String),
+}
+
 #[derive(Clone)]
 pub struct Token {
     typ: TokenType,
     lexeme: String,
     line: usize,
+    literal: Option<Literal>,
 }
 
 impl Token {
@@ -97,6 +104,7 @@ impl Token {
             typ,
             lexeme: literal.as_ref().to_owned(),
             line,
+            literal: None,
         }
     }
 
@@ -110,6 +118,22 @@ impl Token {
 
     pub fn line(&self) -> usize {
         self.line
+    }
+
+    pub fn number_literal(&self) -> f64 {
+        if let Some(Literal::Number(f)) = &self.literal {
+            *f
+        } else {
+            panic!("Not a numeric literal.")
+        }
+    }
+
+    pub fn string_literal(&self) -> &str {
+        if let Some(Literal::String(s)) = &self.literal {
+            &s
+        } else {
+            panic!("Not a string literal.")
+        }
     }
 }
 
@@ -267,10 +291,18 @@ impl<'src> Scanner<'src> {
             _ => bail!("Unexpected character."),
         };
 
+        let lexeme = self.cursor.substring(0, 0);
         Ok(Some(Token {
             typ: tok,
-            lexeme: self.cursor.substring(0, 0).to_owned(),
+            lexeme: lexeme.to_owned(),
             line: self.line,
+            literal: match tok {
+                TokenType::String => Some(Literal::String(self.cursor.substring(1, 1).to_owned())),
+                TokenType::Number => Some(Literal::Number(
+                    f64::from_str(lexeme).context("Number parsing error")?,
+                )),
+                _ => None,
+            },
         }))
     }
 
@@ -281,7 +313,7 @@ impl<'src> Scanner<'src> {
         Ok(KEYWORDS
             .get(ident)
             .cloned()
-            .unwrap_or_else(|| TokenType::Identifier(ident.to_owned())))
+            .unwrap_or(TokenType::Identifier))
     }
 
     fn number(&mut self) -> Result<TokenType> {
@@ -294,9 +326,7 @@ impl<'src> Scanner<'src> {
                 }
             }
         }
-        f64::from_str(self.cursor.substring(0, 0))
-            .context("NUmber parsing error")
-            .map(TokenType::Number)
+        Ok(TokenType::Number)
     }
 
     fn string(&mut self) -> Result<TokenType> {
@@ -310,7 +340,7 @@ impl<'src> Scanner<'src> {
             bail!("Unterminated string.");
         }
         self.advance(); // The closing "
-        Ok(TokenType::String(self.cursor.substring(1, 1).to_owned()))
+        Ok(TokenType::String)
     }
 
     fn advance(&mut self) -> Option<char> {

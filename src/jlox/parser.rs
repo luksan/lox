@@ -67,10 +67,10 @@ impl Parser {
     }
 
     fn class_declaration(&mut self) -> Result<Stmt> {
-        let name = self.consume(Identifier("".into()), "Expect class name.")?;
+        let name = self.consume(Identifier, "Expect class name.")?;
         let superclass = if let Some(_less) = self.match_advance(&[Less]) {
             // FIXME: make consume generic over type?
-            let ident = self.consume(Identifier("".into()), "Expect superclass name.")?;
+            let ident = self.consume(Identifier, "Expect superclass name.")?;
             Some(expr::Variable::new(ident).try_into().unwrap())
         } else {
             None
@@ -88,7 +88,7 @@ impl Parser {
     }
 
     fn var_decl(&mut self) -> Result<Stmt> {
-        let name = self.consume(Identifier("".into()), "Expect variable name.")?;
+        let name = self.consume(Identifier, "Expect variable name.")?;
         let init = if self.match_advance(&[Equal]).is_some() {
             self.expression()?
         } else {
@@ -194,11 +194,7 @@ impl Parser {
     }
 
     fn function(&mut self, kind: &str) -> Result<Stmt> {
-        let ident_match = Identifier("".into());
-        let name = self.consume(
-            ident_match.clone(),
-            format!("Expect {} name.", kind).as_str(),
-        )?;
+        let name = self.consume(Identifier, format!("Expect {} name.", kind).as_str())?;
         self.consume(LeftParen, "Expect '(' after name.")?;
 
         let mut parameters = vec![];
@@ -208,7 +204,7 @@ impl Parser {
                     let tok = self.peek().clone();
                     self.error(tok, "Can't have more than 255 parameters.");
                 }
-                parameters.push(self.consume(ident_match.clone(), "Expect parameter name.")?);
+                parameters.push(self.consume(Identifier, "Expect parameter name.")?);
                 if self.match_advance(&[Comma]).is_none() {
                     break;
                 }
@@ -337,8 +333,7 @@ impl Parser {
         while let Some(tok) = self.match_advance(&[Dot, LeftParen]) {
             match tok.tok_type() {
                 Dot => {
-                    let name =
-                        self.consume(Identifier("".into()), "Expect property name after '.'.")?;
+                    let name = self.consume(Identifier, "Expect property name after '.'.")?;
                     expr = expr::Get::new(expr, name);
                 }
                 LeftParen => expr = self.finish_call(expr)?,
@@ -354,16 +349,15 @@ impl Parser {
             TokenType::False => LoxType::Bool(false),
             TokenType::True => LoxType::Bool(true),
             TokenType::Nil => LoxType::Nil,
-            TokenType::Number(num) => LoxType::Number(*num),
-            TokenType::String(s) => LoxType::String(s.as_str().into()),
+            TokenType::Number => LoxType::Number(token.number_literal()),
+            TokenType::String => LoxType::String(token.string_literal().to_owned().into()),
             TokenType::Super => {
                 let _dot = self.consume(Dot, "Expect '.' after 'super'.")?;
-                let method =
-                    self.consume(Identifier("".into()), "Expect superclass method name.")?;
+                let method = self.consume(Identifier, "Expect superclass method name.")?;
                 return Ok(expr::Super::new(token, method));
             }
             TokenType::This => return Ok(expr::This::new(token)),
-            TokenType::Identifier(_) => return Ok(expr::Variable::new(token)),
+            TokenType::Identifier => return Ok(expr::Variable::new(token)),
 
             TokenType::LeftParen => {
                 let expr = self.expression()?;
