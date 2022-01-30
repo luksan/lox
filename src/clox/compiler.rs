@@ -127,6 +127,9 @@ impl Compiler {
             };
         }
         macro_rules! p {
+            () => {
+                (None, None, Precedence::None)
+            };
             (None, $infix:ident, $prec:expr) => {
                 (None, f!($infix), $prec)
             };
@@ -140,44 +143,44 @@ impl Compiler {
 
         match tok {
             TokenType::LeftParen => p!(grouping, None, Precedence::None),
-            TokenType::RightParen => (None, None, Precedence::None),
-            TokenType::LeftBrace => (None, None, Precedence::None),
-            TokenType::RightBrace => (None, None, Precedence::None),
-            TokenType::Comma => (None, None, Precedence::None),
-            TokenType::Dot => (None, None, Precedence::None),
+            TokenType::RightParen => p!(),
+            TokenType::LeftBrace => p!(),
+            TokenType::RightBrace => p!(),
+            TokenType::Comma => p!(),
+            TokenType::Dot => p!(),
             TokenType::Minus => p!(unary, binary, Precedence::Term),
             TokenType::Plus => p!(None, binary, Precedence::Term),
-            TokenType::Semicolon => (None, None, Precedence::None),
+            TokenType::Semicolon => p!(),
             TokenType::Slash => p!(None, binary, Precedence::Factor),
             TokenType::Star => p!(None, binary, Precedence::Factor),
             TokenType::Bang => p!(unary, None, Precedence::None),
             TokenType::BangEqual => p!(None, binary, Precedence::Equality),
-            TokenType::Equal => (None, None, Precedence::None),
+            TokenType::Equal => p!(),
             TokenType::EqualEqual => p!(None, binary, Precedence::Equality),
             TokenType::Greater => p!(None, binary, Precedence::Comparison),
             TokenType::GreaterEqual => p!(None, binary, Precedence::Comparison),
             TokenType::Less => p!(None, binary, Precedence::Comparison),
             TokenType::LessEqual => p!(None, binary, Precedence::Comparison),
-            TokenType::Identifier => (None, None, Precedence::None),
-            TokenType::String => (None, None, Precedence::None),
+            TokenType::Identifier => p!(),
+            TokenType::String => p!(string, None, Precedence::None),
             TokenType::Number => p!(number, None, Precedence::None),
-            TokenType::And => (None, None, Precedence::None),
-            TokenType::Class => (None, None, Precedence::None),
-            TokenType::Else => (None, None, Precedence::None),
+            TokenType::And => p!(),
+            TokenType::Class => p!(),
+            TokenType::Else => p!(),
             TokenType::False => p!(literal, None, Precedence::None),
-            TokenType::Fun => (None, None, Precedence::None),
-            TokenType::For => (None, None, Precedence::None),
+            TokenType::Fun => p!(),
+            TokenType::For => p!(),
             TokenType::Nil => p!(literal, None, Precedence::None),
-            TokenType::If => (None, None, Precedence::None),
-            TokenType::Or => (None, None, Precedence::None),
-            TokenType::Print => (None, None, Precedence::None),
-            TokenType::Return => (None, None, Precedence::None),
-            TokenType::Super => (None, None, Precedence::None),
-            TokenType::This => (None, None, Precedence::None),
+            TokenType::If => p!(),
+            TokenType::Or => p!(),
+            TokenType::Print => p!(),
+            TokenType::Return => p!(),
+            TokenType::Super => p!(),
+            TokenType::This => p!(),
             TokenType::True => p!(literal, None, Precedence::None),
-            TokenType::Var => (None, None, Precedence::None),
-            TokenType::While => (None, None, Precedence::None),
-            TokenType::Eof => (None, None, Precedence::None),
+            TokenType::Var => p!(),
+            TokenType::While => p!(),
+            TokenType::Eof => p!(),
         }
         .into()
     }
@@ -232,6 +235,10 @@ impl Compiler {
     fn number(&mut self) {
         let n = self.previous.number_literal();
         self.emit_constant(n.into());
+    }
+
+    fn string(&mut self) {
+        self.emit_string_constant(self.previous.string_literal().to_string());
     }
 
     fn unary(&mut self) {
@@ -304,6 +311,12 @@ impl Compiler {
 
     fn emit_constant(&mut self, c: Value) {
         let idx = self.make_constant(c);
+        self.emit_bytes(OpCode::Constant, idx);
+    }
+
+    fn emit_string_constant(&mut self, c: String) {
+        let s = self.chunk.const_heap.new_string(c);
+        let idx = self.make_constant(s);
         self.emit_bytes(OpCode::Constant, idx);
     }
 

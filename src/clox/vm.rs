@@ -1,5 +1,5 @@
 use crate::clox::compiler::compile;
-use crate::clox::value::Value;
+use crate::clox::value::{Heap, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 use anyhow::Context;
@@ -14,6 +14,7 @@ pub enum VmError {
 
 pub struct Vm {
     stack: Vec<Value>,
+    heap: Heap,
 }
 
 impl Vm {
@@ -22,6 +23,7 @@ impl Vm {
         println!("Value size: {}", std::mem::size_of::<Value>());
         Self {
             stack: Vec::with_capacity(256),
+            heap: Heap::new(),
         }
     }
 
@@ -49,8 +51,8 @@ impl Vm {
 
         macro_rules! binary_op {
             ($op:tt) => {{
-                let b = self.peek().as_f64().context("Operands must be numbers.")?;
-                let a = self.peek().as_f64().context("Operands must be numbers.")?;
+                let b = self.peek(0).as_f64().context("Operands must be numbers.")?;
+                let a = self.peek(1).as_f64().context("Operands must be numbers.")?;
                 self.pop(); self.pop();
                 self.push(a $op b);}}
         }
@@ -69,7 +71,18 @@ impl Vm {
                 }
                 OpCode::Greater => binary_op!(>),
                 OpCode::Less => binary_op!(<),
-                OpCode::Add => binary_op!(+),
+                OpCode::Add => {
+                    if let (Ok(a), Ok(b)) = (self.peek(1).as_string(), self.peek(0).as_string()) {
+                        self.pop();
+                        self.pop();
+                        let new = [a, b].join("");
+                        let s = self.heap.new_string(new);
+                        self.stack.push(s);
+                    } else {
+                        // FIXME: error message in Ch 19.4.1
+                        binary_op!(+)
+                    }
+                }
                 OpCode::Subtract => binary_op!(-),
                 OpCode::Multiply => binary_op!(*),
                 OpCode::Divide => binary_op!(/),
@@ -78,7 +91,7 @@ impl Vm {
                     self.push(neg)
                 }
                 OpCode::Negate => {
-                    let x = self.peek().as_f64().context("Operand must be a number.")?;
+                    let x = self.peek(0).as_f64().context("Operand must be a number.")?;
                     self.pop();
                     self.push(-x);
                 }
@@ -95,8 +108,8 @@ impl Vm {
         self.stack.push(val.into())
     }
 
-    fn peek(&self) -> Value {
-        *self.stack.last().unwrap()
+    fn peek(&self, pos: usize) -> Value {
+        self.stack[self.stack.len() - pos - 1]
     }
 
     fn pop(&mut self) -> Value {
