@@ -23,6 +23,40 @@ impl Display for Value {
     }
 }
 
+impl Value {
+    pub fn as_f64(self) -> Result<f64> {
+        match self {
+            Self::Number(f) => Ok(f),
+            _ => bail!("Not a number."),
+        }
+    }
+
+    pub fn as_string(&self) -> Result<&str> {
+        if let Self::Obj(o) = self {
+            if let ObjTypes::String(s) = o {
+                return Ok(unsafe { s.as_ref() }.inner.as_str());
+            }
+        }
+        bail!("Not a string.");
+    }
+
+    pub fn is_falsey(self) -> bool {
+        self == Self::Nil || self == Self::Bool(false)
+    }
+}
+
+impl From<bool> for Value {
+    fn from(b: bool) -> Self {
+        Self::Bool(b)
+    }
+}
+
+impl From<f64> for Value {
+    fn from(f: f64) -> Self {
+        Self::Number(f)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoxStr {
     s: Box<str>,
@@ -92,10 +126,6 @@ impl<T: Display + Debug> Object<T> {
             inner: from.into(),
         }))
     }
-
-    fn next(&self) -> ObjTypes {
-        self.next
-    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -107,10 +137,9 @@ pub enum ObjTypes {
 impl ObjTypes {
     fn free_object(self) -> Self {
         match self {
-            ObjTypes::String(s) => unsafe { Box::from_raw(s.as_ptr()) },
+            ObjTypes::String(s) => unsafe { Box::from_raw(s.as_ptr()) }.next,
             ObjTypes::None => return self,
         }
-        .next()
     }
 }
 
@@ -159,40 +188,6 @@ impl Heap {
 impl Drop for Heap {
     fn drop(&mut self) {
         self.free_objects();
-    }
-}
-
-impl Value {
-    pub fn as_f64(self) -> Result<f64> {
-        match self {
-            Self::Number(f) => Ok(f),
-            _ => bail!("Not a number."),
-        }
-    }
-
-    pub fn as_string(&self) -> Result<&str> {
-        if let Self::Obj(o) = self {
-            if let ObjTypes::String(s) = o {
-                return Ok(unsafe { s.as_ref() }.inner.as_str());
-            }
-        }
-        bail!("Not a string.");
-    }
-
-    pub fn is_falsey(self) -> bool {
-        self == Self::Nil || self == Self::Bool(false)
-    }
-}
-
-impl From<bool> for Value {
-    fn from(b: bool) -> Self {
-        Self::Bool(b)
-    }
-}
-
-impl From<f64> for Value {
-    fn from(f: f64) -> Self {
-        Self::Number(f)
     }
 }
 
