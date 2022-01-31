@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 
+use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, Index};
 use std::ptr::NonNull;
@@ -31,10 +32,10 @@ impl Value {
         }
     }
 
-    pub fn as_string(&self) -> Result<&str> {
+    pub fn as_str(&self) -> Result<&str> {
         if let Self::Obj(o) = self {
-            if let ObjTypes::String(s) = o {
-                return Ok(unsafe { s.as_ref() }.inner.as_str());
+            if let Some(s) = o.cast::<LoxStr>() {
+                return Ok(s.inner.as_str());
             }
         }
         bail!("Not a string.");
@@ -140,6 +141,16 @@ impl ObjTypes {
             ObjTypes::String(s) => unsafe { Box::from_raw(s.as_ptr()) }.next,
             ObjTypes::None => return self,
         }
+    }
+
+    fn cast<T: Display + Debug>(self) -> Option<&'static Object<T>> {
+        match self {
+            ObjTypes::String(s) => {
+                return (unsafe { s.as_ref() } as &dyn Any).downcast_ref();
+            }
+            ObjTypes::None => {}
+        }
+        None
     }
 }
 
