@@ -2,26 +2,14 @@ use anyhow::{bail, Result};
 
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, Index};
-use std::ptr;
 use std::ptr::NonNull;
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Value {
     Bool(bool),
     Nil,
     Number(f64),
-    Obj(NonNull<Object>),
-}
-
-impl Debug for Value {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Value::Bool(b) => write!(f, "Bool({:?})", b),
-            Value::Nil => write!(f, "Nil"),
-            Value::Number(n) => write!(f, "Number({:?})", n),
-            Self::Obj(o) => write!(f, "Object({:?})", self.as_obj()),
-        }
-    }
+    Obj(ObjTypes),
 }
 
 impl Display for Value {
@@ -30,7 +18,7 @@ impl Display for Value {
             Value::Bool(b) => write!(f, "{:?}", b),
             Value::Nil => write!(f, "nil"),
             Value::Number(n) => write!(f, "{}", n),
-            Value::Obj(o) => write!(f, "{}", unsafe { o.as_ref() }),
+            Value::Obj(o) => write!(f, "{}", o),
         }
     }
 }
@@ -38,7 +26,7 @@ impl Display for Value {
 #[derive(Debug, Clone, PartialEq)]
 pub struct LoxStr {
     s: Box<str>,
-    hash: u32,
+    pub(crate) hash: u32,
 }
 
 impl LoxStr {
@@ -52,61 +40,118 @@ impl LoxStr {
 
     pub fn from_string(s: String) -> Self {
         Self {
-            hash: 0,
+            hash: Self::hash(s.as_str()),
             s: s.into_boxed_str(),
         }
     }
+
+    /// FNV-1a
+    fn hash(s: &str) -> u32 {
+        let mut hash = 2166136261;
+        for b in s.bytes() {
+            hash ^= b as u32;
+            hash = hash.wrapping_mul(16777619);
+        }
+        hash
+    }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Object {
-    inner: ObjTypes,
-    next: *const Object,
+impl From<String> for LoxStr {
+    fn from(s: String) -> Self {
+        Self::from_string(s)
+    }
 }
 
-impl Display for Object {
+impl Display for LoxStr {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match &self.inner {
-            ObjTypes::String(s) => write!(f, "{}", s.as_str()),
-            ObjTypes::None => unreachable!("Bad object."),
+        write!(f, "{}", self.s)
+    }
+}
+
+pub struct Object<T: ?Sized + Display + Debug> {
+    next: ObjTypes,
+    inner: T,
+}
+
+impl<T: Display + Debug> Debug for Object<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Object{{ inner: {:?}, next: ... }}", self.inner)
+    }
+}
+
+impl<T: Display + Debug> Display for Object<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl<T: Display + Debug> Object<T> {
+    pub fn new<S: Into<T>>(from: S) -> &'static mut Self {
+        Box::leak(Box::new(Object {
+            next: ObjTypes::None,
+            inner: from.into(),
+        }))
+    }
+
+    fn next(&self) -> ObjTypes {
+        self.next
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum ObjTypes {
+    String(NonNull<Object<LoxStr>>),
+    None,
+}
+
+impl ObjTypes {
+    fn free_object(self) -> Self {
+        match self {
+            ObjTypes::String(s) => unsafe { Box::from_raw(s.as_ptr()) },
+            ObjTypes::None => return self,
+        }
+        .next()
+    }
+}
+
+impl Debug for ObjTypes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ObjTypes::String(s) => write!(f, "{:?}->{:?}", s, unsafe { s.as_ref() }),
+            ObjTypes::None => write!(f, "None"),
         }
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum ObjTypes {
-    String(LoxStr),
-    None,
+impl Display for ObjTypes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ObjTypes::String(s) => write!(f, "{}", unsafe { s.as_ref() }),
+            ObjTypes::None => unreachable!(),
+        }
+    }
 }
 
 pub struct Heap {
-    objs: *const Object,
+    objs: ObjTypes,
 }
 
 impl Heap {
     pub fn new() -> Self {
-        Self { objs: ptr::null() }
-    }
-
-    fn new_object(&mut self) -> *mut Object {
-        let o = Box::new(Object {
-            inner: ObjTypes::None,
-            next: self.objs,
-        });
-        self.objs = Box::into_raw(o);
-        self.objs as *mut _
+        Self {
+            objs: ObjTypes::None,
+        }
     }
 
     pub fn new_string(&mut self, s: String) -> Value {
-        let o: &mut Object = unsafe { self.new_object().as_mut().unwrap() };
-        o.inner = ObjTypes::String(LoxStr::from_string(s));
-        Value::Obj(NonNull::from(o))
+        let o = Object::<LoxStr>::new(s);
+        o.next = std::mem::replace(&mut self.objs, ObjTypes::String(NonNull::from(&*o)));
+        Value::Obj(self.objs)
     }
 
     pub fn free_objects(&mut self) {
-        while !self.objs.is_null() {
-            let o: Box<Object> = unsafe { Box::from_raw(self.objs as *mut _) };
-            self.objs = o.next;
+        while !matches!(self.objs, ObjTypes::None) {
+            self.objs = self.objs.free_object();
         }
     }
 }
@@ -127,8 +172,8 @@ impl Value {
 
     pub fn as_string(&self) -> Result<&str> {
         if let Self::Obj(o) = self {
-            if let ObjTypes::String(s) = unsafe { &o.as_ref().inner } {
-                return Ok(s.as_str());
+            if let ObjTypes::String(s) = o {
+                return Ok(unsafe { s.as_ref() }.inner.as_str());
             }
         }
         bail!("Not a string.");
@@ -136,14 +181,6 @@ impl Value {
 
     pub fn is_falsey(self) -> bool {
         self == Self::Nil || self == Self::Bool(false)
-    }
-
-    fn as_obj(&self) -> &Object {
-        if let Self::Obj(o) = self {
-            unsafe { o.as_ref() }
-        } else {
-            panic!("Not an object.")
-        }
     }
 }
 

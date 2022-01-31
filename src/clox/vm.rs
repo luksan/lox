@@ -73,10 +73,10 @@ impl Vm {
                 OpCode::Less => binary_op!(<),
                 OpCode::Add => {
                     if let (Ok(a), Ok(b)) = (self.peek(1).as_string(), self.peek(0).as_string()) {
-                        self.pop();
-                        self.pop();
                         let new = [a, b].join("");
                         let s = self.heap.new_string(new);
+                        self.pop();
+                        self.pop();
                         self.stack.push(s);
                     } else {
                         // FIXME: error message in Ch 19.4.1
