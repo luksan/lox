@@ -41,6 +41,15 @@ impl Value {
         bail!("Not a string.");
     }
 
+    pub fn as_loxstr(self) -> Option<&'static Object<LoxStr>> {
+        if let Self::Obj(o) = self {
+            if let Some(s) = o.cast::<LoxStr>() {
+                return Some(s);
+            }
+        }
+        None
+    }
+
     pub fn is_falsey(self) -> bool {
         self == Self::Nil || self == Self::Bool(false)
     }
@@ -55,6 +64,12 @@ impl From<bool> for Value {
 impl From<f64> for Value {
     fn from(f: f64) -> Self {
         Self::Number(f)
+    }
+}
+
+impl From<ObjTypes> for Value {
+    fn from(o: ObjTypes) -> Self {
+        Self::Obj(o)
     }
 }
 
@@ -106,6 +121,14 @@ impl Display for LoxStr {
 pub struct Object<T: ?Sized + Display + Debug> {
     next: ObjTypes,
     inner: T,
+}
+
+impl<T: Display + Debug + ?Sized> Deref for Object<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
 }
 
 impl<T: Display + Debug> Debug for Object<T> {

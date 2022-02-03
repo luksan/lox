@@ -1,4 +1,5 @@
 mod compiler;
+mod table;
 mod value;
 mod vm;
 
