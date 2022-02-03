@@ -106,8 +106,9 @@ impl Compiler {
             println!("{:?}", t.tok_type());
         }*/
         self.advance();
-        self.expression();
-        self.consume(TokenType::Eof, "Expect end of expression.");
+        while !self.match_token(TokenType::Eof) {
+            self.declaration()
+        }
         Ok(())
     }
 
@@ -228,8 +229,32 @@ impl Compiler {
         self.consume(TokenType::RightParen, "Expect ')' after expression.");
     }
 
+    fn declaration(&mut self) {
+        self.statement();
+    }
+
+    fn statement(&mut self) {
+        if self.match_token(TokenType::Print) {
+            self.print_statement();
+        } else {
+            self.expression_statement();
+        }
+    }
+
     fn expression(&mut self) {
         self.parse_precedence(Precedence::Assignment);
+    }
+
+    fn expression_statement(&mut self) {
+        self.expression();
+        self.consume(TokenType::Semicolon, "Expect ';' after expression.");
+        self.emit_byte(OpCode::Pop);
+    }
+
+    fn print_statement(&mut self) {
+        self.expression();
+        self.consume(TokenType::Semicolon, "Expect ';' after value.");
+        self.emit_byte(OpCode::Print);
     }
 
     fn number(&mut self) {
@@ -284,6 +309,18 @@ impl Compiler {
         } else {
             self.error_current(err_msg)
         }
+    }
+
+    fn match_token(&mut self, token: TokenType) -> bool {
+        if !self.check(token) {
+            return false;
+        }
+        self.advance();
+        true
+    }
+
+    fn check(&self, token: TokenType) -> bool {
+        self.current.tok_type() == token
     }
 
     fn error_current(&mut self, msg: &str) {

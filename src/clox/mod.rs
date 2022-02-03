@@ -21,6 +21,7 @@ enum OpCode {
     True,
     False,
     Equal,
+    Pop,
     Greater,
     Less,
     Add,
@@ -29,6 +30,7 @@ enum OpCode {
     Divide,
     Not,
     Negate,
+    Print,
     Return,
     #[num_enum(default)]
     BadOpCode,
@@ -101,6 +103,7 @@ impl Chunk {
             OpCode::True => simple_instr(),
             OpCode::False => simple_instr(),
             OpCode::Equal => simple_instr(),
+            OpCode::Pop => simple_instr(),
             OpCode::Greater => simple_instr(),
             OpCode::Less => simple_instr(),
             OpCode::Add => simple_instr(),
@@ -109,6 +112,7 @@ impl Chunk {
             OpCode::Divide => simple_instr(),
             OpCode::Not => simple_instr(),
             OpCode::Negate => simple_instr(),
+            OpCode::Print => simple_instr(),
             OpCode::Return => simple_instr(),
 
             OpCode::BadOpCode => {

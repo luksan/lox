@@ -65,6 +65,9 @@ impl Vm {
                 OpCode::Nil => self.push(Value::Nil),
                 OpCode::True => self.push(Value::Bool(true)),
                 OpCode::False => self.push(Value::Bool(false)),
+                OpCode::Pop => {
+                    self.pop();
+                }
                 OpCode::Equal => {
                     let a = self.pop();
                     let b = self.pop();
@@ -96,8 +99,10 @@ impl Vm {
                     self.pop();
                     self.push(-x);
                 }
+                OpCode::Print => {
+                    println!("{}", self.pop());
+                }
                 OpCode::Return => {
-                    println!("{:?}", self.pop());
                     return Ok(());
                 }
                 OpCode::BadOpCode => {}
