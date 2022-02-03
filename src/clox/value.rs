@@ -2,8 +2,11 @@ use anyhow::{bail, Result};
 
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::{Deref, Index};
+use std::ops::Deref;
+use std::ptr;
 use std::ptr::NonNull;
+
+use crate::clox::table::StrPtr;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Value {
@@ -73,7 +76,7 @@ impl From<ObjTypes> for Value {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct LoxStr {
     s: Box<str>,
     pub(crate) hash: u32,
@@ -96,13 +99,25 @@ impl LoxStr {
     }
 
     /// FNV-1a
-    fn hash(s: &str) -> u32 {
+    pub(crate) fn hash(s: &str) -> u32 {
         let mut hash = 2166136261;
         for b in s.bytes() {
             hash ^= b as u32;
             hash = hash.wrapping_mul(16777619);
         }
         hash
+    }
+}
+
+impl PartialEq for LoxStr {
+    fn eq(&self, other: &Self) -> bool {
+        ptr::eq(&*self.s, &*other.s) // This assumes that LoxStr is interned
+    }
+}
+
+impl PartialEq<(&str, u32)> for &LoxStr {
+    fn eq(&self, other: &(&str, u32)) -> bool {
+        self.hash == other.1 && &*self.s == other.0
     }
 }
 
@@ -119,7 +134,7 @@ impl Display for LoxStr {
 }
 
 pub struct Object<T: ?Sized + Display + Debug> {
-    next: ObjTypes,
+    pub(crate) next: ObjTypes,
     inner: T,
 }
 
@@ -159,7 +174,7 @@ pub enum ObjTypes {
 }
 
 impl ObjTypes {
-    fn free_object(self) -> Self {
+    pub(crate) fn free_object(self) -> Self {
         match self {
             ObjTypes::String(s) => unsafe { Box::from_raw(s.as_ptr()) }.next,
             ObjTypes::None => return self,
@@ -195,62 +210,8 @@ impl Display for ObjTypes {
     }
 }
 
-pub struct Heap {
-    objs: ObjTypes,
-}
-
-impl Heap {
-    pub fn new() -> Self {
-        Self {
-            objs: ObjTypes::None,
-        }
-    }
-
-    pub fn new_string(&mut self, s: String) -> Value {
-        let o = Object::<LoxStr>::new(s);
-        o.next = std::mem::replace(&mut self.objs, ObjTypes::String(NonNull::from(&*o)));
-        Value::Obj(self.objs)
-    }
-
-    pub fn free_objects(&mut self) {
-        while !matches!(self.objs, ObjTypes::None) {
-            self.objs = self.objs.free_object();
-        }
-    }
-}
-
-impl Drop for Heap {
-    fn drop(&mut self) {
-        self.free_objects();
-    }
-}
-
-pub struct ValueArray {
-    values: Vec<Value>,
-}
-
-impl ValueArray {
-    pub fn new() -> Self {
-        Self { values: vec![] }
-    }
-    pub fn write(&mut self, val: Value) -> usize {
-        self.values.push(val);
-        self.values.len() - 1
-    }
-}
-
-impl Index<u8> for ValueArray {
-    type Output = Value;
-
-    fn index(&self, index: u8) -> &Self::Output {
-        &self.values[index as usize]
-    }
-}
-
-impl Deref for ValueArray {
-    type Target = [Value];
-
-    fn deref(&self) -> &Self::Target {
-        self.values.as_slice()
+impl From<StrPtr> for ObjTypes {
+    fn from(s: StrPtr) -> Self {
+        Self::String(NonNull::new(s as *mut _).unwrap())
     }
 }

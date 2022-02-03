@@ -1,4 +1,5 @@
 mod compiler;
+mod mm;
 mod table;
 mod value;
 mod vm;
@@ -7,7 +8,8 @@ pub use vm::Vm;
 
 use num_enum::FromPrimitive;
 
-use crate::clox::value::{Heap, Value, ValueArray};
+use mm::{Heap, ValueArray};
+use value::Value;
 
 use std::fmt::Debug;
 

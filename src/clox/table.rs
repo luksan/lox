@@ -118,6 +118,28 @@ impl LoxTable {
             .map(|e| (e.key.get(), e.value.get()))
     }
 
+    pub fn find_key(&self, k: &str) -> Option<StrPtr> {
+        if self.count == 0 {
+            return None;
+        }
+        let cap = self.capacity() as u32;
+        let hash = LoxStr::hash(k);
+        let mut index = hash % cap;
+        loop {
+            let entry = &self.entries[index as usize];
+            if entry.value().is_none() && !entry.is_tombstone() {
+                return None;
+            }
+            if let Some(key) = entry.key() {
+                if key == (k, hash) {
+                    return Some(entry.key.get());
+                }
+            }
+
+            index = (index + 1) % cap;
+        }
+    }
+
     fn find_entry(&self, key: &LoxStr) -> &Entry {
         let capacity = self.capacity() as u32;
         let mut index = key.hash % capacity;
@@ -160,8 +182,9 @@ impl LoxTable {
 
 #[cfg(test)]
 mod test {
+    use crate::clox::mm::Heap;
     use crate::clox::table::LoxTable;
-    use crate::clox::value::{Heap, Value};
+    use crate::clox::value::Value;
 
     #[test]
     fn basic_test() {
@@ -174,8 +197,9 @@ mod test {
         assert!(!table.set(s1, Value::Bool(true)));
         assert_eq!(table.get(s1), Some(Value::Bool(true)));
 
-        let s2 = heap.new_string("asd".to_string()).as_loxstr().unwrap();
-        assert_ne!(table.get(s2), None); // FIXME: this should return None if a ptr cmp is done
+        let mut heap2 = Heap::new(); // put a string on another heap
+        let s2 = heap2.new_string("asd".to_string()).as_loxstr().unwrap();
+        assert_eq!(table.get(s2), None); // This is None because of string interning
     }
 
     #[test]
@@ -233,5 +257,16 @@ mod test {
         assert_eq!(table.count, 109);
         table.adjust_capacity(109);
         assert_eq!(table.count, 30);
+    }
+
+    #[test]
+    fn find_key() {
+        let mut table = LoxTable::new();
+        let mut heap = Heap::new();
+        let s1 = heap.new_string("asd".to_string()).as_loxstr().unwrap();
+        table.set(s1, Value::Bool(false));
+        assert_eq!(table.find_key("asd"), Some(s1 as *const _));
+        assert_eq!(table.find_key(s1.as_str()), Some(s1 as *const _));
+        assert_eq!(table.find_key("asd2"), None);
     }
 }

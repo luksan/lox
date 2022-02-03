@@ -1,5 +1,6 @@
 use crate::clox::compiler::compile;
-use crate::clox::value::{Heap, Value};
+use crate::clox::mm::Heap;
+use crate::clox::value::Value;
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 use anyhow::Context;
