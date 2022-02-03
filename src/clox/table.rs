@@ -34,6 +34,15 @@ impl Entry {
         }
     }
 
+    fn delete(&self) {
+        self.key.set(ptr::null());
+        self.value.set(Value::Bool(true));
+    }
+
+    fn is_tombstone(&self) -> bool {
+        self.key.get().is_null() && self.value.get() == Value::Bool(true)
+    }
+
     fn set(&self, key: StrPtr, val: Value) {
         self.key.set(key);
         self.value.set(val);
@@ -75,14 +84,26 @@ impl LoxTable {
         let key_ref = unsafe { &**key.as_ref().unwrap() };
         let entry = self.find_entry(key_ref);
         let is_new = entry.value().is_none();
+        let tombstone = entry.is_tombstone();
         entry.set(key, value);
-        if is_new {
+        if is_new && !tombstone {
             self.count += 1;
         }
         is_new
     }
 
-    pub fn delete(&mut self, key: &LoxStr) {}
+    pub fn delete(&mut self, key: &LoxStr) -> bool {
+        if self.count == 0 {
+            return false;
+        }
+        let entry = self.find_entry(key);
+        if entry.value().is_some() {
+            entry.delete();
+            true
+        } else {
+            false
+        }
+    }
 
     pub fn add_all(&mut self, other: &Self) {
         for e in other.entries.iter().filter(|e| e.value().is_some()) {
@@ -90,26 +111,43 @@ impl LoxTable {
         }
     }
 
+    pub fn entries(&self) -> impl Iterator<Item = (StrPtr, Value)> + '_ {
+        self.entries
+            .iter()
+            .filter(|e| e.value().is_some())
+            .map(|e| (e.key.get(), e.value.get()))
+    }
+
     fn find_entry(&self, key: &LoxStr) -> &Entry {
         let capacity = self.capacity() as u32;
         let mut index = key.hash % capacity;
+        let mut tombstone = u32::MAX;
         loop {
             let e = &self.entries[index as usize];
-            if let Some(e_key) = unsafe { e.key() } {
-                if e_key != key {
+            if let Some(e_key) = e.key() {
+                if e_key == key {
                     // FIXME: this should assume string interning and do a ptr cmp
-                    index = (index + 1) % capacity;
-                    continue;
+                    return &self.entries[index as usize];
+                }
+            } else {
+                if !e.is_tombstone() {
+                    return &self.entries[if tombstone < u32::MAX {
+                        tombstone
+                    } else {
+                        index
+                    } as usize];
+                } else if tombstone == u32::MAX {
+                    tombstone = index;
                 }
             }
-            break;
+            index = (index + 1) % capacity;
         }
-        &self.entries[index as usize]
     }
 
     fn adjust_capacity(&mut self, cap: usize) {
         let mut old = std::mem::replace(&mut self.entries, Vec::new());
         self.entries.resize_with(cap, || Default::default());
+        self.count = 0;
         for e in old.drain(..).filter(|e| e.value().is_some()) {
             self.set(e.key.get(), e.value.get());
         }
@@ -138,5 +176,62 @@ mod test {
 
         let s2 = heap.new_string("asd".to_string()).as_loxstr().unwrap();
         assert_ne!(table.get(s2), None); // FIXME: this should return None if a ptr cmp is done
+    }
+
+    #[test]
+    fn test_deletion() {
+        let mut table = LoxTable::new();
+        let mut heap = Heap::new();
+        macro_rules! str {
+            ($s:expr) => {
+                heap.new_string($s.to_string()).as_loxstr().unwrap()
+            };
+        }
+        macro_rules! get {
+            ($k:expr) => {
+                assert_eq!(table.get($k), None)
+            };
+            ($k:expr, $v:expr) => {
+                assert_eq!(table.get($k), Some($v))
+            };
+        }
+        let s1 = str!("asd");
+        assert!(table.set(s1, Value::Nil));
+        get!(s1, Value::Nil);
+        table.delete(s1);
+        get!(s1);
+        assert!(table.set(s1, Value::Bool(true)));
+        get!(s1, Value::Bool(true));
+
+        let mut entries = vec![(s1, Value::Bool(true))];
+        for n in 0..100 {
+            let s = str!(n);
+            let v = Value::Number(n as f64);
+            assert!(table.set(s, v));
+            entries.push((s, v));
+        }
+        assert_eq!(table.count, 101);
+        for (k, v) in &entries {
+            get!(k, *v);
+        }
+        for k in &entries {
+            assert!(table.delete(k.0));
+            assert!(!table.delete(k.0));
+        }
+        assert_eq!(table.count, 101);
+        for (k, v) in &entries {
+            assert!(table.set(*k, *v));
+            assert!(table.delete(*k));
+        }
+
+        for n in 100..130 {
+            let s = str!(n);
+            let v = Value::Number(n as f64);
+            assert!(table.set(s, v));
+            entries.push((s, v));
+        }
+        assert_eq!(table.count, 109);
+        table.adjust_capacity(109);
+        assert_eq!(table.count, 30);
     }
 }
