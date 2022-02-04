@@ -1,5 +1,6 @@
 use crate::clox::compiler::compile;
 use crate::clox::mm::Heap;
+use crate::clox::table::LoxTable;
 use crate::clox::value::Value;
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
@@ -16,6 +17,7 @@ pub enum VmError {
 pub struct Vm {
     stack: Vec<Value>,
     heap: Heap,
+    globals: LoxTable,
 }
 
 impl Vm {
@@ -25,6 +27,7 @@ impl Vm {
         Self {
             stack: Vec::with_capacity(256),
             heap: Heap::new(),
+            globals: LoxTable::new(),
         }
     }
 
@@ -66,6 +69,11 @@ impl Vm {
                 OpCode::True => self.push(Value::Bool(true)),
                 OpCode::False => self.push(Value::Bool(false)),
                 OpCode::Pop => {
+                    self.pop();
+                }
+                OpCode::DefineGlobal => {
+                    let name = read_constant!().as_loxstr().unwrap();
+                    self.globals.set(name, self.peek(0));
                     self.pop();
                 }
                 OpCode::Equal => {

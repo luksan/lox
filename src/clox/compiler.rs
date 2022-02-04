@@ -230,7 +230,11 @@ impl Compiler {
     }
 
     fn declaration(&mut self) {
-        self.statement();
+        if self.match_token(TokenType::Var) {
+            self.var_declaration();
+        } else {
+            self.statement();
+        }
         if self.panic_mode {
             self.synchronize();
         }
@@ -246,6 +250,20 @@ impl Compiler {
 
     fn expression(&mut self) {
         self.parse_precedence(Precedence::Assignment);
+    }
+
+    fn var_declaration(&mut self) {
+        let global = self.parse_variable("Expect variable name.");
+        if self.match_token(TokenType::Equal) {
+            self.expression();
+        } else {
+            self.emit_byte(OpCode::Nil)
+        }
+        self.consume(
+            TokenType::Semicolon,
+            "Expect ';' after variable declaration.",
+        );
+        self.define_variable(global);
     }
 
     fn expression_statement(&mut self) {
@@ -310,6 +328,20 @@ impl Compiler {
             let infix_rule = self.get_rule(self.previous.tok_type()).infix;
             infix_rule.unwrap()(self);
         }
+    }
+
+    fn identifier_constant(&mut self, name: String) -> u8 {
+        let v = self.chunk.const_heap.new_string(name);
+        self.make_constant(v)
+    }
+
+    fn parse_variable(&mut self, err: &str) -> u8 {
+        self.consume(TokenType::Identifier, err);
+        self.identifier_constant(self.previous.lexeme().to_string())
+    }
+
+    fn define_variable(&mut self, global: u8) {
+        self.emit_bytes(OpCode::DefineGlobal, global)
     }
 
     fn advance(&mut self) {
