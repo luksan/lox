@@ -36,6 +36,8 @@ enum OpCode {
     Not,
     Negate,
     Print,
+    Jump,
+    JumpIfFalse,
     Return,
     #[num_enum(default)]
     BadOpCode,
@@ -105,6 +107,11 @@ impl Chunk {
             println!("{:16?} {:4}", op, slot);
             offset + 2
         };
+        let jump_instr = |sign| {
+            let jump = (self.code[offset + 1] as usize) << 8 | self.code[offset + 2] as usize;
+            println!("{:16?} {:4} -> {}", op, offset, offset + 3 + sign * jump);
+            offset + 3
+        };
         match op {
             OpCode::Constant => constant_instr(),
             OpCode::Nil => simple_instr(),
@@ -126,6 +133,8 @@ impl Chunk {
             OpCode::Not => simple_instr(),
             OpCode::Negate => simple_instr(),
             OpCode::Print => simple_instr(),
+            OpCode::Jump => jump_instr(1),
+            OpCode::JumpIfFalse => jump_instr(1),
             OpCode::Return => simple_instr(),
 
             OpCode::BadOpCode => {

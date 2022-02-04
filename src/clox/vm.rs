@@ -47,6 +47,13 @@ impl Vm {
                 b
             }};
         }
+        macro_rules! read_short {
+            () => {{
+                let a = read_byte!() as u16;
+                let b = read_byte!() as u16;
+                a << 8 + b
+            }};
+        }
         macro_rules! read_constant {
             () => {
                 chunk.constants[read_byte!()]
@@ -148,6 +155,20 @@ impl Vm {
                 }
                 OpCode::Print => {
                     println!("{}", self.pop());
+                }
+                OpCode::Jump => {
+                    let offset = read_short!();
+                    unsafe {
+                        ip = ip.add(offset as usize);
+                    }
+                }
+                OpCode::JumpIfFalse => {
+                    let offset = read_short!();
+                    if self.peek(0).is_falsey() {
+                        unsafe {
+                            ip = ip.add(offset as usize);
+                        }
+                    }
                 }
                 OpCode::Return => {
                     return Ok(());

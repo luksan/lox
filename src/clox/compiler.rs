@@ -270,6 +270,8 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         if self.match_token(TokenType::Print) {
             self.print_statement();
+        } else if self.match_token(TokenType::If) {
+            self.if_statement();
         } else if self.match_token(TokenType::LeftBrace) {
             self.begin_scope();
             self.block();
@@ -308,6 +310,22 @@ impl<'a> Compiler<'a> {
         self.expression();
         self.consume(TokenType::Semicolon, "Expect ';' after expression.");
         self.emit_byte(OpCode::Pop);
+    }
+
+    fn if_statement(&mut self) {
+        self.consume(TokenType::LeftParen, "Expect '(' after 'if'.");
+        self.expression();
+        self.consume(TokenType::RightParen, "Expect ')' after condition.");
+        let then_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_byte(OpCode::Pop);
+        self.statement();
+        let else_jump = self.emit_jump(OpCode::Jump);
+        self.patch_jump(then_jump);
+        self.emit_byte(OpCode::Pop);
+        if self.match_token(TokenType::Else) {
+            self.statement()
+        }
+        self.patch_jump(else_jump);
     }
 
     fn print_statement(&mut self) {
@@ -526,9 +544,25 @@ impl<'a> Compiler<'a> {
         self.emit_byte(b2);
     }
 
+    fn emit_jump(&mut self, instruction: OpCode) -> usize {
+        self.emit_byte(instruction);
+        self.emit_bytes(0xff, 0xff);
+        self.current_chunk().code.len() - 2
+    }
+
     fn emit_constant(&mut self, c: Value) {
         let idx = self.make_constant(c);
         self.emit_bytes(OpCode::Constant, idx);
+    }
+
+    fn patch_jump(&mut self, offset: usize) {
+        let jump = self.current_chunk().code.len() - offset - 2;
+        if jump > u16::MAX as usize {
+            self.error("Too much code to jump over.");
+        }
+        let code = &mut self.current_chunk().code;
+        code[offset] = ((jump >> 8) & 0xff) as u8;
+        code[offset + 1] = (jump & 0xff) as u8;
     }
 
     fn emit_string_constant(&mut self, c: String) {
