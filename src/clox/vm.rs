@@ -51,7 +51,7 @@ impl Vm {
             () => {{
                 let a = read_byte!() as u16;
                 let b = read_byte!() as u16;
-                a << 8 + b
+                a << 8 | b
             }};
         }
         macro_rules! read_constant {
