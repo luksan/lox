@@ -188,7 +188,7 @@ impl<'a> Compiler<'a> {
             TokenType::Identifier => p!(variable, None, Precedence::None),
             TokenType::String => p!(string, None, Precedence::None),
             TokenType::Number => p!(number, None, Precedence::None),
-            TokenType::And => p!(),
+            TokenType::And => p!(None, and, Precedence::And),
             TokenType::Class => p!(),
             TokenType::Else => p!(),
             TokenType::False => p!(literal, None, Precedence::None),
@@ -196,7 +196,7 @@ impl<'a> Compiler<'a> {
             TokenType::For => p!(),
             TokenType::Nil => p!(literal, None, Precedence::None),
             TokenType::If => p!(),
-            TokenType::Or => p!(),
+            TokenType::Or => p!(None, or, Precedence::Or),
             TokenType::Print => p!(),
             TokenType::Return => p!(),
             TokenType::Super => p!(),
@@ -355,6 +355,16 @@ impl<'a> Compiler<'a> {
         self.emit_constant(n.into());
     }
 
+    fn or(&mut self, _can_assign: bool) {
+        let else_jump = self.emit_jump(OpCode::JumpIfFalse);
+        let end_jump = self.emit_jump(OpCode::Jump);
+
+        self.patch_jump(else_jump);
+        self.emit_byte(OpCode::Pop);
+        self.parse_precedence(Precedence::Or);
+        self.patch_jump(end_jump);
+    }
+
     fn string(&mut self, _can_assign: bool) {
         self.emit_string_constant(self.previous.string_literal().to_string());
     }
@@ -476,6 +486,13 @@ impl<'a> Compiler<'a> {
             return;
         }
         self.emit_bytes(OpCode::DefineGlobal, global)
+    }
+
+    fn and(&mut self, _can_assign: bool) {
+        let end_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_byte(OpCode::Pop);
+        self.parse_precedence(Precedence::And);
+        self.patch_jump(end_jump);
     }
 
     fn advance(&mut self) {
