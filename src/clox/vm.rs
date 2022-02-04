@@ -170,6 +170,12 @@ impl Vm {
                         }
                     }
                 }
+                OpCode::Loop => {
+                    let offset = read_short!();
+                    unsafe {
+                        ip = ip.sub(offset as usize);
+                    }
+                }
                 OpCode::Return => {
                     return Ok(());
                 }

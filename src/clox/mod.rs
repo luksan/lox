@@ -38,6 +38,7 @@ enum OpCode {
     Print,
     Jump,
     JumpIfFalse,
+    Loop,
     Return,
     #[num_enum(default)]
     BadOpCode,
@@ -108,8 +109,13 @@ impl Chunk {
             offset + 2
         };
         let jump_instr = |sign| {
-            let jump = (self.code[offset + 1] as usize) << 8 | self.code[offset + 2] as usize;
-            println!("{:16?} {:4} -> {}", op, offset, offset + 3 + sign * jump);
+            let jump = (self.code[offset + 1] as isize) << 8 | self.code[offset + 2] as isize;
+            println!(
+                "{:16?} {:4} -> {}",
+                op,
+                offset,
+                offset as isize + 3 + sign * jump
+            );
             offset + 3
         };
         match op {
@@ -135,6 +141,7 @@ impl Chunk {
             OpCode::Print => simple_instr(),
             OpCode::Jump => jump_instr(1),
             OpCode::JumpIfFalse => jump_instr(1),
+            OpCode::Loop => jump_instr(-1),
             OpCode::Return => simple_instr(),
 
             OpCode::BadOpCode => {
