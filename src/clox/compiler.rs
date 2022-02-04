@@ -74,7 +74,7 @@ struct PrattRule {
     precedence: Precedence,
 }
 
-type ParseFn = fn(&mut Compiler<'_>);
+type ParseFn = fn(&mut Compiler<'_>, bool);
 type OptParseFn = Option<ParseFn>;
 
 impl<'a> Compiler<'a> {
@@ -117,10 +117,10 @@ impl<'a> Compiler<'a> {
         macro_rules! f {
             // https://stackoverflow.com/questions/64102352
             ($func:ident) => {{
-                fn f(this: &mut Compiler<'_>) {
-                    this.$func();
+                fn f(this: &mut Compiler<'_>, can_assign: bool) {
+                    this.$func(can_assign);
                 }
-                Some(f as fn(&mut Compiler<'_>))
+                Some(f as ParseFn)
             }};
         }
         macro_rules! p {
@@ -186,7 +186,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn binary(&mut self) {
+    fn binary(&mut self, _can_assign: bool) {
         let typ = self.previous.tok_type();
         let rule = self.get_rule(typ);
         self.parse_precedence(rule.precedence.next_higher());
@@ -215,7 +215,7 @@ impl<'a> Compiler<'a> {
         };
     }
 
-    fn literal(&mut self) {
+    fn literal(&mut self, _can_assign: bool) {
         self.emit_byte(match self.previous.tok_type() {
             TokenType::False => OpCode::False,
             TokenType::Nil => OpCode::Nil,
@@ -224,7 +224,7 @@ impl<'a> Compiler<'a> {
         });
     }
 
-    fn grouping(&mut self) {
+    fn grouping(&mut self, _can_assign: bool) {
         self.expression();
         self.consume(TokenType::RightParen, "Expect ')' after expression.");
     }
@@ -294,25 +294,30 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn number(&mut self) {
+    fn number(&mut self, _can_assign: bool) {
         let n = self.previous.number_literal();
         self.emit_constant(n.into());
     }
 
-    fn string(&mut self) {
+    fn string(&mut self, _can_assign: bool) {
         self.emit_string_constant(self.previous.string_literal().to_string());
     }
 
-    fn named_variable(&mut self, name: String) {
+    fn named_variable(&mut self, name: String, can_assign: bool) {
         let c = self.identifier_constant(name);
-        self.emit_bytes(OpCode::GetGlobal, c);
+        if can_assign && self.match_token(TokenType::Equal) {
+            self.expression();
+            self.emit_bytes(OpCode::SetGlobal, c);
+        } else {
+            self.emit_bytes(OpCode::GetGlobal, c);
+        }
     }
 
-    fn variable(&mut self) {
-        self.named_variable(self.previous.lexeme().to_string())
+    fn variable(&mut self, can_assign: bool) {
+        self.named_variable(self.previous.lexeme().to_string(), can_assign)
     }
 
-    fn unary(&mut self) {
+    fn unary(&mut self, _can_assign: bool) {
         let typ = self.previous.tok_type();
         self.parse_precedence(Precedence::Unary);
         match typ {
@@ -331,11 +336,15 @@ impl<'a> Compiler<'a> {
                 return;
             }
         };
-        prefix_rule(self);
+        let can_assign = precedence <= Precedence::Assignment;
+        prefix_rule(self, can_assign);
         while precedence <= self.get_rule(self.current.tok_type()).precedence {
             self.advance();
             let infix_rule = self.get_rule(self.previous.tok_type()).infix;
-            infix_rule.unwrap()(self);
+            infix_rule.unwrap()(self, can_assign);
+        }
+        if can_assign && self.match_token(TokenType::Equal) {
+            self.error_current("Invalid assignment target.")
         }
     }
 

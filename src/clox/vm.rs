@@ -84,6 +84,13 @@ impl Vm {
                     self.globals.set(name, self.peek(0));
                     self.pop();
                 }
+                OpCode::SetGlobal => {
+                    let name = read_constant!().as_loxstr().unwrap();
+                    if self.globals.set(name, self.peek(0)) {
+                        self.globals.delete(name);
+                        Err(anyhow!("Undefined variable '{}'.", name))?;
+                    }
+                }
                 OpCode::Equal => {
                     let a = self.pop();
                     let b = self.pop();
