@@ -5,7 +5,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::mem;
 
 use crate::clox::mm::Heap;
-use crate::clox::value::Value;
+use crate::clox::value::{LoxStr, Object, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
@@ -14,7 +14,7 @@ pub fn compile(source: &str, heap: &mut Heap) -> StdResult<Chunk, LoxError> {
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens()?;
 
-    let mut compiler = Compiler::new(scanner, heap);
+    let mut compiler = Compiler::new(scanner.tokens(), heap);
     compiler.compile().map_err(|e| LoxError::CompileError(e))?;
     compiler
         .end_compiler()
@@ -22,15 +22,23 @@ pub fn compile(source: &str, heap: &mut Heap) -> StdResult<Chunk, LoxError> {
 }
 
 struct Compiler<'a> {
-    tokens: Vec<Token>,
+    tokens: &'a [Token],
     tok_pos: usize,
-    previous: Token,
-    current: Token,
+    previous: &'a Token,
+    current: &'a Token,
     had_error: bool,
     panic_mode: bool,
 
     chunk: Chunk,
     heap: &'a mut Heap,
+
+    locals: Vec<Local<'a>>,
+    scope_depth: usize,
+}
+
+struct Local<'a> {
+    name: &'a Object<LoxStr>,
+    depth: usize,
 }
 
 /*
@@ -78,18 +86,21 @@ type ParseFn = fn(&mut Compiler<'_>, bool);
 type OptParseFn = Option<ParseFn>;
 
 impl<'a> Compiler<'a> {
-    fn new(scanner: Scanner, heap: &'a mut Heap) -> Self {
-        let tok0 = scanner.tokens()[0].clone();
+    fn new(tokens: &'a [Token], heap: &'a mut Heap) -> Self {
+        let tok0 = &tokens[0];
         Self {
-            tokens: scanner.take_tokens(),
+            tokens,
             tok_pos: 0,
-            previous: tok0.clone(),
+            previous: tok0,
             current: tok0,
             had_error: false,
             panic_mode: false,
 
             chunk: Chunk::new(),
             heap,
+
+            locals: vec![],
+            scope_depth: 0,
         }
     }
 
@@ -368,7 +379,7 @@ impl<'a> Compiler<'a> {
             //            self.error_current("Unexpected end of token stream.");
             //          return;
         }
-        self.previous = mem::replace(&mut self.current, self.tokens[self.tok_pos].clone());
+        self.previous = mem::replace(&mut self.current, &self.tokens[self.tok_pos]);
         self.tok_pos += 1;
     }
 
