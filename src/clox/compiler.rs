@@ -4,23 +4,24 @@ use anyhow::{bail, Result};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::mem;
 
+use crate::clox::mm::Heap;
 use crate::clox::value::Value;
 use crate::clox::{Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
 
-pub fn compile(source: &str) -> StdResult<Chunk, LoxError> {
+pub fn compile(source: &str, heap: &mut Heap) -> StdResult<Chunk, LoxError> {
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens()?;
 
-    let mut compiler = Compiler::new(scanner);
+    let mut compiler = Compiler::new(scanner, heap);
     compiler.compile().map_err(|e| LoxError::CompileError(e))?;
     compiler
         .end_compiler()
         .map_err(|e| LoxError::CompileError(e))
 }
 
-struct Compiler {
+struct Compiler<'a> {
     tokens: Vec<Token>,
     tok_pos: usize,
     previous: Token,
@@ -29,6 +30,7 @@ struct Compiler {
     panic_mode: bool,
 
     chunk: Chunk,
+    heap: &'a mut Heap,
 }
 
 /*
@@ -72,22 +74,11 @@ struct PrattRule {
     precedence: Precedence,
 }
 
-type ParseFn = fn(&mut Compiler);
-
+type ParseFn = fn(&mut Compiler<'_>);
 type OptParseFn = Option<ParseFn>;
 
-impl From<(OptParseFn, OptParseFn, Precedence)> for PrattRule {
-    fn from(x: (OptParseFn, OptParseFn, Precedence)) -> Self {
-        Self {
-            prefix: x.0,
-            infix: x.1,
-            precedence: x.2,
-        }
-    }
-}
-
-impl Compiler {
-    fn new(scanner: Scanner) -> Self {
+impl<'a> Compiler<'a> {
+    fn new(scanner: Scanner, heap: &'a mut Heap) -> Self {
         let tok0 = scanner.tokens()[0].clone();
         Self {
             tokens: scanner.take_tokens(),
@@ -98,6 +89,7 @@ impl Compiler {
             panic_mode: false,
 
             chunk: Chunk::new(),
+            heap,
         }
     }
 
@@ -123,9 +115,13 @@ impl Compiler {
 
     fn get_rule(&self, tok: TokenType) -> PrattRule {
         macro_rules! f {
-            ($func:ident) => {
-                Some(Self::$func as fn(&mut Compiler))
-            };
+            // https://stackoverflow.com/questions/64102352
+            ($func:ident) => {{
+                fn f(this: &mut Compiler<'_>) {
+                    this.$func();
+                }
+                Some(f as fn(&mut Compiler<'_>))
+            }};
         }
         macro_rules! p {
             () => {
@@ -142,7 +138,7 @@ impl Compiler {
             };
         }
 
-        match tok {
+        let (prefix, infix, precedence) = match tok {
             TokenType::LeftParen => p!(grouping, None, Precedence::None),
             TokenType::RightParen => p!(),
             TokenType::LeftBrace => p!(),
@@ -182,8 +178,12 @@ impl Compiler {
             TokenType::Var => p!(),
             TokenType::While => p!(),
             TokenType::Eof => p!(),
+        };
+        PrattRule {
+            prefix,
+            infix,
+            precedence,
         }
-        .into()
     }
 
     fn binary(&mut self) {
@@ -340,7 +340,7 @@ impl Compiler {
     }
 
     fn identifier_constant(&mut self, name: String) -> u8 {
-        let v = self.chunk.const_heap.new_string(name);
+        let v = self.heap.new_string(name);
         self.make_constant(v)
     }
 
@@ -412,7 +412,7 @@ impl Compiler {
     }
 
     fn emit_string_constant(&mut self, c: String) {
-        let s = self.chunk.const_heap.new_string(c);
+        let s = self.heap.new_string(c);
         let idx = self.make_constant(s);
         self.emit_bytes(OpCode::Constant, idx);
     }

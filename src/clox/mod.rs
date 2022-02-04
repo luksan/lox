@@ -8,7 +8,7 @@ pub use vm::Vm;
 
 use num_enum::FromPrimitive;
 
-use mm::{Heap, ValueArray};
+use mm::ValueArray;
 use value::Value;
 
 use std::fmt::Debug;
@@ -47,7 +47,6 @@ impl Into<u8> for OpCode {
 pub struct Chunk {
     code: Vec<u8>,
     constants: ValueArray,
-    const_heap: Heap,
     lines: Vec<u16>,
 }
 
@@ -56,7 +55,6 @@ impl Chunk {
         Self {
             code: Vec::with_capacity(0),
             constants: ValueArray::new(),
-            const_heap: Heap::new(),
             lines: vec![],
         }
     }

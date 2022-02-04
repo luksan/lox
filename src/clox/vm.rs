@@ -4,7 +4,7 @@ use crate::clox::table::LoxTable;
 use crate::clox::value::Value;
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
-use anyhow::{anyhow, bail, Context};
+use anyhow::{anyhow, Context};
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
@@ -32,7 +32,7 @@ impl Vm {
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
-        let chunk = compile(source)?;
+        let chunk = compile(source, &mut self.heap)?;
         self.run(&chunk)
     }
 
