@@ -4,7 +4,7 @@ use crate::clox::table::LoxTable;
 use crate::clox::value::Value;
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
-use anyhow::{anyhow, Context};
+use anyhow::anyhow;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
@@ -22,8 +22,8 @@ pub struct Vm {
 
 impl Vm {
     pub fn new() -> Self {
-        println!("Created new VM.");
-        println!("Value size: {}", std::mem::size_of::<Value>());
+        // println!("Created new VM.");
+        // println!("Value size: {}", std::mem::size_of::<Value>());
         Self {
             stack: Vec::with_capacity(256),
             heap: Heap::new(),
@@ -53,13 +53,27 @@ impl Vm {
             };
         }
 
-        macro_rules! binary_op {
-            ($op:tt) => {{
-                let b = self.peek(0).as_f64().context("Operands must be numbers.")?;
-                let a = self.peek(1).as_f64().context("Operands must be numbers.")?;
-                self.pop(); self.pop();
-                self.push(a $op b);}}
+        macro_rules! runtime_error {
+            ($fmt:literal $(,)? $( $e:expr ),*) => {{
+                let idx = unsafe {ip.offset_from(chunk.code.as_ptr()) }- 1;
+                let line = chunk.lines[idx as usize];
+                eprintln!($fmt, $($e),*);
+                Err(anyhow!("[line {}] in script", line))}
+            };
         }
+
+        macro_rules! binary_op {
+            ($op:tt) => {binary_op!("Operands must be numbers.", $op)};
+            ($err:literal, $op:tt) => {{ loop {
+                let (a,b) = if let Ok(ab)  =self.peek(0).as_f64().and_then(|b|self.peek(1).as_f64().map(|a|(a,b))) {
+                    ab
+                }else { break runtime_error!($err)};
+                self.pop(); self.pop();
+                self.push(a $op b);
+                break Ok(());
+            }?;
+            }
+        }}
         loop {
             let instr = read_byte!();
             let op: OpCode = instr.into();
@@ -71,12 +85,20 @@ impl Vm {
                 OpCode::Pop => {
                     self.pop();
                 }
+                OpCode::GetLocal => {
+                    let slot = read_byte!();
+                    self.push(self.stack[slot as usize]);
+                }
+                OpCode::SetLocal => {
+                    let slot = read_byte!();
+                    self.stack[slot as usize] = self.peek(0);
+                }
                 OpCode::GetGlobal => {
                     let name = read_constant!().as_loxstr().unwrap();
                     if let Some(v) = self.globals.get(name) {
                         self.push(v);
                     } else {
-                        Err(anyhow!("Undefined variable '{}'.", name))?;
+                        runtime_error!("Undefined variable '{}'.", name)?;
                     }
                 }
                 OpCode::DefineGlobal => {
@@ -88,7 +110,7 @@ impl Vm {
                     let name = read_constant!().as_loxstr().unwrap();
                     if self.globals.set(name, self.peek(0)) {
                         self.globals.delete(name);
-                        Err(anyhow!("Undefined variable '{}'.", name))?;
+                        runtime_error!("Undefined variable '{}'.", name)?;
                     }
                 }
                 OpCode::Equal => {
@@ -106,8 +128,7 @@ impl Vm {
                         self.pop();
                         self.stack.push(s);
                     } else {
-                        // FIXME: error message in Ch 19.4.1
-                        binary_op!(+)
+                        binary_op!("Operands must be two numbers or two strings.", +)
                     }
                 }
                 OpCode::Subtract => binary_op!(-),
@@ -118,9 +139,12 @@ impl Vm {
                     self.push(neg)
                 }
                 OpCode::Negate => {
-                    let x = self.peek(0).as_f64().context("Operand must be a number.")?;
-                    self.pop();
-                    self.push(-x);
+                    if let Ok(x) = self.peek(0).as_f64() {
+                        self.pop();
+                        self.push(-x);
+                    } else {
+                        runtime_error!("Operand must be a number.")?;
+                    }
                 }
                 OpCode::Print => {
                     println!("{}", self.pop());

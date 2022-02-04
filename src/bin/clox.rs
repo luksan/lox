@@ -1,6 +1,6 @@
 use std::result::Result as StdResult;
 
-use lox::clox::Vm;
+use lox::clox::{Vm, VmError};
 use lox::LoxError;
 use std::io::Write;
 
@@ -41,10 +41,11 @@ fn run_file(path: impl AsRef<Path>) -> StdResult<(), LoxError> {
         .context("Failed to read source file.")
         .map_err(|e| LoxError::CompileError(e))?;
     let mut vm = Vm::new();
-    vm.interpret(source.as_ref())
-        .context("Runtime error")
-        .map_err(|e| LoxError::RuntimeError(e))?;
-    Ok(())
+    match vm.interpret(source.as_ref()) {
+        Ok(_) => Ok(()),
+        Err(VmError::CompileError(e)) => Err(e),
+        Err(VmError::RuntimeError(e)) => Err(LoxError::RuntimeError(e)),
+    }
 }
 
 fn repl() -> Result<()> {

@@ -4,7 +4,7 @@ mod table;
 mod value;
 mod vm;
 
-pub use vm::Vm;
+pub use vm::{Vm, VmError};
 
 use num_enum::FromPrimitive;
 
@@ -22,6 +22,8 @@ enum OpCode {
     False,
     Equal,
     Pop,
+    GetLocal,
+    SetLocal,
     GetGlobal,
     DefineGlobal,
     SetGlobal,
@@ -98,11 +100,18 @@ impl Chunk {
             println!("{:16?} {:4} {:?}", op, c, self.constants[c]);
             offset + 2
         };
+        let byte_instr = || {
+            let slot = self.code[offset + 1];
+            println!("{:16?} {:4}", op, slot);
+            offset + 2
+        };
         match op {
             OpCode::Constant => constant_instr(),
             OpCode::Nil => simple_instr(),
             OpCode::True => simple_instr(),
             OpCode::False => simple_instr(),
+            OpCode::GetLocal => byte_instr(),
+            OpCode::SetLocal => byte_instr(),
             OpCode::GetGlobal => constant_instr(),
             OpCode::DefineGlobal => constant_instr(),
             OpCode::SetGlobal => constant_instr(),

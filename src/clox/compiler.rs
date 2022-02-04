@@ -5,7 +5,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::mem;
 
 use crate::clox::mm::Heap;
-use crate::clox::value::{LoxStr, Object, Value};
+use crate::clox::value::Value;
 use crate::clox::{Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
@@ -37,7 +37,7 @@ struct Compiler<'a> {
 }
 
 struct Local<'a> {
-    name: &'a Object<LoxStr>,
+    name: &'a Token,
     depth: usize,
 }
 
@@ -118,10 +118,26 @@ impl<'a> Compiler<'a> {
     pub fn end_compiler(mut self) -> Result<Chunk> {
         self.emit_byte(OpCode::Return);
         if self.had_error {
-            self.chunk.disassemble("code"); // FIXME: this should be conditional
+            //  self.chunk.disassemble("code"); // FIXME: this should be conditional
             bail!("Compilation failed.")
         }
         Ok(self.chunk)
+    }
+
+    fn begin_scope(&mut self) {
+        self.scope_depth += 1;
+    }
+
+    fn end_scope(&mut self) {
+        self.scope_depth -= 1;
+        while let Some(local) = self.locals.last() {
+            if local.depth > self.scope_depth && local.depth < usize::MAX {
+                self.emit_byte(OpCode::Pop);
+                self.locals.pop();
+            } else {
+                break;
+            }
+        }
     }
 
     fn get_rule(&self, tok: TokenType) -> PrattRule {
@@ -254,6 +270,10 @@ impl<'a> Compiler<'a> {
     fn statement(&mut self) {
         if self.match_token(TokenType::Print) {
             self.print_statement();
+        } else if self.match_token(TokenType::LeftBrace) {
+            self.begin_scope();
+            self.block();
+            self.end_scope();
         } else {
             self.expression_statement();
         }
@@ -261,6 +281,13 @@ impl<'a> Compiler<'a> {
 
     fn expression(&mut self) {
         self.parse_precedence(Precedence::Assignment);
+    }
+
+    fn block(&mut self) {
+        while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
+            self.declaration();
+        }
+        self.consume(TokenType::RightBrace, "Expect '}' after block.");
     }
 
     fn var_declaration(&mut self) {
@@ -314,18 +341,26 @@ impl<'a> Compiler<'a> {
         self.emit_string_constant(self.previous.string_literal().to_string());
     }
 
-    fn named_variable(&mut self, name: String, can_assign: bool) {
-        let c = self.identifier_constant(name);
+    fn named_variable(&mut self, name: &str, can_assign: bool) {
+        let arg = self.resolve_local(name);
+        let c;
+        let (get_op, set_op) = if let Some(local) = arg {
+            c = local as u8;
+            (OpCode::GetLocal, OpCode::SetLocal)
+        } else {
+            c = self.identifier_constant(name.to_string());
+            (OpCode::GetGlobal, OpCode::SetGlobal)
+        };
         if can_assign && self.match_token(TokenType::Equal) {
             self.expression();
-            self.emit_bytes(OpCode::SetGlobal, c);
+            self.emit_bytes(set_op, c);
         } else {
-            self.emit_bytes(OpCode::GetGlobal, c);
+            self.emit_bytes(get_op, c);
         }
     }
 
     fn variable(&mut self, can_assign: bool) {
-        self.named_variable(self.previous.lexeme().to_string(), can_assign)
+        self.named_variable(self.previous.lexeme(), can_assign)
     }
 
     fn unary(&mut self, _can_assign: bool) {
@@ -343,7 +378,7 @@ impl<'a> Compiler<'a> {
         let prefix_rule = match self.get_rule(self.previous.tok_type()).prefix {
             Some(p) => p,
             None => {
-                self.error_current("Expect expression.");
+                self.error("Expect expression.");
                 return;
             }
         };
@@ -355,7 +390,7 @@ impl<'a> Compiler<'a> {
             infix_rule.unwrap()(self, can_assign);
         }
         if can_assign && self.match_token(TokenType::Equal) {
-            self.error_current("Invalid assignment target.")
+            self.error("Invalid assignment target.")
         }
     }
 
@@ -364,12 +399,64 @@ impl<'a> Compiler<'a> {
         self.make_constant(v)
     }
 
+    fn resolve_local(&mut self, name: &str) -> Option<usize> {
+        for (i, local) in self.locals.iter().enumerate().rev() {
+            if local.name.lexeme() == name {
+                if local.depth == usize::MAX {
+                    self.error("Can't read local variable in its own initializer.");
+                }
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    fn add_local(&mut self, name: &'a Token) {
+        if self.locals.len() >= u8::MAX as usize + 1 {
+            self.error("Too many local variables in function.");
+            return;
+        }
+        self.locals.push(Local {
+            name,
+            depth: usize::MAX,
+        });
+    }
+
+    fn declare_variable(&mut self) {
+        if self.scope_depth == 0 {
+            return;
+        }
+        let name = self.previous;
+        for local in self.locals.iter().rev() {
+            if local.depth < self.scope_depth {
+                break;
+            }
+            if local.name.lexeme() == name.lexeme() {
+                self.error("Already a variable with this name in this scope.");
+                break;
+            }
+        }
+        self.add_local(name);
+    }
+
     fn parse_variable(&mut self, err: &str) -> u8 {
         self.consume(TokenType::Identifier, err);
+        self.declare_variable();
+        if self.scope_depth > 0 {
+            return 0;
+        }
         self.identifier_constant(self.previous.lexeme().to_string())
     }
 
+    fn mark_initialized(&mut self) {
+        self.locals.last_mut().map(|l| l.depth = self.scope_depth);
+    }
+
     fn define_variable(&mut self, global: u8) {
+        if self.scope_depth > 0 {
+            self.mark_initialized();
+            return;
+        }
         self.emit_bytes(OpCode::DefineGlobal, global)
     }
 
@@ -387,7 +474,7 @@ impl<'a> Compiler<'a> {
         if self.current.tok_type() == typ {
             self.advance()
         } else {
-            self.error_current(err_msg)
+            self.error_at_current(err_msg)
         }
     }
 
@@ -403,11 +490,24 @@ impl<'a> Compiler<'a> {
         self.current.tok_type() == token
     }
 
-    fn error_current(&mut self, msg: &str) {
+    fn error(&mut self, msg: &str) {
+        self.error_at(self.previous, msg);
+    }
+
+    fn error_at_current(&mut self, msg: &str) {
+        self.error_at(self.current, msg);
+    }
+
+    fn error_at(&mut self, token: &'a Token, msg: &str) {
         if self.panic_mode {
             return;
         }
-        println!("Error at {:?}: {}", self.current.tok_type(), msg);
+        eprintln!(
+            "[line {}] Error at '{}': {}",
+            token.line(),
+            token.lexeme(),
+            msg
+        );
         self.had_error = true;
         self.panic_mode = true;
     }
@@ -440,7 +540,7 @@ impl<'a> Compiler<'a> {
     fn make_constant(&mut self, c: Value) -> u8 {
         let i = self.chunk.add_constant(c);
         if i > u8::MAX as usize {
-            self.error_current("Too many constants in one chunk.");
+            self.error("Too many constants in one chunk.");
             0
         } else {
             i as u8
