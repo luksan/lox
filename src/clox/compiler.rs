@@ -231,6 +231,9 @@ impl Compiler {
 
     fn declaration(&mut self) {
         self.statement();
+        if self.panic_mode {
+            self.synchronize();
+        }
     }
 
     fn statement(&mut self) {
@@ -255,6 +258,22 @@ impl Compiler {
         self.expression();
         self.consume(TokenType::Semicolon, "Expect ';' after value.");
         self.emit_byte(OpCode::Print);
+    }
+
+    fn synchronize(&mut self) {
+        self.panic_mode = false;
+        while self.current.tok_type() != TokenType::Eof
+            && self.previous.tok_type() != TokenType::Semicolon
+        {
+            use TokenType::*;
+            if matches!(
+                self.current.tok_type(),
+                Class | Fun | Var | For | If | While | Print | Return
+            ) {
+                break;
+            }
+            self.advance();
+        }
     }
 
     fn number(&mut self) {
