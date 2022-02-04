@@ -4,7 +4,7 @@ use crate::clox::table::LoxTable;
 use crate::clox::value::Value;
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
-use anyhow::Context;
+use anyhow::{anyhow, bail, Context};
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
@@ -70,6 +70,14 @@ impl Vm {
                 OpCode::False => self.push(Value::Bool(false)),
                 OpCode::Pop => {
                     self.pop();
+                }
+                OpCode::GetGlobal => {
+                    let name = read_constant!().as_loxstr().unwrap();
+                    if let Some(v) = self.globals.get(name) {
+                        self.push(v);
+                    } else {
+                        Err(anyhow!("Undefined variable '{}'.", name))?;
+                    }
                 }
                 OpCode::DefineGlobal => {
                     let name = read_constant!().as_loxstr().unwrap();

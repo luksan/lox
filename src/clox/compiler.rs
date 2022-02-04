@@ -162,7 +162,7 @@ impl Compiler {
             TokenType::GreaterEqual => p!(None, binary, Precedence::Comparison),
             TokenType::Less => p!(None, binary, Precedence::Comparison),
             TokenType::LessEqual => p!(None, binary, Precedence::Comparison),
-            TokenType::Identifier => p!(),
+            TokenType::Identifier => p!(variable, None, Precedence::None),
             TokenType::String => p!(string, None, Precedence::None),
             TokenType::Number => p!(number, None, Precedence::None),
             TokenType::And => p!(),
@@ -301,6 +301,15 @@ impl Compiler {
 
     fn string(&mut self) {
         self.emit_string_constant(self.previous.string_literal().to_string());
+    }
+
+    fn named_variable(&mut self, name: String) {
+        let c = self.identifier_constant(name);
+        self.emit_bytes(OpCode::GetGlobal, c);
+    }
+
+    fn variable(&mut self) {
+        self.named_variable(self.previous.lexeme().to_string())
     }
 
     fn unary(&mut self) {
