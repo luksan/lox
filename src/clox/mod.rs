@@ -11,7 +11,7 @@ use num_enum::FromPrimitive;
 use mm::ValueArray;
 use value::Value;
 
-use std::fmt::Debug;
+use std::fmt::{Debug, Formatter};
 
 #[derive(Copy, Clone, Debug, FromPrimitive)]
 #[repr(u8)]
@@ -149,5 +149,11 @@ impl Chunk {
                 offset + 1
             }
         }
+    }
+}
+
+impl Debug for Chunk {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<chunk {:?}>", self as *const _)
     }
 }

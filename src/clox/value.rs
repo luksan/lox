@@ -1,5 +1,6 @@
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 
+use crate::clox::Chunk;
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
@@ -35,26 +36,30 @@ impl Value {
         }
     }
 
+    pub fn as_function(self) -> Result<&'static Object<Function>> {
+        self.as_object().context("Not a function.")
+    }
+
     pub fn as_str(&self) -> Result<&str> {
-        if let Self::Obj(o) = self {
-            if let Some(s) = o.cast::<LoxStr>() {
-                return Ok(s.inner.as_str());
-            }
-        }
-        bail!("Not a string.");
+        self.as_object::<LoxStr>()
+            .map(|o| o.as_str())
+            .context("Not a string.")
     }
 
     pub fn as_loxstr(self) -> Option<&'static Object<LoxStr>> {
-        if let Self::Obj(o) = self {
-            if let Some(s) = o.cast::<LoxStr>() {
-                return Some(s);
-            }
-        }
-        None
+        self.as_object()
     }
 
     pub fn is_falsey(self) -> bool {
         self == Self::Nil || self == Self::Bool(false)
+    }
+
+    fn as_object<O: Display + Debug>(&self) -> Option<&'static Object<O>> {
+        if let Self::Obj(ptr) = self {
+            ptr.cast()
+        } else {
+            None
+        }
     }
 }
 
@@ -133,6 +138,29 @@ impl Display for LoxStr {
     }
 }
 
+#[derive(Debug)]
+pub struct Function {
+    arity: u8,
+    chunk: Chunk,
+    name: *const Object<LoxStr>,
+}
+
+impl Function {
+    pub fn new() -> Self {
+        Self {
+            arity: 0,
+            chunk: Chunk::new(),
+            name: ptr::null(),
+        }
+    }
+}
+
+impl Display for Function {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<fn {}>", unsafe { self.name.as_ref().unwrap() })
+    }
+}
+
 pub struct Object<T: ?Sized + Display + Debug> {
     pub(crate) next: ObjTypes,
     inner: T,
@@ -169,23 +197,34 @@ impl<T: Display + Debug> Object<T> {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ObjTypes {
+    Function(NonNull<Object<Function>>),
     String(NonNull<Object<LoxStr>>),
     None,
 }
 
 impl ObjTypes {
     pub(crate) fn free_object(self) -> Self {
+        macro_rules! free_next {
+            ($ptr:expr) => {
+                unsafe { Box::from_raw($ptr.as_ptr()) }.next
+            };
+        }
         match self {
-            ObjTypes::String(s) => unsafe { Box::from_raw(s.as_ptr()) }.next,
+            ObjTypes::Function(f) => free_next!(f),
+            ObjTypes::String(s) => free_next!(s),
             ObjTypes::None => return self,
         }
     }
 
     fn cast<T: Display + Debug>(self) -> Option<&'static Object<T>> {
+        macro_rules! down {
+            ($ptr:expr) => {
+                return (unsafe { $ptr.as_ref() } as &dyn Any).downcast_ref()
+            };
+        }
         match self {
-            ObjTypes::String(s) => {
-                return (unsafe { s.as_ref() } as &dyn Any).downcast_ref();
-            }
+            ObjTypes::Function(f) => down!(f),
+            ObjTypes::String(s) => down!(s),
             ObjTypes::None => {}
         }
         None
@@ -194,8 +233,14 @@ impl ObjTypes {
 
 impl Debug for ObjTypes {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        macro_rules! w {
+            ($ptr:expr) => {
+                write!(f, "{:?}->{:?}", $ptr, unsafe { $ptr.as_ref() })
+            };
+        }
         match self {
-            ObjTypes::String(s) => write!(f, "{:?}->{:?}", s, unsafe { s.as_ref() }),
+            ObjTypes::Function(fun) => w!(fun),
+            ObjTypes::String(s) => w!(s),
             ObjTypes::None => write!(f, "None"),
         }
     }
@@ -203,8 +248,14 @@ impl Debug for ObjTypes {
 
 impl Display for ObjTypes {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        macro_rules! w {
+            ($ptr:expr) => {
+                write!(f, "{}", unsafe { $ptr.as_ref() })
+            };
+        }
         match self {
-            ObjTypes::String(s) => write!(f, "{}", unsafe { s.as_ref() }),
+            ObjTypes::Function(fun) => w!(fun),
+            ObjTypes::String(s) => w!(s),
             ObjTypes::None => unreachable!(),
         }
     }
