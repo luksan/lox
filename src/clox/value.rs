@@ -75,9 +75,9 @@ impl From<f64> for Value {
     }
 }
 
-impl From<ObjTypes> for Value {
-    fn from(o: ObjTypes) -> Self {
-        Self::Obj(o)
+impl<O: Into<ObjTypes>> From<O> for Value {
+    fn from(ptr: O) -> Self {
+        Self::Obj(ptr.into())
     }
 }
 
