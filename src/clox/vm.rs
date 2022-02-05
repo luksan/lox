@@ -1,8 +1,8 @@
 use crate::clox::compiler::compile;
 use crate::clox::mm::Heap;
 use crate::clox::table::LoxTable;
-use crate::clox::value::Value;
-use crate::clox::{Chunk, OpCode};
+use crate::clox::value::{Function, Value};
+use crate::clox::OpCode;
 use crate::LoxError;
 use anyhow::anyhow;
 
@@ -32,11 +32,12 @@ impl Vm {
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
-        let chunk = compile(source, &mut self.heap)?;
-        self.run(&chunk)
+        let func = compile(source, &mut self.heap)?;
+        self.run(unsafe { func.as_ref() }.unwrap())
     }
 
-    fn run(&mut self, chunk: &Chunk) -> Result<(), VmError> {
+    fn run(&mut self, func: &Function) -> Result<(), VmError> {
+        let chunk = &func.chunk;
         let mut ip = chunk.code.as_ptr();
         macro_rules! read_byte {
             () => {{

@@ -1,7 +1,7 @@
 use crate::clox::table::LoxTable;
 use crate::clox::value::{LoxStr, ObjTypes, Object, Value};
+use std::fmt::{Debug, Display};
 use std::ops::{Deref, Index};
-use std::ptr::NonNull;
 
 pub struct Heap {
     objs: ObjTypes,
@@ -16,12 +16,20 @@ impl Heap {
         }
     }
 
+    pub fn new_object<O: Display + Debug>(&mut self, inner: O) -> &'static mut Object<O>
+    where
+        *const Object<O>: Into<ObjTypes>,
+    {
+        let o = Object::new(inner);
+        o.next = std::mem::replace(&mut self.objs, (o as *const Object<O>).into());
+        o
+    }
+
     pub fn new_string(&mut self, s: String) -> Value {
         if let Some(s) = self.strings.find_key(s.as_str()) {
             return Value::Obj(s.into());
         }
-        let o = Object::<LoxStr>::new(s);
-        o.next = std::mem::replace(&mut self.objs, ObjTypes::String(NonNull::from(&*o)));
+        let o = self.new_object(LoxStr::from_string(s));
         self.strings.set(o, Value::Nil);
         Value::Obj(self.objs)
     }

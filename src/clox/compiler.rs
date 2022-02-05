@@ -5,12 +5,15 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::mem;
 
 use crate::clox::mm::Heap;
-use crate::clox::value::Value;
+use crate::clox::value::{Function, Object, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
 
-pub fn compile(source: &str, heap: &mut Heap) -> StdResult<Chunk, LoxError> {
+pub fn compile<'a>(
+    source: &'a str,
+    heap: &'a mut Heap,
+) -> StdResult<*const Object<Function>, LoxError> {
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens()?;
 
@@ -29,11 +32,19 @@ struct Compiler<'a> {
     had_error: bool,
     panic_mode: bool,
 
-    chunk: Chunk,
+    function: Function,
+    func_type: FunctionType,
+
     heap: &'a mut Heap,
 
     locals: Vec<Local<'a>>,
     scope_depth: usize,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+enum FunctionType {
+    Function,
+    Script,
 }
 
 struct Local<'a> {
@@ -96,7 +107,8 @@ impl<'a> Compiler<'a> {
             had_error: false,
             panic_mode: false,
 
-            chunk: Chunk::new(),
+            function: Function::new(),
+            func_type: FunctionType::Script,
             heap,
 
             locals: vec![],
@@ -115,13 +127,13 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    pub fn end_compiler(mut self) -> Result<Chunk> {
+    pub fn end_compiler(mut self) -> Result<*const Object<Function>> {
         self.emit_byte(OpCode::Return);
         if self.had_error {
             //  self.chunk.disassemble("code"); // FIXME: this should be conditional
             bail!("Compilation failed.")
         }
-        Ok(self.chunk)
+        Ok(self.heap.new_object(self.function))
     }
 
     fn begin_scope(&mut self) {
@@ -604,7 +616,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.chunk
+        &mut self.function.chunk
     }
 
     fn emit_byte(&mut self, byte: impl Into<u8>) {
@@ -654,7 +666,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn make_constant(&mut self, c: Value) -> u8 {
-        let i = self.chunk.add_constant(c);
+        let i = self.current_chunk().add_constant(c);
         if i > u8::MAX as usize {
             self.error("Too many constants in one chunk.");
             0

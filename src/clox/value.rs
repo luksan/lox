@@ -141,7 +141,7 @@ impl Display for LoxStr {
 #[derive(Debug)]
 pub struct Function {
     arity: u8,
-    chunk: Chunk,
+    pub(crate) chunk: Chunk,
     name: *const Object<LoxStr>,
 }
 
@@ -264,5 +264,11 @@ impl Display for ObjTypes {
 impl From<StrPtr> for ObjTypes {
     fn from(s: StrPtr) -> Self {
         Self::String(NonNull::new(s as *mut _).unwrap())
+    }
+}
+
+impl From<*const Object<Function>> for ObjTypes {
+    fn from(s: *const Object<Function>) -> Self {
+        Self::Function(NonNull::new(s as *mut _).unwrap())
     }
 }
