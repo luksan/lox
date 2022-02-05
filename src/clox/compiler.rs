@@ -48,7 +48,7 @@ enum FunctionType {
 }
 
 struct Local<'a> {
-    name: &'a Token,
+    name: &'a str,
     depth: usize,
 }
 
@@ -111,7 +111,7 @@ impl<'a> Compiler<'a> {
             func_type: FunctionType::Script,
             heap,
 
-            locals: vec![],
+            locals: vec![Local{name: "", depth:0}],
             scope_depth: 0,
         }
     }
@@ -497,7 +497,7 @@ impl<'a> Compiler<'a> {
 
     fn resolve_local(&mut self, name: &str) -> Option<usize> {
         for (i, local) in self.locals.iter().enumerate().rev() {
-            if local.name.lexeme() == name {
+            if local.name == name {
                 if local.depth == usize::MAX {
                     self.error("Can't read local variable in its own initializer.");
                 }
@@ -513,7 +513,7 @@ impl<'a> Compiler<'a> {
             return;
         }
         self.locals.push(Local {
-            name,
+            name: name.lexeme(),
             depth: usize::MAX,
         });
     }
@@ -527,7 +527,7 @@ impl<'a> Compiler<'a> {
             if local.depth < self.scope_depth {
                 break;
             }
-            if local.name.lexeme() == name.lexeme() {
+            if local.name == name.lexeme() {
                 self.error("Already a variable with this name in this scope.");
                 break;
             }

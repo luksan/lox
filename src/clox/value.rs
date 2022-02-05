@@ -157,7 +157,13 @@ impl Function {
 
 impl Display for Function {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "<fn {}>", unsafe { self.name.as_ref().unwrap() })
+        write!(
+            f,
+            "<fn {}>",
+            unsafe { self.name.as_ref() }
+                .map(|s| s.as_str())
+                .unwrap_or("<script>")
+        )
     }
 }
 
