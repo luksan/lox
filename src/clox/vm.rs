@@ -2,7 +2,7 @@ use crate::clox::compiler::compile;
 use crate::clox::mm::Heap;
 use crate::clox::table::LoxTable;
 use crate::clox::value::{Function, ObjTypes, Object, Value};
-use crate::clox::OpCode;
+use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 
 use anyhow::{anyhow, bail, Result};
@@ -24,10 +24,23 @@ pub struct Vm {
     globals: LoxTable,
 }
 
+#[derive(Copy, Clone, Debug)]
 pub struct CallFrame {
     function: *const Object<Function>,
     ip: *const u8,
     stack_offset: usize,
+}
+
+impl CallFrame {
+    fn disassemble(&self) {
+        let (func, name) =
+            unsafe { self.function.as_ref().map(|f| (f, (&*f.name).as_str())) }.unwrap();
+        func.chunk.disassemble(name);
+    }
+
+    fn chunk(&self) -> &'static Chunk {
+        &unsafe { self.function.as_ref() }.unwrap().chunk
+    }
 }
 
 impl Vm {
@@ -46,30 +59,24 @@ impl Vm {
         let function = compile(source, &mut self.heap)?;
         self.push(ObjTypes::from(function));
         let frame = self.call(unsafe { function.as_ref().unwrap() }, 0)?;
-        self.frames.push(frame);
-        self.run()
+        self.run(frame)
     }
 
-    fn run(&mut self) -> Result<(), VmError> {
-        let frame = self.frames.last_mut().unwrap();
-        let chunk = &unsafe { frame.function.as_ref() }.unwrap().chunk;
-        let mut ip: *const u8 = chunk.code.as_ptr();
-        let mut stack_offset = frame.stack_offset;
-
+    fn run(&mut self, mut frame: CallFrame) -> Result<(), VmError> {
         macro_rules! ip_incr {
             ($inc:expr) => {
-                ip = ip.add($inc as usize);
+                frame.ip = frame.ip.add($inc as usize);
             };
         }
         macro_rules! ip_decr {
             ($dec:expr) => {
-                ip = ip.sub($dec as usize);
+                frame.ip = frame.ip.sub($dec as usize);
             };
         }
         macro_rules! read_byte {
             () => {{
                 unsafe {
-                    let b = *ip;
+                    let b = *frame.ip;
                     ip_incr!(1);
                     b
                 }
@@ -84,15 +91,15 @@ impl Vm {
         }
         macro_rules! read_constant {
             () => {
-                chunk.constants[read_byte!()]
+                frame.chunk().constants[read_byte!()]
             };
         }
 
         macro_rules! runtime_error {
             // FIXME: Ch 24.5.3
             ($fmt:literal $(,)? $( $e:expr ),*) => {{
-                let idx = unsafe {ip.offset_from(chunk.code.as_ptr()) }- 1;
-                let line = chunk.lines[idx as usize];
+                let idx = unsafe {frame.ip.offset_from(frame.chunk().code.as_ptr()) }- 1;
+                let line = frame.chunk().lines[idx as usize];
                 eprintln!($fmt, $($e),*);
                 Err(anyhow!("[line {}] in script", line))}
             };
@@ -124,11 +131,11 @@ impl Vm {
                 }
                 OpCode::GetLocal => {
                     let slot = read_byte!();
-                    self.push(self.stack[slot as usize + stack_offset]);
+                    self.push(self.stack[slot as usize + frame.stack_offset]);
                 }
                 OpCode::SetLocal => {
                     let slot = read_byte!();
-                    self.stack[slot as usize + stack_offset] = self.peek(0);
+                    self.stack[slot as usize + frame.stack_offset] = self.peek(0);
                 }
                 OpCode::GetGlobal => {
                     let name = read_constant!().as_loxstr().unwrap();
@@ -211,29 +218,35 @@ impl Vm {
                     let arg_count = read_byte!();
                     let callee = self.peek(arg_count as usize);
                     let new_frame = self.call_value(callee, arg_count)?;
-                    self.frames.last_mut().map(|f| f.ip = ip);
-                    ip = new_frame.ip;
-                    stack_offset = new_frame.stack_offset;
-                    self.frames.push(new_frame);
+                    self.frames.push(std::mem::replace(&mut frame, new_frame));
                 }
                 OpCode::Return => {
                     // Ch 24.5.4
                     let result = self.pop();
-                    let new_stack_len = self.frames.pop().unwrap().stack_offset;
-                    if self.frames.is_empty() {
+                    if let Some(outer_frame) = self.frames.pop() {
+                        self.stack.truncate(frame.stack_offset);
+                        self.push(result);
+                        frame = outer_frame;
+                    } else {
                         self.pop();
                         return Ok(());
                     }
-                    self.stack.truncate(new_stack_len);
-                    self.push(result);
-                    ip = self.frames.last().unwrap().ip;
                 }
                 OpCode::BadOpCode => {}
             }
         }
     }
 
-    fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<CallFrame> {
+    fn print_stack(&self, hdr: &str) {
+        println!("Stack dump: {}", hdr);
+        self.stack
+            .iter()
+            .rev()
+            .enumerate()
+            .for_each(|(i, v)| println!("[{}] {:?}", i, v));
+    }
+
+    fn call_value(&self, callee: Value, arg_count: u8) -> Result<CallFrame> {
         if let Ok(fun) = callee.as_function() {
             self.call(fun, arg_count)
         } else {
@@ -241,7 +254,7 @@ impl Vm {
         }
     }
 
-    fn call(&mut self, function: &Object<Function>, arg_count: u8) -> Result<CallFrame> {
+    fn call(&self, function: &Object<Function>, arg_count: u8) -> Result<CallFrame> {
         if arg_count != function.arity {
             bail!(
                 "Expected {} arguments but got {}.",
