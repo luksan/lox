@@ -39,6 +39,7 @@ enum OpCode {
     Jump,
     JumpIfFalse,
     Loop,
+    Call,
     Return,
     #[num_enum(default)]
     BadOpCode,
@@ -142,6 +143,7 @@ impl Chunk {
             OpCode::Jump => jump_instr(1),
             OpCode::JumpIfFalse => jump_instr(1),
             OpCode::Loop => jump_instr(-1),
+            OpCode::Call => byte_instr(),
             OpCode::Return => simple_instr(),
 
             OpCode::BadOpCode => {

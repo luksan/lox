@@ -140,9 +140,9 @@ impl Display for LoxStr {
 
 #[derive(Debug)]
 pub struct Function {
-    arity: u8,
+    pub(crate) arity: u8,
     pub(crate) chunk: Chunk,
-    name: *const Object<LoxStr>,
+    pub(crate) name: *const Object<LoxStr>,
 }
 
 impl Function {

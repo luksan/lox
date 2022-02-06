@@ -1,3 +1,4 @@
+use std::fmt::Display;
 use std::result::Result as StdResult;
 
 use anyhow::{bail, Result};
@@ -24,6 +25,8 @@ pub fn compile<'a>(
         .map_err(|e| LoxError::CompileError(e))
 }
 
+const U8_MAX_LEN: usize = 256;
+
 struct Compiler<'a> {
     tokens: &'a [Token],
     tok_pos: usize,
@@ -32,13 +35,51 @@ struct Compiler<'a> {
     had_error: bool,
     panic_mode: bool,
 
-    function: Function,
-    func_type: FunctionType,
+    func_scope: FunctionScope<'a>,
 
     heap: &'a mut Heap,
+}
 
-    locals: Vec<Local<'a>>,
+// This is struct Compiler in the book, Ch 22.
+struct FunctionScope<'compiler> {
+    function: Function,
+    func_type: FunctionType,
     scope_depth: usize,
+    locals: Vec<Local<'compiler>>,
+}
+
+impl<'compiler> FunctionScope<'compiler> {
+    fn new(func_type: FunctionType) -> Self {
+        Self {
+            function: Function::new(),
+            func_type,
+            scope_depth: 0,
+            locals: vec![Local { name: "", depth: 0 }],
+        }
+    }
+
+    fn add_local(&mut self, name: &'compiler Token) -> Result<()> {
+        if self.locals.len() >= u8::MAX as usize + 1 {
+            bail!("Too many local variables in function.");
+        }
+        self.locals.push(Local {
+            name: name.lexeme(),
+            depth: usize::MAX,
+        });
+        Ok(())
+    }
+
+    fn declare_local(&mut self, name: &'compiler Token) -> Result<()> {
+        for local in self.locals.iter().rev() {
+            if local.depth < self.scope_depth {
+                break;
+            }
+            if local.name == name.lexeme() {
+                bail!("Already a variable with this name in this scope.");
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -52,19 +93,6 @@ struct Local<'a> {
     depth: usize,
 }
 
-/*
-PREC_NONE,
- PREC_ASSIGNMENT,  // =
- PREC_OR,          // or
- PREC_AND,         // and
- PREC_EQUALITY,    // == !=
- PREC_COMPARISON,  // < > <= >=
- PREC_TERM,        // + -
- PREC_FACTOR,      // * /
- PREC_UNARY,       // ! -
- PREC_CALL,        // . ()
- PREC_PRIMARY
-*/
 #[derive(Copy, Clone, Debug, PartialOrd, PartialEq, IntoPrimitive, TryFromPrimitive)]
 #[repr(u8)]
 enum Precedence {
@@ -107,12 +135,8 @@ impl<'a> Compiler<'a> {
             had_error: false,
             panic_mode: false,
 
-            function: Function::new(),
-            func_type: FunctionType::Script,
+            func_scope: FunctionScope::new(FunctionType::Script),
             heap,
-
-            locals: vec![Local{name: "", depth:0}],
-            scope_depth: 0,
         }
     }
 
@@ -128,24 +152,24 @@ impl<'a> Compiler<'a> {
     }
 
     pub fn end_compiler(mut self) -> Result<*const Object<Function>> {
-        self.emit_byte(OpCode::Return);
+        self.emit_return();
         if self.had_error {
             //  self.chunk.disassemble("code"); // FIXME: this should be conditional
             bail!("Compilation failed.")
         }
-        Ok(self.heap.new_object(self.function))
+        Ok(self.heap.new_object(self.func_scope.function))
     }
 
     fn begin_scope(&mut self) {
-        self.scope_depth += 1;
+        self.func_scope.scope_depth += 1;
     }
 
     fn end_scope(&mut self) {
-        self.scope_depth -= 1;
-        while let Some(local) = self.locals.last() {
-            if local.depth > self.scope_depth && local.depth < usize::MAX {
+        self.func_scope.scope_depth -= 1;
+        while let Some(local) = self.func_scope.locals.last() {
+            if local.depth > self.func_scope.scope_depth && local.depth < usize::MAX {
                 self.emit_byte(OpCode::Pop);
-                self.locals.pop();
+                self.func_scope.locals.pop();
             } else {
                 break;
             }
@@ -178,7 +202,7 @@ impl<'a> Compiler<'a> {
         }
 
         let (prefix, infix, precedence) = match tok {
-            TokenType::LeftParen => p!(grouping, None, Precedence::None),
+            TokenType::LeftParen => p!(grouping, call, Precedence::Call),
             TokenType::RightParen => p!(),
             TokenType::LeftBrace => p!(),
             TokenType::RightBrace => p!(),
@@ -254,6 +278,11 @@ impl<'a> Compiler<'a> {
         };
     }
 
+    fn call(&mut self, _can_assign: bool) {
+        let arg_count = self.argument_list();
+        self.emit_bytes(OpCode::Call, arg_count);
+    }
+
     fn literal(&mut self, _can_assign: bool) {
         self.emit_byte(match self.previous.tok_type() {
             TokenType::False => OpCode::False,
@@ -269,7 +298,9 @@ impl<'a> Compiler<'a> {
     }
 
     fn declaration(&mut self) {
-        if self.match_token(TokenType::Var) {
+        if self.match_token(TokenType::Fun) {
+            self.fun_declaration();
+        } else if self.match_token(TokenType::Var) {
             self.var_declaration();
         } else {
             self.statement();
@@ -286,6 +317,8 @@ impl<'a> Compiler<'a> {
             self.for_statement();
         } else if self.match_token(TokenType::If) {
             self.if_statement();
+        } else if self.match_token(TokenType::Return) {
+            self.return_statement();
         } else if self.match_token(TokenType::While) {
             self.while_statement();
         } else if self.match_token(TokenType::LeftBrace) {
@@ -306,6 +339,44 @@ impl<'a> Compiler<'a> {
             self.declaration();
         }
         self.consume(TokenType::RightBrace, "Expect '}' after block.");
+    }
+
+    fn function(&mut self, func_type: FunctionType) {
+        let outer_scope = std::mem::replace(&mut self.func_scope, FunctionScope::new(func_type));
+        self.func_scope.function.name = self
+            .heap
+            .new_string(self.previous.lexeme().to_string())
+            .as_loxstr()
+            .unwrap();
+        self.begin_scope();
+        self.consume(TokenType::LeftParen, "Expect '(' after function name.");
+        if !self.check(TokenType::RightParen) {
+            loop {
+                if self.func_scope.function.arity == 255 {
+                    self.error_at_current("Can't have more than 255 parameters.");
+                }
+                self.func_scope.function.arity += 1;
+                let constant = self.parse_variable("Expect parameter name.");
+                self.define_variable(constant);
+                if !self.match_token(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenType::RightParen, "Expect ')' after parameters.");
+        self.consume(TokenType::LeftBrace, "Expect '{' before function body.");
+        self.block();
+        let new = std::mem::replace(&mut self.func_scope, outer_scope);
+        let func: *const _ = self.heap.new_object(new.function);
+        let val = self.make_constant(func.into());
+        self.emit_bytes(OpCode::Constant, val)
+    }
+
+    fn fun_declaration(&mut self) {
+        let global = self.parse_variable("Expect function name.");
+        self.mark_initialized();
+        self.function(FunctionType::Function);
+        self.define_variable(global);
     }
 
     fn var_declaration(&mut self) {
@@ -387,6 +458,19 @@ impl<'a> Compiler<'a> {
         self.expression();
         self.consume(TokenType::Semicolon, "Expect ';' after value.");
         self.emit_byte(OpCode::Print);
+    }
+
+    fn return_statement(&mut self) {
+        if self.func_scope.func_type == FunctionType::Script {
+            self.error("Can't return from top-level code.");
+        }
+        if self.match_token(TokenType::Semicolon) {
+            self.emit_return()
+        } else {
+            self.expression();
+            self.consume(TokenType::Semicolon, "Expect ';' after return value.");
+            self.emit_byte(OpCode::Return)
+        }
     }
 
     fn while_statement(&mut self) {
@@ -496,7 +580,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn resolve_local(&mut self, name: &str) -> Option<usize> {
-        for (i, local) in self.locals.iter().enumerate().rev() {
+        for (i, local) in self.func_scope.locals.iter().enumerate().rev() {
             if local.name == name {
                 if local.depth == usize::MAX {
                     self.error("Can't read local variable in its own initializer.");
@@ -508,29 +592,18 @@ impl<'a> Compiler<'a> {
     }
 
     fn add_local(&mut self, name: &'a Token) {
-        if self.locals.len() >= u8::MAX as usize + 1 {
-            self.error("Too many local variables in function.");
-            return;
+        if let Err(e) = self.func_scope.add_local(name) {
+            self.error(e);
         }
-        self.locals.push(Local {
-            name: name.lexeme(),
-            depth: usize::MAX,
-        });
     }
 
     fn declare_variable(&mut self) {
-        if self.scope_depth == 0 {
+        if self.func_scope.scope_depth == 0 {
             return;
         }
         let name = self.previous;
-        for local in self.locals.iter().rev() {
-            if local.depth < self.scope_depth {
-                break;
-            }
-            if local.name == name.lexeme() {
-                self.error("Already a variable with this name in this scope.");
-                break;
-            }
+        if let Err(e) = self.func_scope.declare_local(name) {
+            self.error(e);
         }
         self.add_local(name);
     }
@@ -538,22 +611,44 @@ impl<'a> Compiler<'a> {
     fn parse_variable(&mut self, err: &str) -> u8 {
         self.consume(TokenType::Identifier, err);
         self.declare_variable();
-        if self.scope_depth > 0 {
+        if self.func_scope.scope_depth > 0 {
             return 0;
         }
         self.identifier_constant(self.previous.lexeme().to_string())
     }
 
     fn mark_initialized(&mut self) {
-        self.locals.last_mut().map(|l| l.depth = self.scope_depth);
+        if self.scope_depth() == 0 {
+            return;
+        }
+        let depth = self.scope_depth();
+        self.func_scope.locals.last_mut().map(|l| l.depth = depth);
     }
 
     fn define_variable(&mut self, global: u8) {
-        if self.scope_depth > 0 {
+        if self.scope_depth() > 0 {
             self.mark_initialized();
             return;
         }
         self.emit_bytes(OpCode::DefineGlobal, global)
+    }
+
+    fn argument_list(&mut self) -> u8 {
+        let mut arg_count = 0;
+        if !self.check(TokenType::RightParen) {
+            loop {
+                self.expression();
+                if arg_count == u8::MAX {
+                    self.error("Can't have more than 255 arguments.");
+                }
+                arg_count += 1;
+                if !self.match_token(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenType::RightParen, "Expect ')' after arguments.");
+        arg_count
     }
 
     fn and(&mut self, _can_assign: bool) {
@@ -593,8 +688,8 @@ impl<'a> Compiler<'a> {
         self.current.tok_type() == token
     }
 
-    fn error(&mut self, msg: &str) {
-        self.error_at(self.previous, msg);
+    fn error(&mut self, msg: impl Display) {
+        self.error_at(self.previous, msg.to_string().as_str());
     }
 
     fn error_at_current(&mut self, msg: &str) {
@@ -616,7 +711,11 @@ impl<'a> Compiler<'a> {
     }
 
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.function.chunk
+        &mut self.func_scope.function.chunk
+    }
+
+    fn scope_depth(&self) -> usize {
+        self.func_scope.scope_depth
     }
 
     fn emit_byte(&mut self, byte: impl Into<u8>) {
@@ -638,10 +737,15 @@ impl<'a> Compiler<'a> {
         self.emit_byte(offset.to_le_bytes()[1]);
         self.emit_byte(offset.to_le_bytes()[0]);
     }
+
     fn emit_jump(&mut self, instruction: OpCode) -> usize {
         self.emit_byte(instruction);
         self.emit_bytes(0xff, 0xff);
         self.current_chunk().code.len() - 2
+    }
+
+    fn emit_return(&mut self) {
+        self.emit_bytes(OpCode::Nil, OpCode::Return);
     }
 
     fn emit_constant(&mut self, c: Value) {

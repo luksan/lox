@@ -1,10 +1,11 @@
 use crate::clox::compiler::compile;
 use crate::clox::mm::Heap;
 use crate::clox::table::LoxTable;
-use crate::clox::value::{Function, Value};
+use crate::clox::value::{Function, ObjTypes, Object, Value};
 use crate::clox::OpCode;
 use crate::LoxError;
-use anyhow::anyhow;
+
+use anyhow::{anyhow, bail, Result};
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
@@ -14,10 +15,19 @@ pub enum VmError {
     RuntimeError(#[from] anyhow::Error),
 }
 
+const FRAMES_MAX: usize = 64;
+
 pub struct Vm {
+    frames: Vec<CallFrame>,
     stack: Vec<Value>,
     heap: Heap,
     globals: LoxTable,
+}
+
+pub struct CallFrame {
+    function: *const Object<Function>,
+    ip: *const u8,
+    stack_offset: usize,
 }
 
 impl Vm {
@@ -25,27 +35,44 @@ impl Vm {
         // println!("Created new VM.");
         // println!("Value size: {}", std::mem::size_of::<Value>());
         Self {
-            stack: Vec::with_capacity(256),
+            frames: Vec::with_capacity(FRAMES_MAX),
+            stack: Vec::with_capacity(FRAMES_MAX * 256),
             heap: Heap::new(),
             globals: LoxTable::new(),
         }
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
-        let func = compile(source, &mut self.heap)?;
-        self.run(unsafe { func.as_ref() }.unwrap())
+        let function = compile(source, &mut self.heap)?;
+        self.push(ObjTypes::from(function));
+        let frame = self.call(unsafe { function.as_ref().unwrap() }, 0)?;
+        self.frames.push(frame);
+        self.run()
     }
 
-    fn run(&mut self, func: &Function) -> Result<(), VmError> {
-        let chunk = &func.chunk;
-        let mut ip = chunk.code.as_ptr();
+    fn run(&mut self) -> Result<(), VmError> {
+        let frame = self.frames.last_mut().unwrap();
+        let chunk = &unsafe { frame.function.as_ref() }.unwrap().chunk;
+        let mut ip: *const u8 = chunk.code.as_ptr();
+        let mut stack_offset = frame.stack_offset;
+
+        macro_rules! ip_incr {
+            ($inc:expr) => {
+                ip = ip.add($inc as usize);
+            };
+        }
+        macro_rules! ip_decr {
+            ($dec:expr) => {
+                ip = ip.sub($dec as usize);
+            };
+        }
         macro_rules! read_byte {
             () => {{
-                let b = unsafe { *ip };
                 unsafe {
-                    ip = ip.add(1);
+                    let b = *ip;
+                    ip_incr!(1);
+                    b
                 }
-                b
             }};
         }
         macro_rules! read_short {
@@ -62,6 +89,7 @@ impl Vm {
         }
 
         macro_rules! runtime_error {
+            // FIXME: Ch 24.5.3
             ($fmt:literal $(,)? $( $e:expr ),*) => {{
                 let idx = unsafe {ip.offset_from(chunk.code.as_ptr()) }- 1;
                 let line = chunk.lines[idx as usize];
@@ -82,6 +110,7 @@ impl Vm {
             }?;
             }
         }}
+
         loop {
             let instr = read_byte!();
             let op: OpCode = instr.into();
@@ -95,11 +124,11 @@ impl Vm {
                 }
                 OpCode::GetLocal => {
                     let slot = read_byte!();
-                    self.push(self.stack[slot as usize]);
+                    self.push(self.stack[slot as usize + stack_offset]);
                 }
                 OpCode::SetLocal => {
                     let slot = read_byte!();
-                    self.stack[slot as usize] = self.peek(0);
+                    self.stack[slot as usize + stack_offset] = self.peek(0);
                 }
                 OpCode::GetGlobal => {
                     let name = read_constant!().as_loxstr().unwrap();
@@ -160,29 +189,75 @@ impl Vm {
                 OpCode::Jump => {
                     let offset = read_short!();
                     unsafe {
-                        ip = ip.add(offset as usize);
+                        ip_incr!(offset);
                     }
                 }
                 OpCode::JumpIfFalse => {
                     let offset = read_short!();
                     if self.peek(0).is_falsey() {
                         unsafe {
-                            ip = ip.add(offset as usize);
+                            ip_incr!(offset);
                         }
                     }
                 }
                 OpCode::Loop => {
                     let offset = read_short!();
                     unsafe {
-                        ip = ip.sub(offset as usize);
+                        ip_decr!(offset);
                     }
                 }
+                OpCode::Call => {
+                    // Ch 24.5.1
+                    let arg_count = read_byte!();
+                    let callee = self.peek(arg_count as usize);
+                    let new_frame = self.call_value(callee, arg_count)?;
+                    self.frames.last_mut().map(|f| f.ip = ip);
+                    ip = new_frame.ip;
+                    stack_offset = new_frame.stack_offset;
+                    self.frames.push(new_frame);
+                }
                 OpCode::Return => {
-                    return Ok(());
+                    // Ch 24.5.4
+                    let result = self.pop();
+                    let new_stack_len = self.frames.pop().unwrap().stack_offset;
+                    if self.frames.is_empty() {
+                        self.pop();
+                        return Ok(());
+                    }
+                    self.stack.truncate(new_stack_len);
+                    self.push(result);
+                    ip = self.frames.last().unwrap().ip;
                 }
                 OpCode::BadOpCode => {}
             }
         }
+    }
+
+    fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<CallFrame> {
+        if let Ok(fun) = callee.as_function() {
+            self.call(fun, arg_count)
+        } else {
+            bail!("Can only call functions and classes.")
+        }
+    }
+
+    fn call(&mut self, function: &Object<Function>, arg_count: u8) -> Result<CallFrame> {
+        if arg_count != function.arity {
+            bail!(
+                "Expected {} arguments but got {}.",
+                function.arity,
+                arg_count
+            );
+        }
+        if self.frames.len() >= FRAMES_MAX {
+            bail!("Stack overflow.")
+        }
+
+        Ok(CallFrame {
+            function,
+            ip: function.chunk.code.as_ptr(),
+            stack_offset: self.stack.len() - arg_count as usize - 1,
+        })
     }
 
     fn push(&mut self, val: impl Into<Value>) {
