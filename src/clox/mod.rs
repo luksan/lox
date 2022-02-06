@@ -93,27 +93,27 @@ impl Chunk {
 
         let instr = self.code[offset];
         let op: OpCode = instr.into();
+        let op_str = format!("{:?}", op);
 
         let simple_instr = || {
-            println!("{:?}", op);
+            println!("{:12}", op_str);
             offset + 1
         };
         let constant_instr = || {
             let c = self.code[offset + 1];
-            // FIXME: debug fmt alignment not working
-            println!("{:16?} {:4} {:?}", op, c, self.constants[c]);
+            println!("{:12} {:3} {:?}", op_str, c, self.constants[c]);
             offset + 2
         };
         let byte_instr = || {
             let slot = self.code[offset + 1];
-            println!("{:16?} {:4}", op, slot);
+            println!("{:12} {:3}", op_str, slot);
             offset + 2
         };
         let jump_instr = |sign| {
             let jump = (self.code[offset + 1] as isize) << 8 | self.code[offset + 2] as isize;
             println!(
-                "{:16?} {:4} -> {}",
-                op,
+                "{:12} {:3} -> {}",
+                op_str,
                 offset,
                 offset as isize + 3 + sign * jump
             );

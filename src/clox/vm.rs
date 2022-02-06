@@ -33,8 +33,7 @@ pub struct CallFrame {
 
 impl CallFrame {
     fn disassemble(&self) {
-        let (func, name) =
-            unsafe { self.function.as_ref().map(|f| (f, (&*f.name).as_str())) }.unwrap();
+        let (func, name) = unsafe { self.function.as_ref().map(|f| (f, f.name())) }.unwrap();
         func.chunk.disassemble(name);
     }
 
@@ -121,6 +120,7 @@ impl Vm {
         loop {
             let instr = read_byte!();
             let op: OpCode = instr.into();
+            // println!(": {:?}", op);
             match op {
                 OpCode::Constant => self.stack.push(read_constant!()),
                 OpCode::Nil => self.push(Value::Nil),
@@ -232,7 +232,10 @@ impl Vm {
                         return Ok(());
                     }
                 }
-                OpCode::BadOpCode => {}
+                OpCode::BadOpCode => {
+                    frame.disassemble();
+                    Err(anyhow!("Encountered invalid OpCode {}", op as u8))?;
+                }
             }
         }
     }
@@ -266,11 +269,13 @@ impl Vm {
             bail!("Stack overflow.")
         }
 
-        Ok(CallFrame {
+        let frame = CallFrame {
             function,
             ip: function.chunk.code.as_ptr(),
             stack_offset: self.stack.len() - arg_count as usize - 1,
-        })
+        };
+        // frame.disassemble();
+        Ok(frame)
     }
 
     fn push(&mut self, val: impl Into<Value>) {

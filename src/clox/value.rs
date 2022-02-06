@@ -153,6 +153,12 @@ impl Function {
             name: ptr::null(),
         }
     }
+
+    pub fn name(&self) -> &str {
+        unsafe { self.name.as_ref() }
+            .map(|ls| ls.as_str())
+            .unwrap_or("<script>")
+    }
 }
 
 impl Display for Function {
