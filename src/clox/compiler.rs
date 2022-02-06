@@ -366,6 +366,7 @@ impl<'a> Compiler<'a> {
         self.consume(TokenType::RightParen, "Expect ')' after parameters.");
         self.consume(TokenType::LeftBrace, "Expect '{' before function body.");
         self.block();
+        self.emit_return();
         let new = std::mem::replace(&mut self.func_scope, outer_scope);
         let func: *const _ = self.heap.new_object(new.function);
         let val = self.make_constant(func.into());
