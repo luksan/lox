@@ -54,9 +54,9 @@ impl Value {
         self == Self::Nil || self == Self::Bool(false)
     }
 
-    fn as_object<O: Display + Debug>(&self) -> Option<&'static Object<O>> {
+    pub fn as_object<O: Display + Debug>(&self) -> Option<&'static Object<O>> {
         if let Self::Obj(ptr) = self {
-            ptr.cast()
+            ptr.cast::<O>()
         } else {
             None
         }
@@ -173,6 +173,34 @@ impl Display for Function {
     }
 }
 
+pub type NativeFnRef = fn(&[Value]) -> Result<Value>;
+
+pub struct NativeFn(NativeFnRef);
+
+impl NativeFn {
+    pub fn call_native(&self, args: &[Value]) -> Result<Value> {
+        self.0(args)
+    }
+}
+
+impl Display for NativeFn {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<native fn>")
+    }
+}
+
+impl Debug for NativeFn {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NativeFn({:?})", (&self.0) as *const _)
+    }
+}
+
+impl From<NativeFnRef> for NativeFn {
+    fn from(f: NativeFnRef) -> Self {
+        Self(f)
+    }
+}
+
 pub struct Object<T: ?Sized + Display + Debug> {
     pub(crate) next: ObjTypes,
     inner: T,
@@ -210,8 +238,20 @@ impl<T: Display + Debug> Object<T> {
 #[derive(Clone, Copy, PartialEq)]
 pub enum ObjTypes {
     Function(NonNull<Object<Function>>),
+    NativeFn(NonNull<Object<NativeFn>>),
     String(NonNull<Object<LoxStr>>),
     None,
+}
+
+macro_rules! for_all_objtypes {
+    ($self:ident, $mac:ident) => {{
+        match $self {
+            ObjTypes::Function(p) => $mac!(p),
+            ObjTypes::NativeFn(p) => $mac!(p),
+            ObjTypes::String(p) => $mac!(p),
+            ObjTypes::None => unreachable!("This should have been handled above."),
+        }
+    }};
 }
 
 impl ObjTypes {
@@ -221,11 +261,10 @@ impl ObjTypes {
                 unsafe { Box::from_raw($ptr.as_ptr()) }.next
             };
         }
-        match self {
-            ObjTypes::Function(f) => free_next!(f),
-            ObjTypes::String(s) => free_next!(s),
-            ObjTypes::None => return self,
+        if self == ObjTypes::None {
+            return self;
         }
+        for_all_objtypes!(self, free_next)
     }
 
     fn cast<T: Display + Debug>(self) -> Option<&'static Object<T>> {
@@ -234,27 +273,21 @@ impl ObjTypes {
                 return (unsafe { $ptr.as_ref() } as &dyn Any).downcast_ref()
             };
         }
-        match self {
-            ObjTypes::Function(f) => down!(f),
-            ObjTypes::String(s) => down!(s),
-            ObjTypes::None => {}
+        if self == ObjTypes::None {
+            return None;
         }
-        None
+        for_all_objtypes!(self, down)
     }
 }
 
 impl Debug for ObjTypes {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         macro_rules! w {
-            ($ptr:expr) => {
-                write!(f, "{:?}->{:?}", $ptr, unsafe { $ptr.as_ref() })
+            ($p:expr) => {
+                write!(f, "{:?}->{:?}", $p, unsafe { $p.as_ref() })
             };
         }
-        match self {
-            ObjTypes::Function(fun) => w!(fun),
-            ObjTypes::String(s) => w!(s),
-            ObjTypes::None => write!(f, "None"),
-        }
+        for_all_objtypes!(self, w)
     }
 }
 
@@ -265,11 +298,10 @@ impl Display for ObjTypes {
                 write!(f, "{}", unsafe { $ptr.as_ref() })
             };
         }
-        match self {
-            ObjTypes::Function(fun) => w!(fun),
-            ObjTypes::String(s) => w!(s),
-            ObjTypes::None => unreachable!(),
+        if self == &ObjTypes::None {
+            return Ok(());
         }
+        for_all_objtypes!(self, w)
     }
 }
 
@@ -282,5 +314,11 @@ impl From<StrPtr> for ObjTypes {
 impl From<*const Object<Function>> for ObjTypes {
     fn from(s: *const Object<Function>) -> Self {
         Self::Function(NonNull::new(s as *mut _).unwrap())
+    }
+}
+
+impl From<*const Object<NativeFn>> for ObjTypes {
+    fn from(f: *const Object<NativeFn>) -> Self {
+        Self::NativeFn(NonNull::new(f as *mut _).unwrap())
     }
 }

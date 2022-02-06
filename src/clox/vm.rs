@@ -1,7 +1,7 @@
 use crate::clox::compiler::compile;
 use crate::clox::mm::Heap;
 use crate::clox::table::LoxTable;
-use crate::clox::value::{Function, ObjTypes, Object, Value};
+use crate::clox::value::{Function, NativeFn, NativeFnRef, ObjTypes, Object, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 
@@ -46,12 +46,14 @@ impl Vm {
     pub fn new() -> Self {
         // println!("Created new VM.");
         // println!("Value size: {}", std::mem::size_of::<Value>());
-        Self {
+        let mut new = Self {
             frames: Vec::with_capacity(FRAMES_MAX),
             stack: Vec::with_capacity(FRAMES_MAX * 256),
             heap: Heap::new(),
             globals: LoxTable::new(),
-        }
+        };
+        new.define_native("clock", natives::clock);
+        new
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
@@ -224,8 +226,9 @@ impl Vm {
                     // Ch 24.5.1
                     let arg_count = read_byte!();
                     let callee = self.peek(arg_count as usize);
-                    let new_frame = runtime_error!(self.call_value(callee, arg_count))?;
-                    self.frames.push(std::mem::replace(&mut frame, new_frame));
+                    if let Some(new_frame) = runtime_error!(self.call_value(callee, arg_count))? {
+                        self.frames.push(std::mem::replace(&mut frame, new_frame));
+                    }
                 }
                 OpCode::Return => {
                     // Ch 24.5.4
@@ -257,9 +260,14 @@ impl Vm {
             .for_each(|(i, v)| println!("[{}] {:?}", i, v));
     }
 
-    fn call_value(&self, callee: Value, arg_count: u8) -> Result<CallFrame> {
+    fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<Option<CallFrame>> {
         if let Ok(fun) = callee.as_function() {
-            self.call(fun, arg_count)
+            self.call(fun, arg_count).map(Some)
+        } else if let Some(native) = callee.as_object::<NativeFn>() {
+            let arg_start = self.stack.len() - arg_count as usize;
+            let result = native.call_native(&self.stack[arg_start..])?;
+            self.push(result);
+            return Ok(None);
         } else {
             bail!("Can only call functions and classes.")
         }
@@ -286,6 +294,16 @@ impl Vm {
         Ok(frame)
     }
 
+    fn define_native(&mut self, name: &str, function: NativeFnRef) {
+        let name = self.heap.new_string(name.to_string());
+        self.push(name);
+        let native: *const _ = self.heap.new_object::<NativeFn>(function.into());
+        self.push(native);
+        self.globals.set(name.as_loxstr().unwrap(), native.into());
+        self.pop();
+        self.pop();
+    }
+
     fn push(&mut self, val: impl Into<Value>) {
         self.stack.push(val.into())
     }
@@ -296,5 +314,19 @@ impl Vm {
 
     fn pop(&mut self) -> Value {
         self.stack.pop().unwrap()
+    }
+}
+
+mod natives {
+    use super::{Result, Value};
+    use once_cell::sync::OnceCell;
+
+    pub fn clock(_args: &[Value]) -> Result<Value> {
+        static START_TIME: OnceCell<std::time::Instant> = OnceCell::new();
+        Ok(START_TIME
+            .get_or_init(|| std::time::Instant::now())
+            .elapsed()
+            .as_secs_f64()
+            .into())
     }
 }
