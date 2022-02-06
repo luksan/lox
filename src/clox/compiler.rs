@@ -701,12 +701,16 @@ impl<'a> Compiler<'a> {
         if self.panic_mode {
             return;
         }
-        eprintln!(
-            "[line {}] Error at '{}': {}",
-            token.line(),
-            token.lexeme(),
-            msg
-        );
+        if token.tok_type() == TokenType::Eof {
+            eprintln!("[line {}] Error at end: {}", token.line(), msg);
+        } else {
+            eprintln!(
+                "[line {}] Error at '{}': {}",
+                token.line(),
+                token.lexeme(),
+                msg
+            );
+        }
         self.had_error = true;
         self.panic_mode = true;
     }

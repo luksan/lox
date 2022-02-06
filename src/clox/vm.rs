@@ -95,13 +95,20 @@ impl Vm {
         }
 
         macro_rules! runtime_error {
-            // FIXME: Ch 24.5.3
+            // FIXME: Ch 24.5.3 -> stack trace
             ($fmt:literal $(,)? $( $e:expr ),*) => {{
                 let idx = unsafe {frame.ip.offset_from(frame.chunk().code.as_ptr()) }- 1;
                 let line = frame.chunk().lines[idx as usize];
                 eprintln!($fmt, $($e),*);
-                Err(anyhow!("[line {}] in script", line))}
-            };
+                Err(anyhow!("[line {}] in script", line))
+            }};
+            ($result:expr) => {{
+                if $result.is_ok() {
+                    $result
+                }else {
+                    runtime_error!("{}", $result.unwrap_err())
+                }
+            }};
         }
 
         macro_rules! binary_op {
@@ -217,7 +224,7 @@ impl Vm {
                     // Ch 24.5.1
                     let arg_count = read_byte!();
                     let callee = self.peek(arg_count as usize);
-                    let new_frame = self.call_value(callee, arg_count)?;
+                    let new_frame = runtime_error!(self.call_value(callee, arg_count))?;
                     self.frames.push(std::mem::replace(&mut frame, new_frame));
                 }
                 OpCode::Return => {
@@ -234,6 +241,7 @@ impl Vm {
                 }
                 OpCode::BadOpCode => {
                     frame.disassemble();
+                    // Can't use runtime_error!() since it expects a valid IP
                     Err(anyhow!("Encountered invalid OpCode {}", op as u8))?;
                 }
             }
