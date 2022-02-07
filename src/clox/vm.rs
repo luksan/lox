@@ -1,7 +1,9 @@
 use crate::clox::compiler::compile;
 use crate::clox::mm::Heap;
 use crate::clox::table::LoxTable;
-use crate::clox::value::{Closure, Function, NativeFn, NativeFnRef, ObjTypes, Object, Value};
+use crate::clox::value::{
+    Closure, Function, NativeFn, NativeFnRef, ObjTypes, Object, Upvalue, Value,
+};
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 
@@ -132,9 +134,9 @@ impl Vm {
         }}
 
         loop {
+            // frame.chunk().disassemble_instruction(unsafe { frame.ip.offset_from(frame.chunk().code.as_ptr()) } as usize);
             let instr = read_byte!();
             let op: OpCode = instr.into();
-            // println!(": {:?}", op);
             match op {
                 OpCode::Constant => self.stack.push(read_constant!()),
                 OpCode::Nil => self.push(Value::Nil),
@@ -170,6 +172,15 @@ impl Vm {
                         self.globals.delete(name);
                         runtime_error!("Undefined variable '{}'.", name)?;
                     }
+                }
+                OpCode::GetUpvalue => {
+                    let slot = read_byte!();
+                    self.push(unsafe { frame.closure.as_ref().unwrap() }.read_upvalue(slot));
+                }
+                OpCode::SetUpvalue => {
+                    let slot = read_byte!();
+                    let value = self.peek(0);
+                    unsafe { frame.closure.as_ref().unwrap() }.write_upvalue(slot, value);
                 }
                 OpCode::Equal => {
                     let a = self.pop();
@@ -239,6 +250,18 @@ impl Vm {
                     let function = read_constant!().as_object::<Function>().unwrap();
                     let closure = self.heap.new_object::<Closure>(Closure::new(function));
                     self.push(closure as *const _);
+                    let stack_ptr = self.stack.as_mut_ptr();
+                    for uv in closure.upvalues.iter_mut() {
+                        let is_local = read_byte!() == 1;
+                        let index = read_byte!() as usize;
+                        *uv = if is_local {
+                            self.capture_upvalue(unsafe {
+                                stack_ptr.add(index + frame.stack_offset)
+                            })
+                        } else {
+                            unsafe { frame.closure.as_ref().unwrap() }.upvalues[index]
+                        }
+                    }
                 }
                 OpCode::Return => {
                     // Ch 24.5.4
@@ -268,6 +291,11 @@ impl Vm {
             .rev()
             .enumerate()
             .for_each(|(i, v)| println!("[{}] {:?}", i, v));
+    }
+
+    fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> &'static mut Object<Upvalue> {
+        let upvalue = self.heap.new_object(Upvalue::new(stack_ptr));
+        upvalue
     }
 
     fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<Option<CallFrame>> {

@@ -20,6 +20,8 @@ enum OpCode {
     Nil,
     True,
     False,
+    GetUpvalue,
+    SetUpvalue,
     Equal,
     Pop,
     GetLocal,
@@ -130,6 +132,8 @@ impl Chunk {
             OpCode::GetGlobal => constant_instr(),
             OpCode::DefineGlobal => constant_instr(),
             OpCode::SetGlobal => constant_instr(),
+            OpCode::GetUpvalue => byte_instr(),
+            OpCode::SetUpvalue => byte_instr(),
             OpCode::Equal => simple_instr(),
             OpCode::Pop => simple_instr(),
             OpCode::Greater => simple_instr(),
@@ -149,9 +153,27 @@ impl Chunk {
                 let mut offset = offset + 1;
                 let constant = self.code[offset];
                 offset += 1;
-                print!("{:12} {:4} ", op_str, constant);
+                print!("{:12}{:4} ", op_str, constant);
                 print!("{}", self.constants[constant]);
                 println!();
+
+                let function = self.constants[constant].as_function().expect(
+                    format!(
+                        "Closure without function, found {:?}",
+                        self.constants[constant]
+                    )
+                    .as_str(),
+                );
+                for _ in 0..function.upvalue_count {
+                    let is_local = if self.code[offset] == 1 {
+                        "local"
+                    } else {
+                        "upvalue"
+                    };
+                    let index = self.code[offset + 1];
+                    offset += 2;
+                    println!("{:04}    | {:<14} {}", offset - 2, is_local, index);
+                }
                 offset
             }
             OpCode::Return => simple_instr(),

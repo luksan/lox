@@ -3,7 +3,7 @@ use anyhow::{bail, Context, Result};
 use crate::clox::Chunk;
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::ptr::NonNull;
 
@@ -137,17 +137,66 @@ impl Display for LoxStr {
 }
 
 #[derive(Debug)]
+pub struct Upvalue {
+    // TODO: Pointing into the stack is op as long as it doesn't reallocate, which it shouldn't
+    // since it is pre-allocated in Vm::new(). Consider using a boxed slice instead for the stack.
+    location: *mut Value,
+}
+
+impl Upvalue {
+    pub fn new(location: *mut Value) -> Self {
+        Self { location }
+    }
+
+    pub fn read(&self) -> Value {
+        unsafe { *self.location.as_ref().unwrap() }
+    }
+
+    pub fn write(&self, value: Value) {
+        unsafe {
+            *self.location.as_mut().unwrap() = value;
+        }
+    }
+}
+
+impl Display for Upvalue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "upvalue")
+    }
+}
+
+#[derive(Debug)]
 pub struct Closure {
     pub function: *const Object<Function>,
+    pub upvalues: Box<[*const Object<Upvalue>]>,
 }
 
 impl Closure {
     pub fn new(function: *const Object<Function>) -> Self {
-        Self { function }
+        Self {
+            function,
+            upvalues: vec![
+                ptr::null();
+                unsafe { function.as_ref().unwrap() }.upvalue_count as usize
+            ]
+            .into_boxed_slice(),
+        }
     }
 
     pub fn function(&self) -> &'static Function {
         unsafe { self.function.as_ref().unwrap() }
+    }
+
+    pub fn read_upvalue(&self, slot: u8) -> Value {
+        let slot = self.upvalues[slot as usize];
+        unsafe { slot.as_ref().unwrap().read() }
+    }
+
+    pub fn write_upvalue(&self, slot: u8, value: Value) {
+        let slot = self.upvalues[slot as usize];
+        unsafe {
+            slot.as_ref().unwrap().write(value);
+        }
     }
 }
 
@@ -162,6 +211,7 @@ pub struct Function {
     pub(crate) arity: u8,
     pub(crate) chunk: Chunk,
     pub(crate) name: *const Object<LoxStr>,
+    pub(crate) upvalue_count: usize,
 }
 
 impl Function {
@@ -170,6 +220,7 @@ impl Function {
             arity: 0,
             chunk: Chunk::new(),
             name: ptr::null(),
+            upvalue_count: 0,
         }
     }
 
@@ -233,6 +284,12 @@ impl<T: Display + Debug + ?Sized> Deref for Object<T> {
     }
 }
 
+impl<T: Display + Debug + ?Sized> DerefMut for Object<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
 impl<T: Display + Debug> Debug for Object<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Object{{ inner: {:?}, next: ... }}", self.inner)
@@ -260,32 +317,31 @@ pub enum ObjTypes {
     Function(NonNull<Object<Function>>),
     NativeFn(NonNull<Object<NativeFn>>),
     LoxStr(NonNull<Object<LoxStr>>),
+    Upvalue(NonNull<Object<Upvalue>>),
     None,
 }
 
-macro_rules! objtypes_impl_from {
+macro_rules! objtypes_impl {
     ($($typ:ident),+) => { $(
         impl From<*const Object<$typ>> for ObjTypes {
             fn from(f: *const Object<$typ>) -> Self {
                 Self::$typ(NonNull::new(f as *mut _).unwrap())
             }
         }
-    )+ }
-}
+        )+
 
-objtypes_impl_from!(Closure, Function, NativeFn, LoxStr);
-
-macro_rules! for_all_objtypes {
-    ($self:ident, $mac:ident) => {{
-        match $self {
-            ObjTypes::Closure(p) => $mac!(p),
-            ObjTypes::Function(p) => $mac!(p),
-            ObjTypes::NativeFn(p) => $mac!(p),
-            ObjTypes::LoxStr(p) => $mac!(p),
-            ObjTypes::None => unreachable!("This should have been handled above."),
+        macro_rules! for_all_objtypes {
+            ($self:ident, $mac:ident) => {{
+                match $self {
+                    $( ObjTypes::$typ(p) => $mac!(p), )+
+                    ObjTypes::None => unreachable!("Should have been handled above."),
+                }
+            }}
         }
-    }};
+    }
 }
+
+objtypes_impl!(Closure, Function, NativeFn, LoxStr, Upvalue);
 
 impl ObjTypes {
     pub(crate) fn free_object(self) -> Self {
@@ -319,6 +375,9 @@ impl Debug for ObjTypes {
             ($p:expr) => {
                 write!(f, "{:?}->{:?}", $p, unsafe { $p.as_ref() })
             };
+        }
+        if self == &Self::None {
+            return write!(f, "ObjTypes::None");
         }
         for_all_objtypes!(self, w)
     }

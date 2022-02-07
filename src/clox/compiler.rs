@@ -46,15 +46,25 @@ struct FunctionScope<'compiler> {
     func_type: FunctionType,
     scope_depth: usize,
     locals: Vec<Local<'compiler>>,
+    upvalues: Vec<Upvalue>,
+    enclosing: Option<Box<FunctionScope<'compiler>>>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+struct Upvalue {
+    index: u8,
+    is_local: bool,
 }
 
 impl<'compiler> FunctionScope<'compiler> {
-    fn new(func_type: FunctionType) -> Self {
+    fn new(func_type: FunctionType, outer: Option<Box<Self>>) -> Self {
         Self {
             function: Function::new(),
             func_type,
             scope_depth: 0,
             locals: vec![Local { name: "", depth: 0 }],
+            upvalues: vec![],
+            enclosing: outer,
         }
     }
 
@@ -69,6 +79,19 @@ impl<'compiler> FunctionScope<'compiler> {
         Ok(())
     }
 
+    fn add_upvalue(&mut self, index: u8, is_local: bool) -> Result<u8> {
+        let new = Upvalue { index, is_local };
+        if let Some(i) = self.upvalues.iter().position(|&uv| uv == new) {
+            return Ok(i as u8);
+        }
+        if self.upvalues.len() >= U8_MAX_LEN {
+            bail!("Too many closure variables in function.")
+        }
+        self.upvalues.push(new);
+        self.function.upvalue_count = self.upvalues.len();
+        Ok((self.function.upvalue_count - 1) as u8)
+    }
+
     fn declare_local(&mut self, name: &'compiler Token) -> Result<()> {
         for local in self.locals.iter().rev() {
             if local.depth < self.scope_depth {
@@ -79,6 +102,30 @@ impl<'compiler> FunctionScope<'compiler> {
             }
         }
         Ok(())
+    }
+
+    fn resolve_local(&self, name: &str) -> Result<Option<usize>> {
+        for (i, local) in self.locals.iter().enumerate().rev() {
+            if local.name == name {
+                if local.depth == usize::MAX {
+                    bail!("Can't read local variable in its own initializer.");
+                }
+                return Ok(Some(i));
+            }
+        }
+        Ok(None)
+    }
+
+    fn resolve_upvalue(&mut self, name: &str) -> Option<u8> {
+        if let Some(enclosing) = self.enclosing.as_mut() {
+            if let Some(local) = enclosing.resolve_local(name).unwrap() {
+                return Some(self.add_upvalue(local as u8, true).unwrap());
+            }
+            if let Some(upvalue) = enclosing.resolve_upvalue(name) {
+                return Some(self.add_upvalue(upvalue, false).unwrap());
+            }
+        }
+        None
     }
 }
 
@@ -135,7 +182,7 @@ impl<'a> Compiler<'a> {
             had_error: false,
             panic_mode: false,
 
-            func_scope: FunctionScope::new(FunctionType::Script),
+            func_scope: FunctionScope::new(FunctionType::Script, None),
             heap,
         }
     }
@@ -342,7 +389,9 @@ impl<'a> Compiler<'a> {
     }
 
     fn function(&mut self, func_type: FunctionType) {
-        let outer_scope = std::mem::replace(&mut self.func_scope, FunctionScope::new(func_type));
+        let outer_scope =
+            std::mem::replace(&mut self.func_scope, FunctionScope::new(func_type, None));
+        self.func_scope.enclosing = Some(Box::new(outer_scope));
         self.func_scope.function.name = self
             .heap
             .new_string(self.previous.lexeme().to_string())
@@ -367,10 +416,14 @@ impl<'a> Compiler<'a> {
         self.consume(TokenType::LeftBrace, "Expect '{' before function body.");
         self.block();
         self.emit_return();
+        let outer_scope = *self.func_scope.enclosing.take().unwrap();
         let new = std::mem::replace(&mut self.func_scope, outer_scope);
-        let func: *const _ = self.heap.new_object(new.function);
-        let val = self.make_constant(func.into());
-        self.emit_bytes(OpCode::Closure, val)
+        let func = self.heap.new_object(new.function);
+        let val = self.make_constant(func as *const _);
+        self.emit_bytes(OpCode::Closure, val);
+        for uv in new.upvalues {
+            self.emit_bytes(uv.is_local, uv.index);
+        }
     }
 
     fn fun_declaration(&mut self) {
@@ -523,11 +576,17 @@ impl<'a> Compiler<'a> {
     }
 
     fn named_variable(&mut self, name: &str, can_assign: bool) {
-        let arg = self.resolve_local(name);
+        let arg = self.func_scope.resolve_local(name).unwrap_or_else(|e| {
+            self.error(e);
+            None
+        });
         let c;
         let (get_op, set_op) = if let Some(local) = arg {
             c = local as u8;
             (OpCode::GetLocal, OpCode::SetLocal)
+        } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name) {
+            c = upvalue as u8;
+            (OpCode::GetUpvalue, OpCode::SetUpvalue)
         } else {
             c = self.identifier_constant(name.to_string());
             (OpCode::GetGlobal, OpCode::SetGlobal)
@@ -578,18 +637,6 @@ impl<'a> Compiler<'a> {
     fn identifier_constant(&mut self, name: String) -> u8 {
         let v = self.heap.new_string(name);
         self.make_constant(v)
-    }
-
-    fn resolve_local(&mut self, name: &str) -> Option<usize> {
-        for (i, local) in self.func_scope.locals.iter().enumerate().rev() {
-            if local.name == name {
-                if local.depth == usize::MAX {
-                    self.error("Can't read local variable in its own initializer.");
-                }
-                return Some(i);
-            }
-        }
-        None
     }
 
     fn add_local(&mut self, name: &'a Token) {
@@ -774,7 +821,7 @@ impl<'a> Compiler<'a> {
         self.emit_bytes(OpCode::Constant, idx);
     }
 
-    fn make_constant(&mut self, c: Value) -> u8 {
+    fn make_constant(&mut self, c: impl Into<Value>) -> u8 {
         let i = self.current_chunk().add_constant(c);
         if i > u8::MAX as usize {
             self.error("Too many constants in one chunk.");
