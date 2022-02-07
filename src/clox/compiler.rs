@@ -370,7 +370,7 @@ impl<'a> Compiler<'a> {
         let new = std::mem::replace(&mut self.func_scope, outer_scope);
         let func: *const _ = self.heap.new_object(new.function);
         let val = self.make_constant(func.into());
-        self.emit_bytes(OpCode::Constant, val)
+        self.emit_bytes(OpCode::Closure, val)
     }
 
     fn fun_declaration(&mut self) {

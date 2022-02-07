@@ -7,8 +7,6 @@ use std::ops::Deref;
 use std::ptr;
 use std::ptr::NonNull;
 
-use crate::clox::table::StrPtr;
-
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Value {
     Bool(bool),
@@ -139,6 +137,27 @@ impl Display for LoxStr {
 }
 
 #[derive(Debug)]
+pub struct Closure {
+    pub function: *const Object<Function>,
+}
+
+impl Closure {
+    pub fn new(function: *const Object<Function>) -> Self {
+        Self { function }
+    }
+
+    pub fn function(&self) -> &'static Function {
+        unsafe { self.function.as_ref().unwrap() }
+    }
+}
+
+impl Display for Closure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.function())
+    }
+}
+
+#[derive(Debug)]
 pub struct Function {
     pub(crate) arity: u8,
     pub(crate) chunk: Chunk,
@@ -237,18 +256,32 @@ impl<T: Display + Debug> Object<T> {
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ObjTypes {
+    Closure(NonNull<Object<Closure>>),
     Function(NonNull<Object<Function>>),
     NativeFn(NonNull<Object<NativeFn>>),
-    String(NonNull<Object<LoxStr>>),
+    LoxStr(NonNull<Object<LoxStr>>),
     None,
 }
+
+macro_rules! objtypes_impl_from {
+    ($($typ:ident),+) => { $(
+        impl From<*const Object<$typ>> for ObjTypes {
+            fn from(f: *const Object<$typ>) -> Self {
+                Self::$typ(NonNull::new(f as *mut _).unwrap())
+            }
+        }
+    )+ }
+}
+
+objtypes_impl_from!(Closure, Function, NativeFn, LoxStr);
 
 macro_rules! for_all_objtypes {
     ($self:ident, $mac:ident) => {{
         match $self {
+            ObjTypes::Closure(p) => $mac!(p),
             ObjTypes::Function(p) => $mac!(p),
             ObjTypes::NativeFn(p) => $mac!(p),
-            ObjTypes::String(p) => $mac!(p),
+            ObjTypes::LoxStr(p) => $mac!(p),
             ObjTypes::None => unreachable!("This should have been handled above."),
         }
     }};
@@ -302,23 +335,5 @@ impl Display for ObjTypes {
             return Ok(());
         }
         for_all_objtypes!(self, w)
-    }
-}
-
-impl From<StrPtr> for ObjTypes {
-    fn from(s: StrPtr) -> Self {
-        Self::String(NonNull::new(s as *mut _).unwrap())
-    }
-}
-
-impl From<*const Object<Function>> for ObjTypes {
-    fn from(s: *const Object<Function>) -> Self {
-        Self::Function(NonNull::new(s as *mut _).unwrap())
-    }
-}
-
-impl From<*const Object<NativeFn>> for ObjTypes {
-    fn from(f: *const Object<NativeFn>) -> Self {
-        Self::NativeFn(NonNull::new(f as *mut _).unwrap())
     }
 }

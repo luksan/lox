@@ -40,6 +40,7 @@ enum OpCode {
     JumpIfFalse,
     Loop,
     Call,
+    Closure,
     Return,
     #[num_enum(default)]
     BadOpCode,
@@ -144,6 +145,15 @@ impl Chunk {
             OpCode::JumpIfFalse => jump_instr(1),
             OpCode::Loop => jump_instr(-1),
             OpCode::Call => byte_instr(),
+            OpCode::Closure => {
+                let mut offset = offset + 1;
+                let constant = self.code[offset];
+                offset += 1;
+                print!("{:12} {:4} ", op_str, constant);
+                print!("{}", self.constants[constant]);
+                println!();
+                offset
+            }
             OpCode::Return => simple_instr(),
 
             OpCode::BadOpCode => {

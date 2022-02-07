@@ -1,7 +1,7 @@
 use crate::clox::compiler::compile;
 use crate::clox::mm::Heap;
 use crate::clox::table::LoxTable;
-use crate::clox::value::{Function, NativeFn, NativeFnRef, ObjTypes, Object, Value};
+use crate::clox::value::{Closure, Function, NativeFn, NativeFnRef, ObjTypes, Object, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 
@@ -26,19 +26,21 @@ pub struct Vm {
 
 #[derive(Copy, Clone, Debug)]
 pub struct CallFrame {
-    function: *const Object<Function>,
+    closure: *const Object<Closure>,
     ip: *const u8,
     stack_offset: usize,
 }
 
 impl CallFrame {
     fn disassemble(&self) {
-        let (func, name) = unsafe { self.function.as_ref().map(|f| (f, f.name())) }.unwrap();
+        let (func, name) = unsafe { self.closure.as_ref() }
+            .map(|c| (c.function(), c.function().name()))
+            .unwrap();
         func.chunk.disassemble(name);
     }
 
     fn chunk(&self) -> &'static Chunk {
-        &unsafe { self.function.as_ref() }.unwrap().chunk
+        &unsafe { self.closure.as_ref() }.unwrap().function().chunk
     }
 }
 
@@ -59,7 +61,10 @@ impl Vm {
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
         let function = compile(source, &mut self.heap)?;
         self.push(ObjTypes::from(function));
-        let frame = self.call(unsafe { function.as_ref().unwrap() }, 0)?;
+        let closure = self.heap.new_object(Closure::new(function));
+        self.pop();
+        self.push(closure as *const _);
+        let frame = self.call(closure, 0)?;
         self.run(frame)
     }
 
@@ -230,6 +235,11 @@ impl Vm {
                         self.frames.push(std::mem::replace(&mut frame, new_frame));
                     }
                 }
+                OpCode::Closure => {
+                    let function = read_constant!().as_object::<Function>().unwrap();
+                    let closure = self.heap.new_object::<Closure>(Closure::new(function));
+                    self.push(closure as *const _);
+                }
                 OpCode::Return => {
                     // Ch 24.5.4
                     let result = self.pop();
@@ -261,8 +271,8 @@ impl Vm {
     }
 
     fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<Option<CallFrame>> {
-        if let Ok(fun) = callee.as_function() {
-            self.call(fun, arg_count).map(Some)
+        if let Some(closure) = callee.as_object() {
+            self.call(closure, arg_count).map(Some)
         } else if let Some(native) = callee.as_object::<NativeFn>() {
             let arg_start = self.stack.len() - arg_count as usize;
             let result = native.call_native(&self.stack[arg_start..])?;
@@ -273,11 +283,11 @@ impl Vm {
         }
     }
 
-    fn call(&self, function: &Object<Function>, arg_count: u8) -> Result<CallFrame> {
-        if arg_count != function.arity {
+    fn call(&self, closure: &Object<Closure>, arg_count: u8) -> Result<CallFrame> {
+        if arg_count != closure.function().arity {
             bail!(
                 "Expected {} arguments but got {}.",
-                function.arity,
+                closure.function().arity,
                 arg_count
             );
         }
@@ -286,8 +296,8 @@ impl Vm {
         }
 
         let frame = CallFrame {
-            function,
-            ip: function.chunk.code.as_ptr(),
+            closure,
+            ip: closure.function().chunk.code.as_ptr(),
             stack_offset: self.stack.len() - arg_count as usize - 1,
         };
         // frame.disassemble();
