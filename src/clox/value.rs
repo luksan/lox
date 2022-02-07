@@ -140,12 +140,24 @@ impl Display for LoxStr {
 pub struct Upvalue {
     // TODO: Pointing into the stack is op as long as it doesn't reallocate, which it shouldn't
     // since it is pre-allocated in Vm::new(). Consider using a boxed slice instead for the stack.
-    location: *mut Value,
+    pub(crate) location: *mut Value,
+    pub(crate) next_open_upvalue: *mut Object<Upvalue>,
+    closed: Value,
 }
 
 impl Upvalue {
     pub fn new(location: *mut Value) -> Self {
-        Self { location }
+        Self {
+            location,
+            next_open_upvalue: ptr::null_mut(),
+            closed: Value::Nil,
+        }
+    }
+
+    /// SAFETY: Upvalue must not move in memory after close() is called.
+    pub unsafe fn close(&mut self) {
+        self.closed = *self.location;
+        self.location = &mut self.closed as *mut _;
     }
 
     pub fn read(&self) -> Value {

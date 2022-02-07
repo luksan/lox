@@ -43,6 +43,7 @@ enum OpCode {
     Loop,
     Call,
     Closure,
+    CloseUpvalue,
     Return,
     #[num_enum(default)]
     BadOpCode,
@@ -176,6 +177,7 @@ impl Chunk {
                 }
                 offset
             }
+            OpCode::CloseUpvalue => simple_instr(),
             OpCode::Return => simple_instr(),
 
             OpCode::BadOpCode => {

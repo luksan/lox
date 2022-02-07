@@ -6,6 +6,7 @@ use crate::clox::value::{
 };
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
+use std::ptr;
 
 use anyhow::{anyhow, bail, Result};
 
@@ -24,6 +25,7 @@ pub struct Vm {
     stack: Vec<Value>,
     heap: Heap,
     globals: LoxTable,
+    open_upvalues: *mut Object<Upvalue>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -55,6 +57,7 @@ impl Vm {
             stack: Vec::with_capacity(FRAMES_MAX * 256),
             heap: Heap::new(),
             globals: LoxTable::new(),
+            open_upvalues: ptr::null_mut(),
         };
         new.define_native("clock", natives::clock);
         new
@@ -263,9 +266,14 @@ impl Vm {
                         }
                     }
                 }
+                OpCode::CloseUpvalue => {
+                    self.close_upvalues(self.stack.len() - 1);
+                    self.pop();
+                }
                 OpCode::Return => {
                     // Ch 24.5.4
                     let result = self.pop();
+                    self.close_upvalues(frame.stack_offset);
                     if let Some(outer_frame) = self.frames.pop() {
                         self.stack.truncate(frame.stack_offset);
                         self.push(result);
@@ -294,8 +302,38 @@ impl Vm {
     }
 
     fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> &'static mut Object<Upvalue> {
+        let mut uv_ptr = self.open_upvalues;
+        let mut prev_ptr = ptr::null_mut();
+        while let Some(uv) = unsafe { uv_ptr.as_ref() } {
+            if uv.location < stack_ptr {
+                break;
+            }
+            if uv.location == stack_ptr {
+                return unsafe { uv_ptr.as_mut().unwrap() };
+            }
+            prev_ptr = uv_ptr;
+            uv_ptr = uv.next_open_upvalue;
+        }
         let upvalue = self.heap.new_object(Upvalue::new(stack_ptr));
+        upvalue.next_open_upvalue = uv_ptr;
+        if prev_ptr.is_null() {
+            self.open_upvalues = upvalue;
+        } else {
+            unsafe { (*prev_ptr).next_open_upvalue = upvalue }
+        }
         upvalue
+    }
+
+    fn close_upvalues(&mut self, stack_offset: usize) {
+        // Ch 25.4.4
+        let last = self.stack.as_mut_ptr().wrapping_add(stack_offset);
+        while let Some(uv) = unsafe { self.open_upvalues.as_mut() } {
+            if uv.location < last {
+                break;
+            }
+            unsafe { uv.close() }
+            self.open_upvalues = uv.next_open_upvalue;
+        }
     }
 
     fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<Option<CallFrame>> {

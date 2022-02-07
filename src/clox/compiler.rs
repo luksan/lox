@@ -62,7 +62,11 @@ impl<'compiler> FunctionScope<'compiler> {
             function: Function::new(),
             func_type,
             scope_depth: 0,
-            locals: vec![Local { name: "", depth: 0 }],
+            locals: vec![Local {
+                name: "",
+                depth: 0,
+                is_captured: false,
+            }],
             upvalues: vec![],
             enclosing: outer,
         }
@@ -75,6 +79,7 @@ impl<'compiler> FunctionScope<'compiler> {
         self.locals.push(Local {
             name: name.lexeme(),
             depth: usize::MAX,
+            is_captured: false,
         });
         Ok(())
     }
@@ -116,16 +121,17 @@ impl<'compiler> FunctionScope<'compiler> {
         Ok(None)
     }
 
-    fn resolve_upvalue(&mut self, name: &str) -> Option<u8> {
+    fn resolve_upvalue(&mut self, name: &str) -> Result<Option<u8>> {
         if let Some(enclosing) = self.enclosing.as_mut() {
             if let Some(local) = enclosing.resolve_local(name).unwrap() {
-                return Some(self.add_upvalue(local as u8, true).unwrap());
+                enclosing.locals[local].is_captured = true;
+                return Ok(Some(self.add_upvalue(local as u8, true)?));
             }
-            if let Some(upvalue) = enclosing.resolve_upvalue(name) {
-                return Some(self.add_upvalue(upvalue, false).unwrap());
+            if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
+                return Ok(Some(self.add_upvalue(upvalue, false)?));
             }
         }
-        None
+        Ok(None)
     }
 }
 
@@ -138,6 +144,7 @@ enum FunctionType {
 struct Local<'a> {
     name: &'a str,
     depth: usize,
+    is_captured: bool,
 }
 
 #[derive(Copy, Clone, Debug, PartialOrd, PartialEq, IntoPrimitive, TryFromPrimitive)]
@@ -214,12 +221,16 @@ impl<'a> Compiler<'a> {
     fn end_scope(&mut self) {
         self.func_scope.scope_depth -= 1;
         while let Some(local) = self.func_scope.locals.last() {
-            if local.depth > self.func_scope.scope_depth && local.depth < usize::MAX {
-                self.emit_byte(OpCode::Pop);
-                self.func_scope.locals.pop();
-            } else {
+            if local.depth <= self.scope_depth() {
                 break;
             }
+            let op_code = if local.is_captured {
+                OpCode::CloseUpvalue
+            } else {
+                OpCode::Pop
+            };
+            self.emit_byte(op_code);
+            self.func_scope.locals.pop();
         }
     }
 
@@ -584,7 +595,10 @@ impl<'a> Compiler<'a> {
         let (get_op, set_op) = if let Some(local) = arg {
             c = local as u8;
             (OpCode::GetLocal, OpCode::SetLocal)
-        } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name) {
+        } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name).unwrap_or_else(|e| {
+            self.error(e);
+            None
+        }) {
             c = upvalue as u8;
             (OpCode::GetUpvalue, OpCode::SetUpvalue)
         } else {
