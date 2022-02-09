@@ -35,7 +35,7 @@ impl Value {
         }
     }
 
-    pub fn as_function(self) -> Result<&'static Obj<Function>> {
+    pub fn as_function(&self) -> Result<&Obj<Function>> {
         self.as_object().context("Not a function.")
     }
 
@@ -45,7 +45,7 @@ impl Value {
             .context("Not a string.")
     }
 
-    pub fn as_loxstr(self) -> Option<&'static Obj<LoxStr>> {
+    pub fn as_loxstr(&self) -> Option<&Obj<LoxStr>> {
         self.as_object()
     }
 
@@ -53,7 +53,7 @@ impl Value {
         self == Self::Nil || self == Self::Bool(false)
     }
 
-    pub fn as_object<O: Display + Debug>(&self) -> Option<&'static Obj<O>> {
+    pub fn as_object<O: Display + Debug + 'static>(&self) -> Option<&Obj<O>> {
         if let Self::Obj(ptr) = self {
             ptr.cast::<O>()
         } else {
@@ -329,7 +329,7 @@ impl ObjTypes {
         for_all_objtypes!(self, free_next)
     }
 
-    fn cast<T: Display + Debug>(self) -> Option<&'static Obj<T>> {
+    fn cast<'a, T: Display + Debug + 'static>(self) -> Option<&'a Obj<T>> {
         macro_rules! down {
             ($ptr:expr) => {
                 return (unsafe { $ptr.as_ref() } as &dyn Any).downcast_ref()

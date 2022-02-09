@@ -185,14 +185,15 @@ impl LoxTable {
 #[cfg(test)]
 mod test {
     use crate::clox::mm::Heap;
-    use crate::clox::table::LoxTable;
-    use crate::clox::value::Value;
+    use crate::clox::table::{LoxTable, StrPtr};
+    use crate::clox::value::{LoxStr, Value};
 
     #[test]
     fn basic_test() {
         let mut table = LoxTable::new();
         let mut heap = Heap::new();
-        let s1 = heap.new_string("asd".to_string()).as_loxstr().unwrap();
+        let s1_val = heap.new_string("asd".to_string());
+        let s1 = s1_val.as_object::<LoxStr>().unwrap();
         assert!(table.get(s1).is_none());
         assert!(table.set(s1, Value::Nil));
         assert_eq!(table.get(s1), Some(Value::Nil));
@@ -200,7 +201,8 @@ mod test {
         assert_eq!(table.get(s1), Some(Value::Bool(true)));
 
         let mut heap2 = Heap::new(); // put a string on another heap
-        let s2 = heap2.new_string("asd".to_string()).as_loxstr().unwrap();
+        let s2_val = heap2.new_string("asd".to_string());
+        let s2 = s2_val.as_loxstr().unwrap();
         assert_eq!(table.get(s2), None); // This is None because of string interning
     }
 
@@ -208,10 +210,14 @@ mod test {
     fn test_deletion() {
         let mut table = LoxTable::new();
         let mut heap = Heap::new();
+        let mut stack = vec![];
         macro_rules! str {
-            ($s:expr) => {
-                heap.new_string($s.to_string()).as_loxstr().unwrap()
-            };
+            ($s:expr) => {{
+                let v = heap.new_string($s.to_string());
+                stack.push(v);
+                // Recast via pointer so we can use str macro in a loop
+                unsafe { &*(stack.last().unwrap().as_loxstr().unwrap() as StrPtr) }
+            }};
         }
         macro_rules! get {
             ($k:expr) => {
@@ -265,7 +271,8 @@ mod test {
     fn find_key() {
         let mut table = LoxTable::new();
         let mut heap = Heap::new();
-        let s1 = heap.new_string("asd".to_string()).as_loxstr().unwrap();
+        let s1_val = heap.new_string("asd".to_string());
+        let s1 = s1_val.as_loxstr().unwrap();
         table.set(s1, Value::Bool(false));
         assert_eq!(table.find_key("asd"), Some(s1 as *const _));
         assert_eq!(table.find_key(s1.as_str()), Some(s1 as *const _));
