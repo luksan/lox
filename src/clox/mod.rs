@@ -9,7 +9,7 @@ pub use vm::{Vm, VmError};
 use num_enum::FromPrimitive;
 
 use mm::ValueArray;
-use value::Value;
+use value::{Function, Value};
 
 use std::fmt::{Debug, Formatter};
 
@@ -158,7 +158,7 @@ impl Chunk {
                 print!("{}", self.constants[constant]);
                 println!();
 
-                let function = self.constants[constant].as_function().expect(
+                let function = self.constants[constant].as_object::<Function>().expect(
                     format!(
                         "Closure without function, found {:?}",
                         self.constants[constant]

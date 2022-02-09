@@ -35,10 +35,6 @@ impl Value {
         }
     }
 
-    pub fn as_function(&self) -> Result<&Obj<Function>> {
-        self.as_object().context("Not a function.")
-    }
-
     pub fn as_str(&self) -> Result<&str> {
         self.as_object::<LoxStr>()
             .map(|o| o.as_str())
