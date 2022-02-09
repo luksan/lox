@@ -17,7 +17,7 @@ impl Heap {
         }
     }
 
-    pub fn new_object<O: Display + Debug>(&mut self, inner: O) -> &'static mut Obj<O>
+    pub fn new_object<O: Display + Debug + 'static>(&mut self, inner: O) -> &'static mut Obj<O>
     where
         *const Obj<O>: Into<ObjTypes>,
     {
@@ -96,6 +96,15 @@ pub struct Obj<T: ?Sized + Display + Debug> {
     inner: T,
 }
 
+impl<T: Display + Debug> Obj<T> {
+    fn new<S: Into<T>>(from: S) -> &'static mut Self {
+        Box::leak(Box::new(Obj {
+            next: ObjTypes::None,
+            inner: from.into(),
+        }))
+    }
+}
+
 impl<T: Display + Debug + ?Sized> Deref for Obj<T> {
     type Target = T;
 
@@ -119,14 +128,5 @@ impl<T: Display + Debug> Debug for Obj<T> {
 impl<T: Display + Debug> Display for Obj<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
-    }
-}
-
-impl<T: Display + Debug> Obj<T> {
-    pub fn new<S: Into<T>>(from: S) -> &'static mut Self {
-        Box::leak(Box::new(Obj {
-            next: ObjTypes::None,
-            inner: from.into(),
-        }))
     }
 }
