@@ -1,9 +1,7 @@
 use crate::clox::compiler::compile;
-use crate::clox::mm::Heap;
+use crate::clox::mm::{Heap, Obj};
 use crate::clox::table::LoxTable;
-use crate::clox::value::{
-    Closure, Function, NativeFn, NativeFnRef, ObjTypes, Object, Upvalue, Value,
-};
+use crate::clox::value::{Closure, Function, NativeFn, NativeFnRef, ObjTypes, Upvalue, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 use std::ptr;
@@ -25,12 +23,12 @@ pub struct Vm {
     stack: Vec<Value>,
     heap: Heap,
     globals: LoxTable,
-    open_upvalues: *mut Object<Upvalue>,
+    open_upvalues: *mut Obj<Upvalue>,
 }
 
 #[derive(Copy, Clone, Debug)]
 pub struct CallFrame {
-    closure: *const Object<Closure>,
+    closure: *const Obj<Closure>,
     ip: *const u8,
     stack_offset: usize,
 }
@@ -301,7 +299,7 @@ impl Vm {
             .for_each(|(i, v)| println!("[{}] {:?}", i, v));
     }
 
-    fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> &'static mut Object<Upvalue> {
+    fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> &'static mut Obj<Upvalue> {
         let mut uv_ptr = self.open_upvalues;
         let mut prev_ptr = ptr::null_mut();
         while let Some(uv) = unsafe { uv_ptr.as_ref() } {
@@ -349,7 +347,7 @@ impl Vm {
         }
     }
 
-    fn call(&self, closure: &Object<Closure>, arg_count: u8) -> Result<CallFrame> {
+    fn call(&self, closure: &Obj<Closure>, arg_count: u8) -> Result<CallFrame> {
         if arg_count != closure.function().arity {
             bail!(
                 "Expected {} arguments but got {}.",

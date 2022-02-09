@@ -5,8 +5,8 @@ use anyhow::{bail, Result};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::mem;
 
-use crate::clox::mm::Heap;
-use crate::clox::value::{Function, Object, Value};
+use crate::clox::mm::{Heap, Obj};
+use crate::clox::value::{Function, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
@@ -14,7 +14,7 @@ use crate::LoxError;
 pub fn compile<'a>(
     source: &'a str,
     heap: &'a mut Heap,
-) -> StdResult<*const Object<Function>, LoxError> {
+) -> StdResult<*const Obj<Function>, LoxError> {
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens()?;
 
@@ -205,7 +205,7 @@ impl<'a> Compiler<'a> {
         Ok(())
     }
 
-    pub fn end_compiler(mut self) -> Result<*const Object<Function>> {
+    pub fn end_compiler(mut self) -> Result<*const Obj<Function>> {
         self.emit_return();
         if self.had_error {
             //  self.chunk.disassemble("code"); // FIXME: this should be conditional

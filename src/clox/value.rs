@@ -1,9 +1,10 @@
 use anyhow::{bail, Context, Result};
 
+use crate::clox::mm::Obj;
 use crate::clox::Chunk;
+
 use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::{Deref, DerefMut};
 use std::ptr;
 use std::ptr::NonNull;
 
@@ -34,7 +35,7 @@ impl Value {
         }
     }
 
-    pub fn as_function(self) -> Result<&'static Object<Function>> {
+    pub fn as_function(self) -> Result<&'static Obj<Function>> {
         self.as_object().context("Not a function.")
     }
 
@@ -44,7 +45,7 @@ impl Value {
             .context("Not a string.")
     }
 
-    pub fn as_loxstr(self) -> Option<&'static Object<LoxStr>> {
+    pub fn as_loxstr(self) -> Option<&'static Obj<LoxStr>> {
         self.as_object()
     }
 
@@ -52,7 +53,7 @@ impl Value {
         self == Self::Nil || self == Self::Bool(false)
     }
 
-    pub fn as_object<O: Display + Debug>(&self) -> Option<&'static Object<O>> {
+    pub fn as_object<O: Display + Debug>(&self) -> Option<&'static Obj<O>> {
         if let Self::Obj(ptr) = self {
             ptr.cast::<O>()
         } else {
@@ -141,7 +142,7 @@ pub struct Upvalue {
     // TODO: Pointing into the stack is op as long as it doesn't reallocate, which it shouldn't
     // since it is pre-allocated in Vm::new(). Consider using a boxed slice instead for the stack.
     pub(crate) location: *mut Value,
-    pub(crate) next_open_upvalue: *mut Object<Upvalue>,
+    pub(crate) next_open_upvalue: *mut Obj<Upvalue>,
     closed: Value,
 }
 
@@ -179,12 +180,12 @@ impl Display for Upvalue {
 
 #[derive(Debug)]
 pub struct Closure {
-    pub function: *const Object<Function>,
-    pub upvalues: Box<[*const Object<Upvalue>]>,
+    pub function: *const Obj<Function>,
+    pub upvalues: Box<[*const Obj<Upvalue>]>,
 }
 
 impl Closure {
-    pub fn new(function: *const Object<Function>) -> Self {
+    pub fn new(function: *const Obj<Function>) -> Self {
         Self {
             function,
             upvalues: vec![
@@ -222,7 +223,7 @@ impl Display for Closure {
 pub struct Function {
     pub(crate) arity: u8,
     pub(crate) chunk: Chunk,
-    pub(crate) name: *const Object<LoxStr>,
+    pub(crate) name: *const Obj<LoxStr>,
     pub(crate) upvalue_count: usize,
 }
 
@@ -283,60 +284,20 @@ impl From<NativeFnRef> for NativeFn {
     }
 }
 
-pub struct Object<T: ?Sized + Display + Debug> {
-    pub(crate) next: ObjTypes,
-    inner: T,
-}
-
-impl<T: Display + Debug + ?Sized> Deref for Object<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T: Display + Debug + ?Sized> DerefMut for Object<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.inner
-    }
-}
-
-impl<T: Display + Debug> Debug for Object<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Object{{ inner: {:?}, next: ... }}", self.inner)
-    }
-}
-
-impl<T: Display + Debug> Display for Object<T> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-
-impl<T: Display + Debug> Object<T> {
-    pub fn new<S: Into<T>>(from: S) -> &'static mut Self {
-        Box::leak(Box::new(Object {
-            next: ObjTypes::None,
-            inner: from.into(),
-        }))
-    }
-}
-
 #[derive(Clone, Copy, PartialEq)]
 pub enum ObjTypes {
-    Closure(NonNull<Object<Closure>>),
-    Function(NonNull<Object<Function>>),
-    NativeFn(NonNull<Object<NativeFn>>),
-    LoxStr(NonNull<Object<LoxStr>>),
-    Upvalue(NonNull<Object<Upvalue>>),
+    Closure(NonNull<Obj<Closure>>),
+    Function(NonNull<Obj<Function>>),
+    NativeFn(NonNull<Obj<NativeFn>>),
+    LoxStr(NonNull<Obj<LoxStr>>),
+    Upvalue(NonNull<Obj<Upvalue>>),
     None,
 }
 
 macro_rules! objtypes_impl {
     ($($typ:ident),+) => { $(
-        impl From<*const Object<$typ>> for ObjTypes {
-            fn from(f: *const Object<$typ>) -> Self {
+        impl From<*const Obj<$typ>> for ObjTypes {
+            fn from(f: *const Obj<$typ>) -> Self {
                 Self::$typ(NonNull::new(f as *mut _).unwrap())
             }
         }
@@ -368,7 +329,7 @@ impl ObjTypes {
         for_all_objtypes!(self, free_next)
     }
 
-    fn cast<T: Display + Debug>(self) -> Option<&'static Object<T>> {
+    fn cast<T: Display + Debug>(self) -> Option<&'static Obj<T>> {
         macro_rules! down {
             ($ptr:expr) => {
                 return (unsafe { $ptr.as_ref() } as &dyn Any).downcast_ref()

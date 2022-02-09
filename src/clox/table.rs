@@ -1,8 +1,10 @@
-use crate::clox::value::{LoxStr, Object, Value};
+use crate::clox::mm::Obj;
+use crate::clox::value::{LoxStr, Value};
+
 use std::cell::Cell;
 use std::ptr;
 
-pub type StrPtr = *const Object<LoxStr>;
+pub type StrPtr = *const Obj<LoxStr>;
 
 pub trait Table {
     fn get(&self, key: StrPtr) -> Option<Value>;

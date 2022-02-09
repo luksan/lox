@@ -1,7 +1,8 @@
 use crate::clox::table::LoxTable;
-use crate::clox::value::{LoxStr, ObjTypes, Object, Value};
-use std::fmt::{Debug, Display};
-use std::ops::{Deref, Index};
+use crate::clox::value::{LoxStr, ObjTypes, Value};
+
+use std::fmt::{Debug, Display, Formatter};
+use std::ops::{Deref, DerefMut, Index};
 
 pub struct Heap {
     objs: ObjTypes,
@@ -16,12 +17,12 @@ impl Heap {
         }
     }
 
-    pub fn new_object<O: Display + Debug>(&mut self, inner: O) -> &'static mut Object<O>
+    pub fn new_object<O: Display + Debug>(&mut self, inner: O) -> &'static mut Obj<O>
     where
-        *const Object<O>: Into<ObjTypes>,
+        *const Obj<O>: Into<ObjTypes>,
     {
-        let o = Object::new(inner);
-        o.next = std::mem::replace(&mut self.objs, (o as *const Object<O>).into());
+        let o = Obj::new(inner);
+        o.next = std::mem::replace(&mut self.objs, (o as *const Obj<O>).into());
         o
     }
 
@@ -87,5 +88,45 @@ impl Deref for ValueArray {
 
     fn deref(&self) -> &Self::Target {
         self.values.as_slice()
+    }
+}
+
+pub struct Obj<T: ?Sized + Display + Debug> {
+    pub(crate) next: ObjTypes,
+    inner: T,
+}
+
+impl<T: Display + Debug + ?Sized> Deref for Obj<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<T: Display + Debug + ?Sized> DerefMut for Obj<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.inner
+    }
+}
+
+impl<T: Display + Debug> Debug for Obj<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Object{{ inner: {:?}, next: ... }}", self.inner)
+    }
+}
+
+impl<T: Display + Debug> Display for Obj<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+
+impl<T: Display + Debug> Obj<T> {
+    pub fn new<S: Into<T>>(from: S) -> &'static mut Self {
+        Box::leak(Box::new(Obj {
+            next: ObjTypes::None,
+            inner: from.into(),
+        }))
     }
 }
