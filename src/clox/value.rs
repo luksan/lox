@@ -41,10 +41,6 @@ impl Value {
             .context("Not a string.")
     }
 
-    pub fn as_loxstr(&self) -> Option<&Obj<LoxStr>> {
-        self.as_object()
-    }
-
     pub fn is_falsey(self) -> bool {
         self == Self::Nil || self == Self::Bool(false)
     }

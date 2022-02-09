@@ -406,7 +406,7 @@ impl<'a> Compiler<'a> {
         self.func_scope.function.name = self
             .heap
             .new_string(self.previous.lexeme().to_string())
-            .as_loxstr()
+            .as_object()
             .unwrap();
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expect '(' after function name.");

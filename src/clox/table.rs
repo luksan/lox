@@ -202,7 +202,7 @@ mod test {
 
         let mut heap2 = Heap::new(); // put a string on another heap
         let s2_val = heap2.new_string("asd".to_string());
-        let s2 = s2_val.as_loxstr().unwrap();
+        let s2 = s2_val.as_object().unwrap();
         assert_eq!(table.get(s2), None); // This is None because of string interning
     }
 
@@ -216,7 +216,7 @@ mod test {
                 let v = heap.new_string($s.to_string());
                 stack.push(v);
                 // Recast via pointer so we can use str macro in a loop
-                unsafe { &*(stack.last().unwrap().as_loxstr().unwrap() as StrPtr) }
+                unsafe { &*(stack.last().unwrap().as_object().unwrap() as StrPtr) }
             }};
         }
         macro_rules! get {
@@ -272,7 +272,7 @@ mod test {
         let mut table = LoxTable::new();
         let mut heap = Heap::new();
         let s1_val = heap.new_string("asd".to_string());
-        let s1 = s1_val.as_loxstr().unwrap();
+        let s1 = s1_val.as_object().unwrap();
         table.set(s1, Value::Bool(false));
         assert_eq!(table.find_key("asd"), Some(s1 as *const _));
         assert_eq!(table.find_key(s1.as_str()), Some(s1 as *const _));

@@ -155,7 +155,7 @@ impl Vm {
                     self.stack[slot as usize + frame.stack_offset] = self.peek(0);
                 }
                 OpCode::GetGlobal => {
-                    let name = read_constant!().as_loxstr().unwrap();
+                    let name = read_constant!().as_object().unwrap();
                     if let Some(v) = self.globals.get(name) {
                         self.push(v);
                     } else {
@@ -163,12 +163,12 @@ impl Vm {
                     }
                 }
                 OpCode::DefineGlobal => {
-                    let name = read_constant!().as_loxstr().unwrap();
+                    let name = read_constant!().as_object().unwrap();
                     self.globals.set(name, self.peek(0));
                     self.pop();
                 }
                 OpCode::SetGlobal => {
-                    let name = read_constant!().as_loxstr().unwrap();
+                    let name = read_constant!().as_object().unwrap();
                     if self.globals.set(name, self.peek(0)) {
                         self.globals.delete(name);
                         runtime_error!("Undefined variable '{}'.", name)?;
@@ -373,7 +373,7 @@ impl Vm {
         self.push(name);
         let native: *const _ = self.heap.new_object::<NativeFn>(function.into());
         self.push(native);
-        self.globals.set(name.as_loxstr().unwrap(), native.into());
+        self.globals.set(name.as_object().unwrap(), native.into());
         self.pop();
         self.pop();
     }
