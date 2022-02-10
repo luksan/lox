@@ -191,7 +191,7 @@ mod test {
     #[test]
     fn basic_test() {
         let mut table = LoxTable::new();
-        let mut heap = Heap::new();
+        let heap = Heap::new();
         let s1_val = heap.new_string("asd".to_string());
         let s1 = s1_val.as_object::<LoxStr>().unwrap();
         assert!(table.get(s1).is_none());
@@ -200,7 +200,7 @@ mod test {
         assert!(!table.set(s1, Value::Bool(true)));
         assert_eq!(table.get(s1), Some(Value::Bool(true)));
 
-        let mut heap2 = Heap::new(); // put a string on another heap
+        let heap2 = Heap::new(); // put a string on another heap
         let s2_val = heap2.new_string("asd".to_string());
         let s2 = s2_val.as_object().unwrap();
         assert_eq!(table.get(s2), None); // This is None because of string interning
@@ -209,7 +209,7 @@ mod test {
     #[test]
     fn test_deletion() {
         let mut table = LoxTable::new();
-        let mut heap = Heap::new();
+        let heap = Heap::new();
         let mut stack = vec![];
         macro_rules! str {
             ($s:expr) => {{
@@ -270,7 +270,7 @@ mod test {
     #[test]
     fn find_key() {
         let mut table = LoxTable::new();
-        let mut heap = Heap::new();
+        let heap = Heap::new();
         let s1_val = heap.new_string("asd".to_string());
         let s1 = s1_val.as_object().unwrap();
         table.set(s1, Value::Bool(false));

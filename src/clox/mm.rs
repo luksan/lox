@@ -1,43 +1,48 @@
 use crate::clox::table::LoxTable;
 use crate::clox::value::{LoxStr, ObjTypes, Value};
 
+use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut, Index};
 
 pub struct Heap {
-    objs: ObjTypes,
-    strings: LoxTable,
+    objs: Cell<ObjTypes>,
+    strings: UnsafeCell<LoxTable>,
 }
 
 impl Heap {
     pub fn new() -> Self {
         Self {
-            objs: ObjTypes::None,
-            strings: LoxTable::new(),
+            objs: ObjTypes::None.into(),
+            strings: LoxTable::new().into(),
         }
     }
 
-    pub fn new_object<O: Display + Debug + 'static>(&mut self, inner: O) -> &'static mut Obj<O>
+    pub fn new_object<O: Display + Debug + 'static>(&self, inner: O) -> &'static mut Obj<O>
     where
         *const Obj<O>: Into<ObjTypes>,
     {
         let o = Obj::new(inner);
-        o.next = std::mem::replace(&mut self.objs, (o as *const Obj<O>).into());
+        o.next = self.objs.replace((o as *const Obj<O>).into());
         o
     }
 
-    pub fn new_string(&mut self, s: String) -> Value {
-        if let Some(s) = self.strings.find_key(s.as_str()) {
+    pub fn new_string(&self, s: String) -> Value {
+        // Safety: This is safe since Heap isn't Sync,
+        // and self.strings is only accessed in this method, which
+        // isn't recursive.
+        let str_int = unsafe { &mut *self.strings.get() };
+        if let Some(s) = str_int.find_key(s.as_str()) {
             return Value::Obj(s.into());
         }
         let o = self.new_object(LoxStr::from_string(s));
-        self.strings.set(o, Value::Nil);
-        Value::Obj(self.objs)
+        str_int.set(o, Value::Nil);
+        Value::Obj(self.objs.get())
     }
 
     pub fn free_objects(&mut self) {
-        while !matches!(self.objs, ObjTypes::None) {
-            self.objs = self.objs.free_object();
+        while !matches!(self.objs.get(), ObjTypes::None) {
+            self.objs.replace(self.objs.get().free_object());
         }
     }
 }
@@ -54,7 +59,7 @@ mod heap_test {
 
     #[test]
     fn string_interning() {
-        let mut heap = Heap::new();
+        let heap = Heap::new();
         let s1 = heap.new_string("asd".to_string());
         let s2 = heap.new_string("asd".to_string());
         assert_eq!(s1, s2);
