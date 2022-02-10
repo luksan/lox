@@ -1,4 +1,4 @@
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 
 use crate::clox::mm::Obj;
 use crate::clox::Chunk;
@@ -35,10 +35,8 @@ impl Value {
         }
     }
 
-    pub fn as_str(&self) -> Result<&str> {
-        self.as_object::<LoxStr>()
-            .map(|o| o.as_str())
-            .context("Not a string.")
+    pub fn as_str(&self) -> Option<&str> {
+        self.as_object::<LoxStr>().map(|o| o.as_str())
     }
 
     pub fn is_falsey(self) -> bool {

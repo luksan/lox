@@ -191,7 +191,7 @@ impl Vm {
                 OpCode::Greater => binary_op!(>),
                 OpCode::Less => binary_op!(<),
                 OpCode::Add => {
-                    if let (Ok(a), Ok(b)) = (self.peek(1).as_str(), self.peek(0).as_str()) {
+                    if let (Some(a), Some(b)) = (self.peek(1).as_str(), self.peek(0).as_str()) {
                         let new = [a, b].join("");
                         let s = self.heap.new_string(new);
                         self.pop();
