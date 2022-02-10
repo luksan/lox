@@ -4,14 +4,33 @@ mod table;
 mod value;
 mod vm;
 
+use mm::ValueArray;
+use value::{Function, Value};
 pub use vm::{Vm, VmError};
 
 use num_enum::FromPrimitive;
-
-use mm::ValueArray;
-use value::{Function, Value};
+use once_cell::sync::OnceCell;
 
 use std::fmt::{Debug, Formatter};
+
+#[derive(Default, Debug, Copy, Clone)]
+pub struct CloxSettings {
+    pub output_ci_compliant: bool,
+    pub trace_execution: bool,
+    pub disassemble_compiler_output: bool,
+}
+
+static SETTINGS: OnceCell<CloxSettings> = OnceCell::new();
+
+pub fn set_settings(settings: CloxSettings) {
+    SETTINGS
+        .set(settings)
+        .expect("Can't set settings more than once.");
+}
+
+fn get_settings() -> CloxSettings {
+    SETTINGS.get().copied().unwrap_or(CloxSettings::default())
+}
 
 #[derive(Copy, Clone, Debug, FromPrimitive)]
 #[repr(u8)]

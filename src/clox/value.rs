@@ -234,6 +234,10 @@ impl Function {
             .map(|ls| ls.as_str())
             .unwrap_or("<script>")
     }
+
+    pub fn disassemble(&self) {
+        self.chunk.disassemble(self.name());
+    }
 }
 
 impl Display for Function {

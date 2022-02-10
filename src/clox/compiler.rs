@@ -7,7 +7,7 @@ use std::mem;
 
 use crate::clox::mm::{Heap, Obj};
 use crate::clox::value::{Function, Value};
-use crate::clox::{Chunk, OpCode};
+use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
 
@@ -207,8 +207,12 @@ impl<'a> Compiler<'a> {
 
     pub fn end_compiler(mut self) -> Result<*const Obj<Function>> {
         self.emit_return();
+
+        if get_settings().disassemble_compiler_output {
+            self.func_scope.function.disassemble();
+        }
+
         if self.had_error {
-            //  self.chunk.disassemble("code"); // FIXME: this should be conditional
             bail!("Compilation failed.")
         }
         Ok(self.heap.new_object(self.func_scope.function))
@@ -427,6 +431,12 @@ impl<'a> Compiler<'a> {
         self.consume(TokenType::LeftBrace, "Expect '{' before function body.");
         self.block();
         self.emit_return();
+
+        if get_settings().disassemble_compiler_output {
+            self.func_scope.function.disassemble();
+        }
+
+        // The compiler scope for the current function ends here
         let outer_scope = *self.func_scope.enclosing.take().unwrap();
         let new = std::mem::replace(&mut self.func_scope, outer_scope);
         let func = self.heap.new_object(new.function);

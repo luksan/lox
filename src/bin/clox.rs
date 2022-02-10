@@ -1,6 +1,6 @@
 use std::result::Result as StdResult;
 
-use lox::clox::{Vm, VmError};
+use lox::clox::{self, CloxSettings, Vm, VmError};
 use lox::LoxError;
 use std::io::Write;
 
@@ -14,13 +14,29 @@ struct CmdOpts {
     /// Lox script file
     #[structopt(parse(from_os_str))]
     script: Option<PathBuf>,
+
+    /// Indicates that we are running the craftinginterpreters testsuite,
+    /// so make sure that the error/debug output is compliant.
+    #[structopt(long)]
+    ci_testsuite: bool,
+
+    /// Print disassembly of compiler output brefore it runs.
+    #[structopt(long, short)]
+    print_comp_asm: bool,
 }
 
 #[allow(unused)]
 fn main() {
     let opts = CmdOpts::from_args();
 
-    if let Some(script) = opts.script {
+    let mut clox_settings = CloxSettings::default();
+
+    clox_settings.disassemble_compiler_output = opts.print_comp_asm;
+    clox_settings.output_ci_compliant = opts.ci_testsuite;
+
+    clox::set_settings(clox_settings);
+
+    if let Some(ref script) = opts.script {
         if let Err(e) = run_file(script) {
             let exit_code = match e {
                 LoxError::CompileError(_) => 65,
