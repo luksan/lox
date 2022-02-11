@@ -132,7 +132,7 @@ pub struct Upvalue {
     // TODO: Pointing into the stack is op as long as it doesn't reallocate, which it shouldn't
     // since it is pre-allocated in Vm::new(). Consider using a boxed slice instead for the stack.
     pub(crate) location: *mut Value,
-    pub(crate) next_open_upvalue: *mut Obj<Upvalue>,
+    pub(crate) next_open_upvalue: *const Obj<Upvalue>,
     closed: Value,
 }
 

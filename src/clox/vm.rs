@@ -23,7 +23,7 @@ pub struct Vm {
     stack: Vec<Value>,
     heap: Heap,
     globals: LoxTable,
-    open_upvalues: *mut Obj<Upvalue>,
+    open_upvalues: *const Obj<Upvalue>,
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -249,9 +249,8 @@ impl Vm {
                 }
                 OpCode::Closure => {
                     let function = read_constant!().as_object::<Function>().unwrap();
-                    let closure = self.heap.new_object::<Closure>(Closure::new(function));
-                    self.push(closure as *const _);
                     let stack_ptr = self.stack.as_mut_ptr();
+                    let mut closure = Closure::new(function);
                     for uv in closure.upvalues.iter_mut() {
                         let is_local = read_byte!() == 1;
                         let index = read_byte!() as usize;
@@ -263,6 +262,8 @@ impl Vm {
                             unsafe { frame.closure.as_ref().unwrap() }.upvalues[index]
                         }
                     }
+                    let closure = self.heap.new_object(closure);
+                    self.push(closure as *const _);
                 }
                 OpCode::CloseUpvalue => {
                     self.close_upvalues(self.stack.len() - 1);
@@ -299,25 +300,26 @@ impl Vm {
             .for_each(|(i, v)| println!("[{}] {:?}", i, v));
     }
 
-    fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> &'static mut Obj<Upvalue> {
+    fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> &Obj<Upvalue> {
         let mut uv_ptr = self.open_upvalues;
-        let mut prev_ptr = ptr::null_mut();
+        let mut prev_ptr = ptr::null();
         while let Some(uv) = unsafe { uv_ptr.as_ref() } {
             if uv.location < stack_ptr {
                 break;
             }
             if uv.location == stack_ptr {
-                return unsafe { uv_ptr.as_mut().unwrap() };
+                return unsafe { &*uv_ptr };
             }
             prev_ptr = uv_ptr;
             uv_ptr = uv.next_open_upvalue;
         }
-        let upvalue = self.heap.new_object(Upvalue::new(stack_ptr));
+        let mut upvalue = Upvalue::new(stack_ptr);
         upvalue.next_open_upvalue = uv_ptr;
+        let upvalue = self.heap.new_object(upvalue);
         if prev_ptr.is_null() {
             self.open_upvalues = upvalue;
         } else {
-            unsafe { (*prev_ptr).next_open_upvalue = upvalue }
+            unsafe { (&mut *(prev_ptr as *mut Obj<Upvalue>)).next_open_upvalue = upvalue }
         }
         upvalue
     }
@@ -325,7 +327,7 @@ impl Vm {
     fn close_upvalues(&mut self, stack_offset: usize) {
         // Ch 25.4.4
         let last = self.stack.as_mut_ptr().wrapping_add(stack_offset);
-        while let Some(uv) = unsafe { self.open_upvalues.as_mut() } {
+        while let Some(uv) = unsafe { (self.open_upvalues as *mut Obj<Upvalue>).as_mut() } {
             if uv.location < last {
                 break;
             }

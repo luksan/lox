@@ -18,7 +18,7 @@ impl Heap {
         }
     }
 
-    pub fn new_object<O: Display + Debug + 'static>(&self, inner: O) -> &'static mut Obj<O>
+    pub fn new_object<O: Display + Debug + 'static>(&self, inner: O) -> &'static Obj<O>
     where
         *const Obj<O>: Into<ObjTypes>,
     {
