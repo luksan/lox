@@ -64,7 +64,9 @@ impl Vm {
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
         let function = compile(source, &mut self.heap)?;
         self.push(ObjTypes::from(function));
-        let closure = self.heap.new_object(Closure::new(function));
+        let closure = self.heap.new_object(Closure::new(function, &mut || {
+            unreachable!("No upvalues in root.")
+        }));
         self.pop();
         self.push(closure as *const _);
         let frame = self.call(closure, 0)?;
@@ -250,18 +252,18 @@ impl Vm {
                 OpCode::Closure => {
                     let function = read_constant!().as_object::<Function>().unwrap();
                     let stack_ptr = self.stack.as_mut_ptr();
-                    let mut closure = Closure::new(function);
-                    for uv in closure.upvalues.iter_mut() {
+                    let closure = Closure::new(function.into(), &mut || {
                         let is_local = read_byte!() == 1;
                         let index = read_byte!() as usize;
-                        *uv = if is_local {
+                        if is_local {
                             self.capture_upvalue(unsafe {
                                 stack_ptr.add(index + frame.stack_offset)
                             })
+                            .into()
                         } else {
                             unsafe { frame.closure.as_ref().unwrap() }.upvalues[index]
                         }
-                    }
+                    });
                     let closure = self.heap.new_object(closure);
                     self.push(closure as *const _);
                 }

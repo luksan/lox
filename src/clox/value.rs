@@ -170,35 +170,36 @@ impl Display for Upvalue {
 
 #[derive(Debug)]
 pub struct Closure {
-    pub function: *const Obj<Function>,
-    pub upvalues: Box<[*const Obj<Upvalue>]>,
+    pub function: NonNull<Obj<Function>>,
+    pub upvalues: Box<[NonNull<Obj<Upvalue>>]>,
 }
 
 impl Closure {
-    pub fn new(function: *const Obj<Function>) -> Self {
+    pub fn new(
+        function: NonNull<Obj<Function>>,
+        uvg: &mut dyn FnMut() -> NonNull<Obj<Upvalue>>,
+    ) -> Self {
+        let mut upvalues = vec![];
+        upvalues.resize_with(unsafe { function.as_ref().upvalue_count }, uvg);
         Self {
             function,
-            upvalues: vec![
-                ptr::null();
-                unsafe { function.as_ref().unwrap() }.upvalue_count as usize
-            ]
-            .into_boxed_slice(),
+            upvalues: upvalues.into_boxed_slice(),
         }
     }
 
-    pub fn function(&self) -> &'static Function {
-        unsafe { self.function.as_ref().unwrap() }
+    pub fn function(&self) -> &Function {
+        unsafe { self.function.as_ref() }
     }
 
     pub fn read_upvalue(&self, slot: u8) -> Value {
         let slot = self.upvalues[slot as usize];
-        unsafe { slot.as_ref().unwrap().read() }
+        unsafe { slot.as_ref().read() }
     }
 
     pub fn write_upvalue(&self, slot: u8, value: Value) {
         let slot = self.upvalues[slot as usize];
         unsafe {
-            slot.as_ref().unwrap().write(value);
+            slot.as_ref().write(value);
         }
     }
 }
@@ -293,6 +294,12 @@ macro_rules! objtypes_impl {
         impl From<*const Obj<$typ>> for ObjTypes {
             fn from(f: *const Obj<$typ>) -> Self {
                 Self::$typ(NonNull::new(f as *mut _).unwrap())
+            }
+        }
+
+        impl From<NonNull<Obj<$typ>>> for ObjTypes {
+            fn from(f: NonNull<Obj<$typ>>) -> Self {
+                Self::$typ(f)
             }
         }
         )+

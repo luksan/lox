@@ -4,6 +4,7 @@ use std::result::Result as StdResult;
 use anyhow::{bail, Result};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::mem;
+use std::ptr::NonNull;
 
 use crate::clox::mm::{Heap, Obj};
 use crate::clox::value::{Function, Value};
@@ -14,7 +15,7 @@ use crate::LoxError;
 pub fn compile<'a>(
     source: &'a str,
     heap: &'a mut Heap,
-) -> StdResult<*const Obj<Function>, LoxError> {
+) -> StdResult<NonNull<Obj<Function>>, LoxError> {
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens()?;
 
@@ -22,6 +23,7 @@ pub fn compile<'a>(
     compiler.compile().map_err(|e| LoxError::CompileError(e))?;
     compiler
         .end_compiler()
+        .map(|func_ptr| NonNull::new(func_ptr as *mut _).unwrap())
         .map_err(|e| LoxError::CompileError(e))
 }
 
