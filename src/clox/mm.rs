@@ -1,6 +1,8 @@
 use crate::clox::table::LoxTable;
 use crate::clox::value::{LoxStr, ObjTypes, Value};
 
+use tracing::trace;
+
 use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut, Index};
@@ -22,6 +24,7 @@ impl Heap {
     where
         *const Obj<O>: Into<ObjTypes>,
     {
+        trace!("new Obj<{}>", value_type_str::<O>());
         let o = Obj::new(inner);
         o.next = self.objs.replace((o as *const Obj<O>).into());
         o
@@ -32,9 +35,11 @@ impl Heap {
         // and self.strings is only accessed in this method, which
         // isn't recursive.
         let str_int = unsafe { &mut *self.strings.get() };
-        if let Some(s) = str_int.find_key(s.as_str()) {
-            return Value::Obj(s.into());
+        if let Some(str_ptr) = str_int.find_key(s.as_str()) {
+            trace!("new_string() '{}' already interned.", s);
+            return Value::Obj(str_ptr.into());
         }
+        trace!("new_string() interning '{}'", s);
         let o = self.new_object(LoxStr::from_string(s));
         str_int.set(o, Value::Nil);
         Value::Obj(self.objs.get())
@@ -44,6 +49,12 @@ impl Heap {
         while !matches!(self.objs.get(), ObjTypes::None) {
             self.objs.replace(self.objs.get().free_object());
         }
+    }
+}
+
+impl Debug for Heap {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Heap {{...}}")
     }
 }
 
@@ -126,7 +137,7 @@ impl<T: Display + Debug + ?Sized> DerefMut for Obj<T> {
 
 impl<T: Display + Debug> Debug for Obj<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Object{{ inner: {:?}, next: ... }}", self.inner)
+        write!(f, "Obj<{}>{{{:?}}}", value_type_str::<T>(), self.inner)
     }
 }
 
@@ -134,4 +145,8 @@ impl<T: Display + Debug> Display for Obj<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }
+}
+
+fn value_type_str<T>() -> &'static str {
+    std::any::type_name::<T>().rsplitn(2, "::").next().unwrap()
 }

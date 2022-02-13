@@ -12,6 +12,7 @@ use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
 
+#[tracing::instrument]
 pub fn compile<'a>(
     source: &'a str,
     heap: &'a mut Heap,

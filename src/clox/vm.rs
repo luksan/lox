@@ -4,9 +4,12 @@ use crate::clox::table::LoxTable;
 use crate::clox::value::{Closure, Function, NativeFn, NativeFnRef, ObjTypes, Upvalue, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
-use std::ptr;
 
 use anyhow::{anyhow, bail, Result};
+use tracing::{span, Level};
+
+use std::fmt::{Debug, Formatter};
+use std::ptr;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
@@ -24,6 +27,14 @@ pub struct Vm {
     heap: Heap,
     globals: LoxTable,
     open_upvalues: *const Obj<Upvalue>,
+}
+
+impl Debug for Vm {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "stack: {:?}", self.stack)?;
+        write!(f, ", globals: {:?}", self.globals)?;
+        Ok(())
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -74,6 +85,9 @@ impl Vm {
     }
 
     fn run(&mut self, mut frame: CallFrame) -> Result<(), VmError> {
+        let trace_span = span!(Level::TRACE, "Vm::run()");
+        let _enter = trace_span.enter();
+
         macro_rules! ip_incr {
             ($inc:expr) => {
                 frame.ip = frame.ip.add($inc as usize);

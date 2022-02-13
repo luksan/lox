@@ -29,6 +29,8 @@ struct CmdOpts {
 fn main() {
     let opts = CmdOpts::from_args();
 
+    tracing_subscriber::fmt::init();
+
     let mut clox_settings = CloxSettings::default();
 
     clox_settings.disassemble_compiler_output = opts.print_comp_asm;

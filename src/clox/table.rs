@@ -2,6 +2,7 @@ use crate::clox::mm::Obj;
 use crate::clox::value::{LoxStr, Value};
 
 use std::cell::Cell;
+use std::fmt::{Debug, Formatter};
 use std::ptr;
 
 pub type StrPtr = *const Obj<LoxStr>;
@@ -16,6 +17,15 @@ pub trait Table {
 pub struct LoxTable {
     count: usize,
     entries: Vec<Entry>,
+}
+
+impl Debug for LoxTable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        for (k, v) in self.entries() {
+            write!(f, "{}: {}", unsafe { &*k }, v)?;
+        }
+        Ok(())
+    }
 }
 
 struct Entry {
