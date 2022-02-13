@@ -18,6 +18,7 @@ pub struct CloxSettings {
     pub output_ci_compliant: bool,
     pub trace_execution: bool,
     pub disassemble_compiler_output: bool,
+    pub gc_stress_test: bool,
 }
 
 static SETTINGS: OnceCell<CloxSettings> = OnceCell::new();

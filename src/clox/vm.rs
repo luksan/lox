@@ -1,7 +1,7 @@
 use crate::clox::compiler::compile;
-use crate::clox::mm::{Heap, Obj};
+use crate::clox::mm::{Heap, Obj, ObjTypes};
 use crate::clox::table::LoxTable;
-use crate::clox::value::{Closure, Function, NativeFn, NativeFnRef, ObjTypes, Upvalue, Value};
+use crate::clox::value::{Closure, Function, NativeFn, NativeFnRef, Upvalue, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 

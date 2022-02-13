@@ -1,11 +1,108 @@
+use crate::clox::get_settings;
 use crate::clox::table::LoxTable;
-use crate::clox::value::{LoxStr, ObjTypes, Value};
+use crate::clox::value::{Closure, Function, LoxStr, NativeFn, Upvalue, Value};
 
-use tracing::trace;
+use tracing::{instrument, trace};
 
+use std::any::Any;
 use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut, Index};
+use std::ptr::NonNull;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum ObjTypes {
+    Closure(NonNull<Obj<Closure>>),
+    Function(NonNull<Obj<Function>>),
+    NativeFn(NonNull<Obj<NativeFn>>),
+    LoxStr(NonNull<Obj<LoxStr>>),
+    Upvalue(NonNull<Obj<Upvalue>>),
+    None,
+}
+
+macro_rules! objtypes_impl {
+    ($($typ:ident),+) => { $(
+        impl From<*const Obj<$typ>> for ObjTypes {
+            fn from(f: *const Obj<$typ>) -> Self {
+                Self::$typ(NonNull::new(f as *mut _).unwrap())
+            }
+        }
+
+        impl From<NonNull<Obj<$typ>>> for ObjTypes {
+            fn from(f: NonNull<Obj<$typ>>) -> Self {
+                Self::$typ(f)
+            }
+        }
+        )+
+
+        macro_rules! for_all_objtypes {
+            ($self:ident, $mac:ident) => {{
+                #[allow(non_snake_case)]
+                match $self {
+                    $( ObjTypes::$typ($typ) => $mac!($typ), )+
+                    ObjTypes::None => unreachable!("Should have been handled above."),
+                }
+            }}
+        }
+    }
+}
+
+objtypes_impl!(Closure, Function, NativeFn, LoxStr, Upvalue);
+
+impl ObjTypes {
+    pub(crate) fn free_object(self) -> Self {
+        macro_rules! free_next {
+            ($ptr:expr) => {{
+                trace!("Freeing Obj<{}> @ {:?}", stringify!($ptr), $ptr);
+                unsafe { Box::from_raw($ptr.as_ptr()) }.next
+            }};
+        }
+        if self == ObjTypes::None {
+            return self;
+        }
+        for_all_objtypes!(self, free_next)
+    }
+
+    pub(crate) fn cast<'a, T: Display + Debug + 'static>(self) -> Option<&'a Obj<T>> {
+        macro_rules! down {
+            ($ptr:expr) => {
+                return (unsafe { $ptr.as_ref() } as &dyn Any).downcast_ref()
+            };
+        }
+        if self == ObjTypes::None {
+            return None;
+        }
+        for_all_objtypes!(self, down)
+    }
+}
+
+impl Debug for ObjTypes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        macro_rules! w {
+            ($p:expr) => {
+                write!(f, "{:?}->{:?}", $p, unsafe { $p.as_ref() })
+            };
+        }
+        if self == &Self::None {
+            return write!(f, "ObjTypes::None");
+        }
+        for_all_objtypes!(self, w)
+    }
+}
+
+impl Display for ObjTypes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        macro_rules! w {
+            ($ptr:expr) => {
+                write!(f, "{}", unsafe { $ptr.as_ref() })
+            };
+        }
+        if self == &ObjTypes::None {
+            return Ok(());
+        }
+        for_all_objtypes!(self, w)
+    }
+}
 
 pub struct Heap {
     objs: Cell<ObjTypes>,
@@ -24,6 +121,9 @@ impl Heap {
     where
         *const Obj<O>: Into<ObjTypes>,
     {
+        if get_settings().gc_stress_test {
+            self.collect_garbage();
+        }
         trace!("new Obj<{}>", value_type_str::<O>());
         let o = Obj::new(inner);
         o.next = self.objs.replace((o as *const Obj<O>).into());
@@ -43,6 +143,13 @@ impl Heap {
         let o = self.new_object(LoxStr::from_string(s));
         str_int.set(o, Value::Nil);
         Value::Obj(self.objs.get())
+    }
+
+    #[instrument]
+    fn collect_garbage(&self) {
+        trace!("gc start");
+
+        trace!("gc end");
     }
 
     pub fn free_objects(&mut self) {

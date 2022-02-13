@@ -23,6 +23,10 @@ struct CmdOpts {
     /// Print disassembly of compiler output brefore it runs.
     #[structopt(long, short)]
     print_comp_asm: bool,
+
+    /// Run the garbage collector at every allocation
+    #[structopt(long)]
+    gc_stress_test: bool,
 }
 
 #[allow(unused)]
@@ -35,6 +39,7 @@ fn main() {
 
     clox_settings.disassemble_compiler_output = opts.print_comp_asm;
     clox_settings.output_ci_compliant = opts.ci_testsuite;
+    clox_settings.gc_stress_test = opts.gc_stress_test;
 
     clox::set_settings(clox_settings);
 

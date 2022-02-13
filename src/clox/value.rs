@@ -1,9 +1,8 @@
 use anyhow::{bail, Result};
 
-use crate::clox::mm::Obj;
+use crate::clox::mm::{Obj, ObjTypes};
 use crate::clox::Chunk;
 
-use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::ptr;
 use std::ptr::NonNull;
@@ -276,97 +275,5 @@ impl Debug for NativeFn {
 impl From<NativeFnRef> for NativeFn {
     fn from(f: NativeFnRef) -> Self {
         Self(f)
-    }
-}
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum ObjTypes {
-    Closure(NonNull<Obj<Closure>>),
-    Function(NonNull<Obj<Function>>),
-    NativeFn(NonNull<Obj<NativeFn>>),
-    LoxStr(NonNull<Obj<LoxStr>>),
-    Upvalue(NonNull<Obj<Upvalue>>),
-    None,
-}
-
-macro_rules! objtypes_impl {
-    ($($typ:ident),+) => { $(
-        impl From<*const Obj<$typ>> for ObjTypes {
-            fn from(f: *const Obj<$typ>) -> Self {
-                Self::$typ(NonNull::new(f as *mut _).unwrap())
-            }
-        }
-
-        impl From<NonNull<Obj<$typ>>> for ObjTypes {
-            fn from(f: NonNull<Obj<$typ>>) -> Self {
-                Self::$typ(f)
-            }
-        }
-        )+
-
-        macro_rules! for_all_objtypes {
-            ($self:ident, $mac:ident) => {{
-                match $self {
-                    $( ObjTypes::$typ(p) => $mac!(p), )+
-                    ObjTypes::None => unreachable!("Should have been handled above."),
-                }
-            }}
-        }
-    }
-}
-
-objtypes_impl!(Closure, Function, NativeFn, LoxStr, Upvalue);
-
-impl ObjTypes {
-    pub(crate) fn free_object(self) -> Self {
-        macro_rules! free_next {
-            ($ptr:expr) => {
-                unsafe { Box::from_raw($ptr.as_ptr()) }.next
-            };
-        }
-        if self == ObjTypes::None {
-            return self;
-        }
-        for_all_objtypes!(self, free_next)
-    }
-
-    fn cast<'a, T: Display + Debug + 'static>(self) -> Option<&'a Obj<T>> {
-        macro_rules! down {
-            ($ptr:expr) => {
-                return (unsafe { $ptr.as_ref() } as &dyn Any).downcast_ref()
-            };
-        }
-        if self == ObjTypes::None {
-            return None;
-        }
-        for_all_objtypes!(self, down)
-    }
-}
-
-impl Debug for ObjTypes {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        macro_rules! w {
-            ($p:expr) => {
-                write!(f, "{:?}->{:?}", $p, unsafe { $p.as_ref() })
-            };
-        }
-        if self == &Self::None {
-            return write!(f, "ObjTypes::None");
-        }
-        for_all_objtypes!(self, w)
-    }
-}
-
-impl Display for ObjTypes {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        macro_rules! w {
-            ($ptr:expr) => {
-                write!(f, "{}", unsafe { $ptr.as_ref() })
-            };
-        }
-        if self == &ObjTypes::None {
-            return Ok(());
-        }
-        for_all_objtypes!(self, w)
     }
 }
