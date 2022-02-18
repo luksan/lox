@@ -5,21 +5,20 @@ use anyhow::{bail, Result};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::mem;
 use std::ptr::NonNull;
+use std::rc::Rc;
+use tracing::trace_span;
 
-use crate::clox::mm::{Heap, Obj};
+use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::value::{Function, Value};
 use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
 
-#[tracing::instrument]
-pub fn compile<'a>(
-    source: &'a str,
-    heap: &'a mut Heap,
-) -> StdResult<NonNull<Obj<Function>>, LoxError> {
+pub fn compile(source: &str, heap: &mut Heap) -> StdResult<NonNull<Obj<Function>>, LoxError> {
+    let span = trace_span!("compile()");
+    let _e = span.enter();
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens()?;
-
     let mut compiler = Compiler::new(scanner.tokens(), heap);
     compiler.compile().map_err(|e| LoxError::CompileError(e))?;
     compiler
@@ -201,6 +200,8 @@ impl<'a> Compiler<'a> {
         /*for t in &self.tokens {
             println!("{:?}", t.tok_type());
         }*/
+        let root = Rc::new(self as *const dyn HasRoots);
+        self.heap.register_roots(&root);
         self.advance();
         while !self.match_token(TokenType::Eof) {
             self.declaration()
@@ -855,6 +856,19 @@ impl<'a> Compiler<'a> {
             0
         } else {
             i as u8
+        }
+    }
+}
+
+impl HasRoots for Compiler<'_> {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        let mut scope = Some(&self.func_scope);
+        while let Some(s) = scope {
+            scope = s.enclosing.as_ref().map(|b| &**b);
+
+            if let Some(name) = unsafe { s.function.name.as_ref() } {
+                name.mark(mark_obj);
+            }
         }
     }
 }

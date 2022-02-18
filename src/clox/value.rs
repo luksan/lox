@@ -49,6 +49,12 @@ impl Value {
             None
         }
     }
+
+    pub(crate) fn mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
+        if let Self::Obj(obj) = self {
+            obj.mark(callback);
+        }
+    }
 }
 
 impl From<bool> for Value {

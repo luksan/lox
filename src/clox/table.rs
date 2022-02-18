@@ -1,4 +1,4 @@
-use crate::clox::mm::Obj;
+use crate::clox::mm::{Obj, ObjTypes};
 use crate::clox::value::{LoxStr, Value};
 
 use std::cell::Cell;
@@ -189,6 +189,13 @@ impl LoxTable {
 
     fn capacity(&self) -> usize {
         self.entries.len()
+    }
+
+    pub(crate) fn gc_mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
+        for (k, v) in self.entries() {
+            unsafe { &*k }.mark(callback);
+            v.mark(callback);
+        }
     }
 }
 

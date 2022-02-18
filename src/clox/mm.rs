@@ -9,6 +9,7 @@ use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
+use std::rc::{Rc, Weak};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ObjTypes {
@@ -74,6 +75,32 @@ impl ObjTypes {
         }
         for_all_objtypes!(self, down)
     }
+
+    pub(crate) fn mark(&self, callback: &mut dyn FnMut(Self)) {
+        macro_rules! set_mark {
+            ($ptr:expr) => {
+                unsafe { $ptr.as_ref().mark(callback) }
+            };
+        }
+        if self == &ObjTypes::None {
+            return;
+        };
+        for_all_objtypes!(self, set_mark)
+    }
+
+    fn sweep(&self) -> Option<Self> {
+        if self == &ObjTypes::None {
+            return None;
+        }
+        macro_rules! sweep {
+            ($ptr:expr) => {{
+                let r = unsafe { $ptr.as_ref() };
+                r.is_marked.set(false);
+                Some(r.next)
+            }};
+        }
+        for_all_objtypes!(self, sweep)
+    }
 }
 
 impl Debug for ObjTypes {
@@ -104,9 +131,14 @@ impl Display for ObjTypes {
     }
 }
 
+pub trait HasRoots {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes));
+}
+
 pub struct Heap {
     objs: Cell<ObjTypes>,
     strings: UnsafeCell<LoxTable>,
+    has_roots: Vec<Weak<*const dyn HasRoots>>,
 }
 
 impl Heap {
@@ -114,7 +146,13 @@ impl Heap {
         Self {
             objs: ObjTypes::None.into(),
             strings: LoxTable::new().into(),
+            has_roots: vec![],
         }
+    }
+
+    pub fn register_roots<'a>(&mut self, roots: &Rc<*const (dyn HasRoots + 'a)>) {
+        let weak = Rc::downgrade(roots);
+        self.has_roots.push(unsafe { std::mem::transmute(weak) });
     }
 
     pub fn new_object<O: Display + Debug + 'static>(&self, inner: O) -> &'static Obj<O>
@@ -148,7 +186,28 @@ impl Heap {
     #[instrument]
     fn collect_garbage(&self) {
         trace!("gc start");
+        let mut gray_list = vec![];
+        for root in self.has_roots.iter() {
+            let r = root.upgrade().map(|ptr| unsafe { &**ptr });
+            if r.is_none() {
+                continue;
+            };
+            let r = r.unwrap();
+            r.mark_roots(&mut |gray| {
+                gray_list.push(gray);
+            });
+        }
+        while let Some(obj) = gray_list.pop() {
+            obj.mark(&mut |gray| {
+                gray_list.push(gray);
+            });
+        }
 
+        // sweep
+        let mut next = Some(self.objs.get());
+        while let Some(obj) = next {
+            next = obj.sweep();
+        }
         trace!("gc end");
     }
 
@@ -216,15 +275,29 @@ impl Deref for ValueArray {
 
 pub struct Obj<T: ?Sized + Display + Debug> {
     pub(crate) next: ObjTypes,
+    is_marked: Cell<bool>,
     inner: T,
 }
 
-impl<T: Display + Debug> Obj<T> {
+impl<T: Display + Debug> Obj<T>
+where
+    *const Obj<T>: Into<ObjTypes>,
+{
     fn new<S: Into<T>>(from: S) -> &'static mut Self {
         Box::leak(Box::new(Obj {
             next: ObjTypes::None,
             inner: from.into(),
+            is_marked: false.into(),
         }))
+    }
+
+    pub(crate) fn mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
+        if self.is_marked.get() {
+            return;
+        }
+        trace!("Marked {:?}", self);
+        self.is_marked.set(true);
+        callback((self as *const Self).into())
     }
 }
 

@@ -1,5 +1,5 @@
 use crate::clox::compiler::compile;
-use crate::clox::mm::{Heap, Obj, ObjTypes};
+use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::table::LoxTable;
 use crate::clox::value::{Closure, Function, NativeFn, NativeFnRef, Upvalue, Value};
 use crate::clox::{Chunk, OpCode};
@@ -10,6 +10,7 @@ use tracing::{span, Level};
 
 use std::fmt::{Debug, Formatter};
 use std::ptr;
+use std::rc::Rc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
@@ -68,11 +69,15 @@ impl Vm {
             globals: LoxTable::new(),
             open_upvalues: ptr::null_mut(),
         };
+        let new_ptr = Rc::new(&new as *const dyn HasRoots);
+        new.heap.register_roots(&new_ptr);
         new.define_native("clock", natives::clock);
         new
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
+        let root_reg = Rc::new(self as *const dyn HasRoots);
+        self.heap.register_roots(&root_reg);
         let function = compile(source, &mut self.heap)?;
         self.push(ObjTypes::from(function));
         let closure = self.heap.new_object(Closure::new(function, &mut || {
@@ -406,6 +411,25 @@ impl Vm {
 
     fn pop(&mut self) -> Value {
         self.stack.pop().unwrap()
+    }
+}
+
+impl HasRoots for Vm {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        for val in self.stack.iter() {
+            val.mark(mark_obj);
+        }
+        self.globals.gc_mark(mark_obj);
+        for frame in self.frames.iter() {
+            // the currently executing frame isn't in this array,
+            // but the current closure is always on the stack.
+            unsafe { &*frame.closure }.mark(mark_obj);
+        }
+        let mut uv_ptr = self.open_upvalues;
+        while let Some(uv) = unsafe { uv_ptr.as_ref() } {
+            uv.mark(mark_obj);
+            uv_ptr = uv.next_open_upvalue;
+        }
     }
 }
 
