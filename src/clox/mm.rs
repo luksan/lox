@@ -18,7 +18,6 @@ pub enum ObjTypes {
     NativeFn(NonNull<Obj<NativeFn>>),
     LoxStr(NonNull<Obj<LoxStr>>),
     Upvalue(NonNull<Obj<Upvalue>>),
-    None,
 }
 
 macro_rules! objtypes_impl {
@@ -41,7 +40,6 @@ macro_rules! objtypes_impl {
                 #[allow(non_snake_case)]
                 match $self {
                     $( ObjTypes::$typ($typ) => $mac!($typ), )+
-                    ObjTypes::None => unreachable!("Should have been handled above."),
                 }
             }}
         }
@@ -51,15 +49,12 @@ macro_rules! objtypes_impl {
 objtypes_impl!(Closure, Function, NativeFn, LoxStr, Upvalue);
 
 impl ObjTypes {
-    pub(crate) fn free_object(self) -> Self {
+    pub(crate) fn free_object(self) -> Option<Self> {
         macro_rules! free_next {
             ($ptr:expr) => {{
                 trace!("Freeing Obj<{}> @ {:?}", stringify!($ptr), $ptr);
                 unsafe { Box::from_raw($ptr.as_ptr()) }.next.get()
             }};
-        }
-        if self == ObjTypes::None {
-            return self;
         }
         for_all_objtypes!(self, free_next)
     }
@@ -70,9 +65,6 @@ impl ObjTypes {
                 return (unsafe { $ptr.as_ref() } as &dyn Any).downcast_ref()
             };
         }
-        if self == ObjTypes::None {
-            return None;
-        }
         for_all_objtypes!(self, down)
     }
 
@@ -82,9 +74,6 @@ impl ObjTypes {
                 unsafe { $ptr.as_ref().mark(callback) }
             };
         }
-        if self == &ObjTypes::None {
-            return;
-        };
         for_all_objtypes!(self, set_mark)
     }
 
@@ -94,16 +83,10 @@ impl ObjTypes {
                 unsafe { $ptr.as_ref().mark_roots(callback) }
             };
         }
-        if self == &ObjTypes::None {
-            return;
-        };
         for_all_objtypes!(self, blacken)
     }
 
     fn is_marked(&self) -> bool {
-        if self == &ObjTypes::None {
-            return true;
-        }
         macro_rules! sweep {
             ($ptr:expr) => {{
                 unsafe { $ptr.as_ref() }.is_marked.get()
@@ -113,9 +96,6 @@ impl ObjTypes {
     }
 
     fn clear_mark(&self) {
-        if self == &ObjTypes::None {
-            return;
-        }
         macro_rules! sweep {
             ($ptr:expr) => {{
                 unsafe { $ptr.as_ref() }.is_marked.set(false);
@@ -125,43 +105,21 @@ impl ObjTypes {
     }
 
     fn next(&self) -> Option<Self> {
-        if self == &ObjTypes::None {
-            return None;
-        }
         macro_rules! sweep {
             ($ptr:expr) => {{
-                Some(unsafe { $ptr.as_ref() }.next.get())
+                unsafe { $ptr.as_ref() }.next.get()
             }};
         }
         for_all_objtypes!(self, sweep)
     }
 
-    fn set_next(self, next: Self) {
-        if self == ObjTypes::None {
-            return;
-        }
+    fn set_next(self, next: Option<Self>) {
         macro_rules! sweep {
             ($ptr:expr) => {{
                 unsafe { $ptr.as_ref() }.next.set(next);
             }};
         }
         for_all_objtypes!(self, sweep)
-    }
-
-    fn as_opt(self) -> Option<Self> {
-        if self == Self::None {
-            None
-        } else {
-            Some(self)
-        }
-    }
-
-    fn from_opt(s: Option<Self>) -> Self {
-        if let Some(s) = s {
-            s
-        } else {
-            Self::None
-        }
     }
 }
 
@@ -171,9 +129,6 @@ impl Debug for ObjTypes {
             ($p:expr) => {
                 write!(f, "{:?}->{:?}", $p, unsafe { $p.as_ref() })
             };
-        }
-        if self == &Self::None {
-            return write!(f, "ObjTypes::None");
         }
         for_all_objtypes!(self, w)
     }
@@ -186,9 +141,6 @@ impl Display for ObjTypes {
                 write!(f, "{}", unsafe { $ptr.as_ref() })
             };
         }
-        if self == &ObjTypes::None {
-            return Ok(());
-        }
         for_all_objtypes!(self, w)
     }
 }
@@ -198,7 +150,7 @@ pub trait HasRoots {
 }
 
 pub struct Heap {
-    objs: Cell<ObjTypes>,
+    objs: Cell<Option<ObjTypes>>,
     strings: UnsafeCell<LoxTable>,
     has_roots: Vec<Weak<*const dyn HasRoots>>,
 }
@@ -206,7 +158,7 @@ pub struct Heap {
 impl Heap {
     pub fn new() -> Self {
         Self {
-            objs: ObjTypes::None.into(),
+            objs: None.into(),
             strings: LoxTable::new().into(),
             has_roots: vec![],
         }
@@ -226,7 +178,8 @@ impl Heap {
         }
         trace!("new Obj<{}>", value_type_str::<O>());
         let o = Obj::new(inner);
-        o.next.set(self.objs.replace((o as *const Obj<O>).into()));
+        o.next
+            .set(self.objs.replace((o as *const Obj<O>).into().into()));
         o
     }
 
@@ -242,7 +195,7 @@ impl Heap {
         trace!("new_string() interning '{}'", s);
         let o = self.new_object(LoxStr::from_string(s));
         str_int.set(o, Value::Nil);
-        Value::Obj(self.objs.get())
+        Value::Obj((o as *const Obj<LoxStr>).into())
     }
 
     fn collect_garbage(&self) {
@@ -266,7 +219,7 @@ impl Heap {
         }
 
         // sweep
-        let mut next = self.objs.get().as_opt();
+        let mut next = self.objs.get();
         let mut prev = None;
         while let Some(obj) = next {
             if obj.is_marked() {
@@ -274,20 +227,19 @@ impl Heap {
                 next = obj.next();
                 prev = Some(obj);
             } else {
-                let new_next = obj.free_object();
+                next = obj.free_object();
                 if let Some(prev) = prev {
-                    prev.set_next(new_next);
+                    prev.set_next(next);
                 } else {
-                    self.objs.set(new_next);
+                    self.objs.set(next);
                 }
-                next = new_next.as_opt();
             }
         }
     }
 
     pub fn free_objects(&mut self) {
-        while !matches!(self.objs.get(), ObjTypes::None) {
-            self.objs.replace(self.objs.get().free_object());
+        while let Some(next) = self.objs.get() {
+            self.objs.set(next.free_object());
         }
     }
 }
@@ -348,7 +300,7 @@ impl Deref for ValueArray {
 }
 
 pub struct Obj<T: ?Sized + Display + Debug> {
-    pub(crate) next: Cell<ObjTypes>,
+    pub(crate) next: Cell<Option<ObjTypes>>,
     is_marked: Cell<bool>,
     inner: T,
 }
@@ -359,7 +311,7 @@ where
 {
     fn new<S: Into<T>>(from: S) -> &'static mut Self {
         Box::leak(Box::new(Obj {
-            next: ObjTypes::None.into(),
+            next: None.into(),
             inner: from.into(),
             is_marked: false.into(),
         }))
