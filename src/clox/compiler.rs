@@ -20,6 +20,8 @@ pub fn compile(source: &str, heap: &mut Heap) -> StdResult<NonNull<Obj<Function>
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens()?;
     let mut compiler = Compiler::new(scanner.tokens(), heap);
+    let root = Rc::new(&compiler as *const dyn HasRoots);
+    compiler.heap.register_roots(&root);
     compiler.compile().map_err(|e| LoxError::CompileError(e))?;
     compiler
         .end_compiler()
@@ -200,8 +202,6 @@ impl<'a> Compiler<'a> {
         /*for t in &self.tokens {
             println!("{:?}", t.tok_type());
         }*/
-        let root = Rc::new(self as *const dyn HasRoots);
-        self.heap.register_roots(&root);
         self.advance();
         while !self.match_token(TokenType::Eof) {
             self.declaration()
@@ -865,10 +865,7 @@ impl HasRoots for Compiler<'_> {
         let mut scope = Some(&self.func_scope);
         while let Some(s) = scope {
             scope = s.enclosing.as_ref().map(|b| &**b);
-
-            if let Some(name) = unsafe { s.function.name.as_ref() } {
-                name.mark(mark_obj);
-            }
+            s.function.mark_roots(mark_obj);
         }
     }
 }

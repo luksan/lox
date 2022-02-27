@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 
-use crate::clox::mm::{Obj, ObjTypes};
+use crate::clox::mm::{HasRoots, Obj, ObjTypes};
 use crate::clox::Chunk;
 
 use std::fmt::{Debug, Display, Formatter};
@@ -108,6 +108,12 @@ impl LoxStr {
     }
 }
 
+impl HasRoots for LoxStr {
+    fn mark_roots(&self, _mark_obj: &mut dyn FnMut(ObjTypes)) {
+        // no roots
+    }
+}
+
 impl PartialEq for LoxStr {
     fn eq(&self, other: &Self) -> bool {
         ptr::eq(&*self.s, &*other.s) // This assumes that LoxStr is interned
@@ -167,6 +173,12 @@ impl Upvalue {
     }
 }
 
+impl HasRoots for Upvalue {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        self.closed.mark(mark_obj);
+    }
+}
+
 impl Display for Upvalue {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "upvalue")
@@ -209,6 +221,16 @@ impl Closure {
     }
 }
 
+impl HasRoots for Closure {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        unsafe { self.function.as_ref() }.mark(mark_obj);
+        for uv in self.upvalues.iter() {
+            let uv = unsafe { uv.as_ref() };
+            uv.mark(mark_obj);
+        }
+    }
+}
+
 impl Display for Closure {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.function())
@@ -221,6 +243,17 @@ pub struct Function {
     pub(crate) chunk: Chunk,
     pub(crate) name: *const Obj<LoxStr>,
     pub(crate) upvalue_count: usize,
+}
+
+impl HasRoots for Function {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        for v in self.chunk.constants.iter() {
+            v.mark(mark_obj);
+        }
+        if let Some(name) = unsafe { self.name.as_ref() } {
+            name.mark(mark_obj);
+        }
+    }
 }
 
 impl Function {
@@ -266,6 +299,11 @@ impl NativeFn {
     }
 }
 
+impl HasRoots for NativeFn {
+    fn mark_roots(&self, _mark_obj: &mut dyn FnMut(ObjTypes)) {
+        // no roots
+    }
+}
 impl Display for NativeFn {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "<native fn>")

@@ -2,7 +2,7 @@ use crate::clox::get_settings;
 use crate::clox::table::LoxTable;
 use crate::clox::value::{Closure, Function, LoxStr, NativeFn, Upvalue, Value};
 
-use tracing::{instrument, trace};
+use tracing::{trace, trace_span};
 
 use std::any::Any;
 use std::cell::{Cell, UnsafeCell};
@@ -55,7 +55,7 @@ impl ObjTypes {
         macro_rules! free_next {
             ($ptr:expr) => {{
                 trace!("Freeing Obj<{}> @ {:?}", stringify!($ptr), $ptr);
-                unsafe { Box::from_raw($ptr.as_ptr()) }.next
+                unsafe { Box::from_raw($ptr.as_ptr()) }.next.get()
             }};
         }
         if self == ObjTypes::None {
@@ -88,18 +88,80 @@ impl ObjTypes {
         for_all_objtypes!(self, set_mark)
     }
 
-    fn sweep(&self) -> Option<Self> {
+    fn blacken(&self, callback: &mut dyn FnMut(Self)) {
+        macro_rules! blacken {
+            ($ptr:expr) => {
+                unsafe { $ptr.as_ref().mark_roots(callback) }
+            };
+        }
+        if self == &ObjTypes::None {
+            return;
+        };
+        for_all_objtypes!(self, blacken)
+    }
+
+    fn is_marked(&self) -> bool {
+        if self == &ObjTypes::None {
+            return true;
+        }
+        macro_rules! sweep {
+            ($ptr:expr) => {{
+                unsafe { $ptr.as_ref() }.is_marked.get()
+            }};
+        }
+        for_all_objtypes!(self, sweep)
+    }
+
+    fn clear_mark(&self) {
+        if self == &ObjTypes::None {
+            return;
+        }
+        macro_rules! sweep {
+            ($ptr:expr) => {{
+                unsafe { $ptr.as_ref() }.is_marked.set(false);
+            }};
+        }
+        for_all_objtypes!(self, sweep)
+    }
+
+    fn next(&self) -> Option<Self> {
         if self == &ObjTypes::None {
             return None;
         }
         macro_rules! sweep {
             ($ptr:expr) => {{
-                let r = unsafe { $ptr.as_ref() };
-                r.is_marked.set(false);
-                Some(r.next)
+                Some(unsafe { $ptr.as_ref() }.next.get())
             }};
         }
         for_all_objtypes!(self, sweep)
+    }
+
+    fn set_next(self, next: Self) {
+        if self == ObjTypes::None {
+            return;
+        }
+        macro_rules! sweep {
+            ($ptr:expr) => {{
+                unsafe { $ptr.as_ref() }.next.set(next);
+            }};
+        }
+        for_all_objtypes!(self, sweep)
+    }
+
+    fn as_opt(self) -> Option<Self> {
+        if self == Self::None {
+            None
+        } else {
+            Some(self)
+        }
+    }
+
+    fn from_opt(s: Option<Self>) -> Self {
+        if let Some(s) = s {
+            s
+        } else {
+            Self::None
+        }
     }
 }
 
@@ -155,7 +217,7 @@ impl Heap {
         self.has_roots.push(unsafe { std::mem::transmute(weak) });
     }
 
-    pub fn new_object<O: Display + Debug + 'static>(&self, inner: O) -> &'static Obj<O>
+    pub fn new_object<O: Display + Debug + 'static + HasRoots>(&self, inner: O) -> &'static Obj<O>
     where
         *const Obj<O>: Into<ObjTypes>,
     {
@@ -164,7 +226,7 @@ impl Heap {
         }
         trace!("new Obj<{}>", value_type_str::<O>());
         let o = Obj::new(inner);
-        o.next = self.objs.replace((o as *const Obj<O>).into());
+        o.next.set(self.objs.replace((o as *const Obj<O>).into()));
         o
     }
 
@@ -183,9 +245,9 @@ impl Heap {
         Value::Obj(self.objs.get())
     }
 
-    #[instrument]
     fn collect_garbage(&self) {
-        trace!("gc start");
+        let span = trace_span!("GC");
+        let _span_enter = span.enter();
         let mut gray_list = vec![];
         for root in self.has_roots.iter() {
             let r = root.upgrade().map(|ptr| unsafe { &**ptr });
@@ -198,17 +260,29 @@ impl Heap {
             });
         }
         while let Some(obj) = gray_list.pop() {
-            obj.mark(&mut |gray| {
+            obj.blacken(&mut |gray| {
                 gray_list.push(gray);
             });
         }
 
         // sweep
-        let mut next = Some(self.objs.get());
+        let mut next = self.objs.get().as_opt();
+        let mut prev = None;
         while let Some(obj) = next {
-            next = obj.sweep();
+            if obj.is_marked() {
+                obj.clear_mark();
+                next = obj.next();
+                prev = Some(obj);
+            } else {
+                let new_next = obj.free_object();
+                if let Some(prev) = prev {
+                    prev.set_next(new_next);
+                } else {
+                    self.objs.set(new_next);
+                }
+                next = new_next.as_opt();
+            }
         }
-        trace!("gc end");
     }
 
     pub fn free_objects(&mut self) {
@@ -274,18 +348,18 @@ impl Deref for ValueArray {
 }
 
 pub struct Obj<T: ?Sized + Display + Debug> {
-    pub(crate) next: ObjTypes,
+    pub(crate) next: Cell<ObjTypes>,
     is_marked: Cell<bool>,
     inner: T,
 }
 
-impl<T: Display + Debug> Obj<T>
+impl<T: Display + Debug + HasRoots> Obj<T>
 where
     *const Obj<T>: Into<ObjTypes>,
 {
     fn new<S: Into<T>>(from: S) -> &'static mut Self {
         Box::leak(Box::new(Obj {
-            next: ObjTypes::None,
+            next: ObjTypes::None.into(),
             inner: from.into(),
             is_marked: false.into(),
         }))
