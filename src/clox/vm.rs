@@ -1,7 +1,9 @@
 use crate::clox::compiler::compile;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::table::LoxTable;
-use crate::clox::value::{Class, Closure, Function, NativeFn, NativeFnRef, Upvalue, Value};
+use crate::clox::value::{
+    Class, Closure, Function, Instance, NativeFn, NativeFnRef, Upvalue, Value,
+};
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 
@@ -366,6 +368,12 @@ impl Vm {
     fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<Option<CallFrame>> {
         if let Some(closure) = callee.as_object() {
             self.call(closure, arg_count).map(Some)
+        } else if let Some(class) = callee.as_object() {
+            let instance = Instance::new(class);
+            let o = self.heap.new_object(instance);
+            let stack_pos = self.stack.len() - arg_count as usize - 1;
+            self.stack[stack_pos] = o.into();
+            return Ok(None);
         } else if let Some(native) = callee.as_object::<NativeFn>() {
             let arg_start = self.stack.len() - arg_count as usize;
             let result = native.call_native(&self.stack[arg_start..])?;

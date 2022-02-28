@@ -1,6 +1,6 @@
 use crate::clox::get_settings;
 use crate::clox::table::LoxTable;
-use crate::clox::value::{Class, Closure, Function, LoxStr, NativeFn, Upvalue, Value};
+use crate::clox::value::Value;
 
 use tracing::{trace, trace_span};
 
@@ -11,18 +11,16 @@ use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum ObjTypes {
-    Class(NonNull<Obj<Class>>),
-    Closure(NonNull<Obj<Closure>>),
-    Function(NonNull<Obj<Function>>),
-    NativeFn(NonNull<Obj<NativeFn>>),
-    LoxStr(NonNull<Obj<LoxStr>>),
-    Upvalue(NonNull<Obj<Upvalue>>),
-}
-
 macro_rules! objtypes_impl {
-    ($($typ:ident),+) => { $(
+    ($($typ:ident),+) => {
+        #[derive(Clone, Copy, PartialEq)]
+        pub enum ObjTypes {
+            $($typ(NonNull<Obj<$typ>>),)+
+        }
+
+        $(
+        use crate::clox::value::$typ;
+
         impl From<*const Obj<$typ>> for ObjTypes {
             fn from(f: *const Obj<$typ>) -> Self {
                 Self::$typ(NonNull::new(f as *mut _).unwrap())
@@ -32,6 +30,12 @@ macro_rules! objtypes_impl {
         impl From<NonNull<Obj<$typ>>> for ObjTypes {
             fn from(f: NonNull<Obj<$typ>>) -> Self {
                 Self::$typ(f)
+            }
+        }
+
+        impl From<&Obj<$typ>> for ObjTypes {
+            fn from(f: &Obj<$typ>) -> Self {
+                Self::$typ(f.into())
             }
         }
         )+
@@ -47,7 +51,7 @@ macro_rules! objtypes_impl {
     }
 }
 
-objtypes_impl!(Class, Closure, Function, NativeFn, LoxStr, Upvalue);
+objtypes_impl!(Class, Closure, Function, Instance, NativeFn, LoxStr, Upvalue);
 
 impl ObjTypes {
     pub(crate) fn free_object(self) -> Option<Self> {

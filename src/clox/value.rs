@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 
 use crate::clox::mm::{HasRoots, Obj, ObjTypes};
+use crate::clox::table::LoxTable;
 use crate::clox::Chunk;
 
 use std::fmt::{Debug, Display, Formatter};
@@ -257,6 +258,34 @@ impl Display for Class {
 impl HasRoots for Class {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         mark_obj(self.name.into());
+    }
+}
+
+#[derive(Debug)]
+pub struct Instance {
+    class: NonNull<Obj<Class>>,
+    fields: LoxTable,
+}
+
+impl Instance {
+    pub(crate) fn new(class: &Obj<Class>) -> Self {
+        Self {
+            class: class.into(),
+            fields: LoxTable::new(),
+        }
+    }
+}
+
+impl Display for Instance {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} instance", unsafe { self.class.as_ref() })
+    }
+}
+
+impl HasRoots for Instance {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        mark_obj(self.class.into());
+        self.fields.gc_mark(mark_obj);
     }
 }
 
