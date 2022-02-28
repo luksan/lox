@@ -238,6 +238,23 @@ impl Display for Closure {
 }
 
 #[derive(Debug)]
+pub struct Class {
+    pub(crate) name: *const Obj<LoxStr>,
+}
+
+impl Display for Class {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", unsafe { &*self.name })
+    }
+}
+
+impl HasRoots for Class {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        mark_obj(self.name.into());
+    }
+}
+
+#[derive(Debug)]
 pub struct Function {
     pub(crate) arity: u8,
     pub(crate) chunk: Chunk,

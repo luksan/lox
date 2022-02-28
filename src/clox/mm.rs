@@ -1,6 +1,6 @@
 use crate::clox::get_settings;
 use crate::clox::table::LoxTable;
-use crate::clox::value::{Closure, Function, LoxStr, NativeFn, Upvalue, Value};
+use crate::clox::value::{Class, Closure, Function, LoxStr, NativeFn, Upvalue, Value};
 
 use tracing::{trace, trace_span};
 
@@ -13,6 +13,7 @@ use std::rc::{Rc, Weak};
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum ObjTypes {
+    Class(NonNull<Obj<Class>>),
     Closure(NonNull<Obj<Closure>>),
     Function(NonNull<Obj<Function>>),
     NativeFn(NonNull<Obj<NativeFn>>),
@@ -46,7 +47,7 @@ macro_rules! objtypes_impl {
     }
 }
 
-objtypes_impl!(Closure, Function, NativeFn, LoxStr, Upvalue);
+objtypes_impl!(Class, Closure, Function, NativeFn, LoxStr, Upvalue);
 
 impl ObjTypes {
     pub(crate) fn free_object(self) -> Option<Self> {
