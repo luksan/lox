@@ -153,6 +153,8 @@ pub struct Heap {
     objs: Cell<Option<ObjTypes>>,
     strings: UnsafeCell<LoxTable>,
     has_roots: Vec<Weak<*const dyn HasRoots>>,
+    obj_count: Cell<usize>,
+    next_gc: Cell<usize>,
 }
 
 impl Heap {
@@ -161,6 +163,8 @@ impl Heap {
             objs: None.into(),
             strings: LoxTable::new().into(),
             has_roots: vec![],
+            obj_count: 0.into(),
+            next_gc: 100.into(),
         }
     }
 
@@ -173,10 +177,12 @@ impl Heap {
     where
         *const Obj<O>: Into<ObjTypes>,
     {
-        if get_settings().gc_stress_test {
+        if self.obj_count > self.next_gc || get_settings().gc_stress_test {
             self.collect_garbage();
+            self.next_gc.set(self.obj_count.get() * 2);
         }
         trace!("new Obj<{}>", value_type_str::<O>());
+        self.obj_count.set(self.obj_count.get() + 1);
         let o = Obj::new(inner);
         o.next
             .set(self.objs.replace((o as *const Obj<O>).into().into()));
@@ -231,6 +237,7 @@ impl Heap {
                 prev = Some(obj);
             } else {
                 next = obj.free_object();
+                self.obj_count.set(self.obj_count.get() - 1);
                 if let Some(prev) = prev {
                     prev.set_next(next);
                 } else {
@@ -244,6 +251,7 @@ impl Heap {
         while let Some(next) = self.objs.get() {
             self.objs.set(next.free_object());
         }
+        self.obj_count.set(0);
     }
 }
 
