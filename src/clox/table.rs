@@ -34,8 +34,8 @@ struct Entry {
 }
 
 impl Entry {
-    fn key(&self) -> Option<&LoxStr> {
-        unsafe { self.key.get().as_ref() }.map(|o| &**o)
+    fn key(&self) -> Option<&Obj<LoxStr>> {
+        unsafe { self.key.get().as_ref() }
     }
 
     fn value(&self) -> Option<Value> {
@@ -143,7 +143,7 @@ impl LoxTable {
                 return None;
             }
             if let Some(key) = entry.key() {
-                if key == (k, hash) {
+                if &**key == (k, hash) {
                     return Some(entry.key.get());
                 }
             }
@@ -159,7 +159,7 @@ impl LoxTable {
         loop {
             let e = &self.entries[index as usize];
             if let Some(e_key) = e.key() {
-                if e_key == key {
+                if &**e_key == key {
                     // FIXME: this should assume string interning and do a ptr cmp
                     return &self.entries[index as usize];
                 }
@@ -195,6 +195,16 @@ impl LoxTable {
         for (k, v) in self.entries() {
             unsafe { &*k }.mark(callback);
             v.mark(callback);
+        }
+    }
+
+    pub(crate) fn remove_white(&self) {
+        for e in self.entries.iter() {
+            if let Some(k) = e.key() {
+                if !k.is_marked() {
+                    e.delete();
+                }
+            }
         }
     }
 }

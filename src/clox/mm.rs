@@ -218,6 +218,9 @@ impl Heap {
             });
         }
 
+        // Clear interned strings about to be dropped
+        unsafe { &*self.strings.get() }.remove_white();
+
         // sweep
         let mut next = self.objs.get();
         let mut prev = None;
@@ -300,7 +303,7 @@ impl Deref for ValueArray {
 }
 
 pub struct Obj<T: ?Sized + Display + Debug> {
-    pub(crate) next: Cell<Option<ObjTypes>>,
+    next: Cell<Option<ObjTypes>>,
     is_marked: Cell<bool>,
     inner: T,
 }
@@ -324,6 +327,10 @@ where
         trace!("Marked {:?}", self);
         self.is_marked.set(true);
         callback((self as *const Self).into())
+    }
+
+    pub(crate) fn is_marked(&self) -> bool {
+        self.is_marked.get()
     }
 }
 
