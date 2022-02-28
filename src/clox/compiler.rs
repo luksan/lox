@@ -273,7 +273,7 @@ impl<'a> Compiler<'a> {
             TokenType::LeftBrace => p!(),
             TokenType::RightBrace => p!(),
             TokenType::Comma => p!(),
-            TokenType::Dot => p!(),
+            TokenType::Dot => p!(None, dot, Precedence::Call),
             TokenType::Minus => p!(unary, binary, Precedence::Term),
             TokenType::Plus => p!(None, binary, Precedence::Term),
             TokenType::Semicolon => p!(),
@@ -347,6 +347,17 @@ impl<'a> Compiler<'a> {
     fn call(&mut self, _can_assign: bool) {
         let arg_count = self.argument_list();
         self.emit_bytes(OpCode::Call, arg_count);
+    }
+
+    fn dot(&mut self, can_assign: bool) {
+        self.consume(TokenType::Identifier, "Expect property name after '.'.");
+        let name = self.identifier_constant(self.previous.lexeme().to_string());
+        if can_assign && self.match_token(TokenType::Equal) {
+            self.expression();
+            self.emit_bytes(OpCode::SetProperty, name);
+        } else {
+            self.emit_bytes(OpCode::GetProperty, name);
+        }
     }
 
     fn literal(&mut self, _can_assign: bool) {

@@ -206,6 +206,31 @@ impl Vm {
                     let value = self.peek(0);
                     unsafe { frame.closure.as_ref().unwrap() }.write_upvalue(slot, value);
                 }
+                OpCode::GetProperty => {
+                    let instance_val = self.peek(0);
+                    if let Some(instance) = instance_val.as_object::<Instance>() {
+                        let name = read_constant!().as_object().unwrap();
+                        if let Some(value) = instance.get_field(name) {
+                            self.pop(); // instance
+                            self.push(value);
+                        } else {
+                            runtime_error!("Undefined property '{}'.", name)?;
+                        }
+                    } else {
+                        runtime_error!("Only instances have properties.")?;
+                    }
+                }
+                OpCode::SetProperty => {
+                    let instance_val = self.peek(1);
+                    if let Some(instance) = instance_val.as_object::<Instance>() {
+                        instance.set_field(read_constant!().as_object().unwrap(), self.peek(0));
+                        let value = self.pop();
+                        self.pop();
+                        self.push(value);
+                    } else {
+                        runtime_error!("Only instances have fields.")?;
+                    }
+                }
                 OpCode::Equal => {
                     let a = self.pop();
                     let b = self.pop();

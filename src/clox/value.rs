@@ -1,4 +1,5 @@
 use anyhow::{bail, Result};
+use std::cell::RefCell;
 
 use crate::clox::mm::{HasRoots, Obj, ObjTypes};
 use crate::clox::table::LoxTable;
@@ -264,15 +265,23 @@ impl HasRoots for Class {
 #[derive(Debug)]
 pub struct Instance {
     class: NonNull<Obj<Class>>,
-    fields: LoxTable,
+    fields: RefCell<LoxTable>,
 }
 
 impl Instance {
     pub(crate) fn new(class: &Obj<Class>) -> Self {
         Self {
             class: class.into(),
-            fields: LoxTable::new(),
+            fields: LoxTable::new().into(),
         }
+    }
+
+    pub(crate) fn get_field(&self, field: &Obj<LoxStr>) -> Option<Value> {
+        self.fields.borrow().get(field)
+    }
+
+    pub(crate) fn set_field(&self, field: &Obj<LoxStr>, value: Value) {
+        self.fields.borrow_mut().set(field, value);
     }
 }
 
@@ -285,7 +294,7 @@ impl Display for Instance {
 impl HasRoots for Instance {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         mark_obj(self.class.into());
-        self.fields.gc_mark(mark_obj);
+        self.fields.borrow().gc_mark(mark_obj);
     }
 }
 
