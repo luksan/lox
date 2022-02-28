@@ -2,7 +2,7 @@ use crate::clox::compiler::compile;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::table::LoxTable;
 use crate::clox::value::{
-    Class, Closure, Function, Instance, NativeFn, NativeFnRef, Upvalue, Value,
+    Class, Closure, Function, Instance, LoxStr, NativeFn, NativeFnRef, Upvalue, Value,
 };
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
@@ -124,6 +124,11 @@ impl Vm {
         macro_rules! read_constant {
             () => {
                 frame.chunk().constants[read_byte!()]
+            };
+        }
+        macro_rules! read_string {
+            () => {
+                read_constant!().as_object::<LoxStr>().unwrap()
             };
         }
 
@@ -335,6 +340,9 @@ impl Vm {
                     let cls = self.heap.new_object(Class::new(name));
                     self.push(cls as *const _);
                 }
+                OpCode::Method => {
+                    self.define_method(read_string!());
+                }
 
                 OpCode::BadOpCode => {
                     frame.disassemble();
@@ -388,6 +396,15 @@ impl Vm {
             unsafe { uv.close() }
             self.open_upvalues = uv.next_open_upvalue;
         }
+    }
+
+    fn define_method(&mut self, name: &Obj<LoxStr>) {
+        let method = self.peek(0);
+        self.peek(1)
+            .as_object::<Class>()
+            .unwrap()
+            .add_method(name, method);
+        self.pop();
     }
 
     fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<Option<CallFrame>> {

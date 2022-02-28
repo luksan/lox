@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use std::cell::RefCell;
+use std::cell::{RefCell, UnsafeCell};
 
 use crate::clox::mm::{HasRoots, Obj, ObjTypes};
 use crate::clox::table::LoxTable;
@@ -241,12 +241,20 @@ impl Display for Closure {
 
 #[derive(Debug)]
 pub struct Class {
-    pub(crate) name: *const Obj<LoxStr>,
+    name: *const Obj<LoxStr>,
+    methods: UnsafeCell<LoxTable>,
 }
 
 impl Class {
     pub(crate) fn new(name: &Obj<LoxStr>) -> Self {
-        Self { name }
+        Self {
+            name,
+            methods: LoxTable::new().into(),
+        }
+    }
+
+    pub(crate) fn add_method(&self, name: &Obj<LoxStr>, method: Value) {
+        unsafe { &mut *self.methods.get() }.set(name, method);
     }
 }
 
@@ -259,6 +267,7 @@ impl Display for Class {
 impl HasRoots for Class {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         mark_obj(self.name.into());
+        unsafe { &*self.methods.get() }.gc_mark(mark_obj);
     }
 }
 

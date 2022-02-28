@@ -68,6 +68,7 @@ enum OpCode {
     CloseUpvalue,
     Return,
     Class,
+    Method,
     #[num_enum(default)]
     BadOpCode,
 }
@@ -205,6 +206,7 @@ impl Chunk {
             OpCode::CloseUpvalue => simple_instr(),
             OpCode::Return => simple_instr(),
             OpCode::Class => constant_instr(),
+            OpCode::Method => constant_instr(),
 
             OpCode::BadOpCode => {
                 println!("Unknown opcode {}", instr);

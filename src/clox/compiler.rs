@@ -464,15 +464,29 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    fn method(&mut self) {
+        self.consume(TokenType::Identifier, "Expect method name.");
+        let constant = self.identifier_constant(self.previous.lexeme().to_string());
+        self.function(FunctionType::Function);
+        self.emit_bytes(OpCode::Method, constant);
+    }
+
     fn class_declaration(&mut self) {
         self.consume(TokenType::Identifier, "Expect class name.");
+        let class_name = self.previous;
         let name_constant = self.identifier_constant(self.previous.lexeme().to_string());
         self.declare_variable();
 
         self.emit_bytes(OpCode::Class, name_constant);
         self.define_variable(name_constant);
+
+        self.named_variable(class_name.lexeme(), false);
         self.consume(TokenType::LeftBrace, "Expect '{' before class body.");
+        while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
+            self.method();
+        }
         self.consume(TokenType::RightBrace, "Expect '}' after class body.");
+        self.emit_byte(OpCode::Pop);
     }
 
     fn fun_declaration(&mut self) {
