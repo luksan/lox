@@ -364,7 +364,9 @@ impl<'a> Compiler<'a> {
     }
 
     fn declaration(&mut self) {
-        if self.match_token(TokenType::Fun) {
+        if self.match_token(TokenType::Class) {
+            self.class_declaration();
+        } else if self.match_token(TokenType::Fun) {
             self.fun_declaration();
         } else if self.match_token(TokenType::Var) {
             self.var_declaration();
@@ -449,6 +451,17 @@ impl<'a> Compiler<'a> {
         for uv in new.upvalues {
             self.emit_bytes(uv.is_local, uv.index);
         }
+    }
+
+    fn class_declaration(&mut self) {
+        self.consume(TokenType::Identifier, "Expect class name.");
+        let name_constant = self.identifier_constant(self.previous.lexeme().to_string());
+        self.declare_variable();
+
+        self.emit_bytes(OpCode::Class, name_constant);
+        self.define_variable(name_constant);
+        self.consume(TokenType::LeftBrace, "Expect '{' before class body.");
+        self.consume(TokenType::RightBrace, "Expect '}' after class body.");
     }
 
     fn fun_declaration(&mut self) {

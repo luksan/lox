@@ -1,7 +1,7 @@
 use crate::clox::compiler::compile;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::table::LoxTable;
-use crate::clox::value::{Closure, Function, NativeFn, NativeFnRef, Upvalue, Value};
+use crate::clox::value::{Class, Closure, Function, NativeFn, NativeFnRef, Upvalue, Value};
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 
@@ -303,6 +303,12 @@ impl Vm {
                         return Ok(());
                     }
                 }
+                OpCode::Class => {
+                    let name = read_constant!().as_object().unwrap();
+                    let cls = self.heap.new_object(Class::new(name));
+                    self.push(cls as *const _);
+                }
+
                 OpCode::BadOpCode => {
                     frame.disassemble();
                     // Can't use runtime_error!() since it expects a valid IP

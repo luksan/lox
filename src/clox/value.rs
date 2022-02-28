@@ -242,6 +242,12 @@ pub struct Class {
     pub(crate) name: *const Obj<LoxStr>,
 }
 
+impl Class {
+    pub(crate) fn new(name: &Obj<LoxStr>) -> Self {
+        Self { name }
+    }
+}
+
 impl Display for Class {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", unsafe { &*self.name })
