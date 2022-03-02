@@ -158,6 +158,7 @@ impl<'compiler> FunctionScope<'compiler> {
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum FunctionType {
     Function,
+    Initializer,
     Method,
     Script,
 }
@@ -482,7 +483,12 @@ impl<'a> Compiler<'a> {
     fn method(&mut self) {
         self.consume(TokenType::Identifier, "Expect method name.");
         let constant = self.identifier_constant(self.previous.lexeme().to_string());
-        self.function(FunctionType::Method);
+        let func_type = if self.previous.lexeme() == "init" {
+            FunctionType::Initializer
+        } else {
+            FunctionType::Method
+        };
+        self.function(func_type);
         self.emit_bytes(OpCode::Method, constant);
     }
 
@@ -604,6 +610,9 @@ impl<'a> Compiler<'a> {
         if self.match_token(TokenType::Semicolon) {
             self.emit_return()
         } else {
+            if self.func_scope.func_type == FunctionType::Initializer {
+                self.error("Can't return a value from an initializer.")
+            }
             self.expression();
             self.consume(TokenType::Semicolon, "Expect ';' after return value.");
             self.emit_byte(OpCode::Return)
@@ -891,7 +900,12 @@ impl<'a> Compiler<'a> {
     }
 
     fn emit_return(&mut self) {
-        self.emit_bytes(OpCode::Nil, OpCode::Return);
+        if self.func_scope.func_type == FunctionType::Initializer {
+            self.emit_bytes(OpCode::GetLocal, 0);
+        } else {
+            self.emit_byte(OpCode::Nil);
+        }
+        self.emit_byte(OpCode::Return);
     }
 
     fn emit_constant(&mut self, c: Value) {
