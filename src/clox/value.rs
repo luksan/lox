@@ -257,8 +257,10 @@ impl Class {
         unsafe { &mut *self.methods.get() }.set(name, method);
     }
 
-    pub(crate) fn get_method(&self, name: &Obj<LoxStr>) -> Option<Value> {
-        unsafe { &*self.methods.get() }.get(name)
+    pub(crate) fn get_method(&self, name: &Obj<LoxStr>) -> Option<&Obj<Closure>> {
+        unsafe { &*self.methods.get() }
+            .get(name)
+            .map(|v| v.as_object().unwrap())
     }
 }
 

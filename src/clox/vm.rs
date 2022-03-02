@@ -12,6 +12,7 @@ use tracing::{span, Level};
 
 use std::fmt::{Debug, Formatter};
 use std::ptr;
+use std::ptr::NonNull;
 use std::rc::Rc;
 
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +31,8 @@ pub struct Vm {
     heap: Heap,
     globals: LoxTable,
     open_upvalues: *const Obj<Upvalue>,
+
+    init_string: Option<NonNull<Obj<LoxStr>>>,
 }
 
 impl Debug for Vm {
@@ -70,9 +73,12 @@ impl Vm {
             heap: Heap::new(),
             globals: LoxTable::new(),
             open_upvalues: ptr::null_mut(),
+
+            init_string: None,
         };
         let new_ptr = Rc::new(&new as *const dyn HasRoots);
         new.heap.register_roots(&new_ptr);
+        new.init_string = Some(new.heap.new_string("init".to_string()).into());
         new.define_native("clock", natives::clock);
         new
     }
@@ -248,10 +254,10 @@ impl Vm {
                 OpCode::Add => {
                     if let (Some(a), Some(b)) = (self.peek(1).as_str(), self.peek(0).as_str()) {
                         let new = [a, b].join("");
-                        let s = self.heap.new_string(new);
+                        let s: *const _ = self.heap.new_string(new);
                         self.pop();
                         self.pop();
-                        self.stack.push(s);
+                        self.push(s);
                     } else {
                         binary_op!("Operands must be two numbers or two strings.", +)
                     }
@@ -421,7 +427,13 @@ impl Vm {
             let o = self.heap.new_object(instance);
             let stack_pos = self.stack.len() - arg_count as usize - 1;
             self.stack[stack_pos] = o.into();
-            return Ok(None);
+            if let Some(init) = class.get_method(unsafe { self.init_string.unwrap().as_ref() }) {
+                self.call(init, arg_count).map(Some)
+            } else if arg_count != 0 {
+                bail!("Expected 0 arguments but got {}.", arg_count)
+            } else {
+                Ok(None)
+            }
         } else if let Some(native) = callee.as_object::<NativeFn>() {
             let arg_start = self.stack.len() - arg_count as usize;
             let result = native.call_native(&self.stack[arg_start..])?;
@@ -433,7 +445,7 @@ impl Vm {
     }
 
     fn bind_method(&mut self, class: &Obj<Class>, name: &Obj<LoxStr>) -> Option<()> {
-        let method = class.get_method(name)?.as_object().unwrap();
+        let method = class.get_method(name)?;
         let bound = self.heap.new_object(BoundMethod::new(self.peek(0), method));
         self.pop();
         self.push(bound);
@@ -462,11 +474,11 @@ impl Vm {
     }
 
     fn define_native(&mut self, name: &str, function: NativeFnRef) {
-        let name = self.heap.new_string(name.to_string());
+        let name: *const _ = self.heap.new_string(name.to_string());
         self.push(name);
         let native: *const _ = self.heap.new_object::<NativeFn>(function.into());
         self.push(native);
-        self.globals.set(name.as_object().unwrap(), native.into());
+        self.globals.set(name, native.into());
         self.pop();
         self.pop();
     }
@@ -500,6 +512,8 @@ impl HasRoots for Vm {
             uv.mark(mark_obj);
             uv_ptr = uv.next_open_upvalue;
         }
+
+        self.init_string.map(|str| mark_obj(str.into()));
     }
 }
 

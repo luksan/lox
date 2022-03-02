@@ -443,11 +443,7 @@ impl<'a> Compiler<'a> {
         let outer_scope =
             std::mem::replace(&mut self.func_scope, FunctionScope::new(func_type, None));
         self.func_scope.enclosing = Some(Box::new(outer_scope));
-        self.func_scope.function.name = self
-            .heap
-            .new_string(self.previous.lexeme().to_string())
-            .as_object()
-            .unwrap();
+        self.func_scope.function.name = self.heap.new_string(self.previous.lexeme().to_string());
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expect '(' after function name.");
         if !self.check(TokenType::RightParen) {
@@ -733,7 +729,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn identifier_constant(&mut self, name: String) -> u8 {
-        let v = self.heap.new_string(name);
+        let v: *const _ = self.heap.new_string(name);
         self.make_constant(v)
     }
 
@@ -914,7 +910,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn emit_string_constant(&mut self, c: String) {
-        let s = self.heap.new_string(c);
+        let s: *const _ = self.heap.new_string(c);
         let idx = self.make_constant(s);
         self.emit_bytes(OpCode::Constant, idx);
     }

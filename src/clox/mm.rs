@@ -190,6 +190,7 @@ impl Heap {
     pub fn new_object<O: Display + Debug + 'static + HasRoots>(&self, inner: O) -> &'static Obj<O>
     where
         *const Obj<O>: Into<ObjTypes>,
+        ObjTypes: From<*const Obj<O>>,
     {
         if self.obj_count > self.next_gc || get_settings().gc_stress_test {
             self.collect_garbage();
@@ -203,19 +204,19 @@ impl Heap {
         o
     }
 
-    pub fn new_string(&self, s: String) -> Value {
+    pub fn new_string(&self, s: String) -> &Obj<LoxStr> {
         // Safety: This is safe since Heap isn't Sync,
         // and self.strings is only accessed in this method, which
         // isn't recursive.
         let str_int = unsafe { &mut *self.strings.get() };
         if let Some(str_ptr) = str_int.find_key(s.as_str()) {
             trace!("new_string() '{}' already interned.", s);
-            return Value::Obj(str_ptr.into());
+            return unsafe { &*str_ptr };
         }
         trace!("new_string() interning '{}'", s);
         let o = self.new_object(LoxStr::from_string(s));
         str_int.set(o, Value::Nil);
-        Value::Obj((o as *const Obj<LoxStr>).into())
+        o
     }
 
     fn collect_garbage(&self) {
@@ -290,7 +291,7 @@ mod heap_test {
         let heap = Heap::new();
         let s1 = heap.new_string("asd".to_string());
         let s2 = heap.new_string("asd".to_string());
-        assert_eq!(s1, s2);
+        assert_eq!(s1.as_value(), s2.as_value());
     }
 }
 
@@ -333,6 +334,7 @@ pub struct Obj<T: ?Sized + Display + Debug> {
 impl<T: Display + Debug + HasRoots> Obj<T>
 where
     *const Obj<T>: Into<ObjTypes>,
+    ObjTypes: From<*const Self>,
 {
     fn new<S: Into<T>>(from: S) -> &'static mut Self {
         Box::leak(Box::new(Obj {
@@ -348,11 +350,15 @@ where
         }
         trace!("Marked {:?}", self);
         self.is_marked.set(true);
-        callback((self as *const Self).into())
+        callback(ObjTypes::from(self))
     }
 
     pub(crate) fn is_marked(&self) -> bool {
         self.is_marked.get()
+    }
+
+    pub fn as_value(&self) -> Value {
+        ObjTypes::from(self).into()
     }
 }
 
