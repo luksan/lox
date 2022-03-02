@@ -2,7 +2,7 @@ use crate::clox::compiler::compile;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::table::LoxTable;
 use crate::clox::value::{
-    Class, Closure, Function, Instance, LoxStr, NativeFn, NativeFnRef, Upvalue, Value,
+    BoundMethod, Class, Closure, Function, Instance, LoxStr, NativeFn, NativeFnRef, Upvalue, Value,
 };
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
@@ -219,7 +219,9 @@ impl Vm {
                             self.pop(); // instance
                             self.push(value);
                         } else {
-                            runtime_error!("Undefined property '{}'.", name)?;
+                            if self.bind_method(instance.get_class(), name).is_none() {
+                                runtime_error!("Undefined property '{}'.", name)?;
+                            }
                         }
                     } else {
                         runtime_error!("Only instances have properties.")?;
@@ -410,6 +412,8 @@ impl Vm {
     fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<Option<CallFrame>> {
         if let Some(closure) = callee.as_object() {
             self.call(closure, arg_count).map(Some)
+        } else if let Some(bound) = callee.as_object::<BoundMethod>() {
+            self.call(bound.get_closure(), arg_count).map(Some)
         } else if let Some(class) = callee.as_object() {
             let instance = Instance::new(class);
             let o = self.heap.new_object(instance);
@@ -424,6 +428,14 @@ impl Vm {
         } else {
             bail!("Can only call functions and classes.")
         }
+    }
+
+    fn bind_method(&mut self, class: &Obj<Class>, name: &Obj<LoxStr>) -> Option<()> {
+        let method = class.get_method(name)?.as_object().unwrap();
+        let bound = self.heap.new_object(BoundMethod::new(self.peek(0), method));
+        self.pop();
+        self.push(bound);
+        Some(())
     }
 
     fn call(&self, closure: &Obj<Closure>, arg_count: u8) -> Result<CallFrame> {

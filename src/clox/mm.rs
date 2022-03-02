@@ -51,7 +51,16 @@ macro_rules! objtypes_impl {
     }
 }
 
-objtypes_impl!(Class, Closure, Function, Instance, NativeFn, LoxStr, Upvalue);
+objtypes_impl!(
+    BoundMethod, // Ch 28.2
+    Class,
+    Closure,
+    Function,
+    Instance,
+    NativeFn,
+    LoxStr,
+    Upvalue
+);
 
 impl ObjTypes {
     pub(crate) fn free_object(self) -> Option<Self> {

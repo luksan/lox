@@ -44,7 +44,7 @@ impl Value {
         self == Self::Nil || self == Self::Bool(false)
     }
 
-    pub fn as_object<O: Display + Debug + 'static>(&self) -> Option<&Obj<O>> {
+    pub fn as_object<O: Display + Debug + 'static>(self) -> Option<&'static Obj<O>> {
         if let Self::Obj(ptr) = self {
             ptr.cast::<O>()
         } else {
@@ -256,6 +256,10 @@ impl Class {
     pub(crate) fn add_method(&self, name: &Obj<LoxStr>, method: Value) {
         unsafe { &mut *self.methods.get() }.set(name, method);
     }
+
+    pub(crate) fn get_method(&self, name: &Obj<LoxStr>) -> Option<Value> {
+        unsafe { &*self.methods.get() }.get(name)
+    }
 }
 
 impl Display for Class {
@@ -285,6 +289,10 @@ impl Instance {
         }
     }
 
+    pub(crate) fn get_class(&self) -> &Obj<Class> {
+        unsafe { self.class.as_ref() }
+    }
+
     pub(crate) fn get_field(&self, field: &Obj<LoxStr>) -> Option<Value> {
         self.fields.borrow().get(field)
     }
@@ -304,6 +312,38 @@ impl HasRoots for Instance {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         mark_obj(self.class.into());
         self.fields.borrow().gc_mark(mark_obj);
+    }
+}
+
+#[derive(Debug)]
+pub struct BoundMethod {
+    receiver: Value,
+    method: NonNull<Obj<Closure>>,
+}
+
+impl BoundMethod {
+    pub(crate) fn new(receiver: Value, method: &Obj<Closure>) -> Self {
+        Self {
+            receiver,
+            method: method.into(),
+        }
+    }
+
+    pub(crate) fn get_closure(&self) -> &Obj<Closure> {
+        unsafe { self.method.as_ref() }
+    }
+}
+
+impl Display for BoundMethod {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", unsafe { self.method.as_ref() })
+    }
+}
+
+impl HasRoots for BoundMethod {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        self.receiver.mark(mark_obj);
+        unsafe { self.method.as_ref() }.mark(mark_obj);
     }
 }
 
