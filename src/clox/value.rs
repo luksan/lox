@@ -317,7 +317,7 @@ impl HasRoots for Instance {
 
 #[derive(Debug)]
 pub struct BoundMethod {
-    receiver: Value,
+    pub(crate) receiver: Value,
     method: NonNull<Obj<Closure>>,
 }
 

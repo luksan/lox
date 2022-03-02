@@ -413,6 +413,8 @@ impl Vm {
         if let Some(closure) = callee.as_object() {
             self.call(closure, arg_count).map(Some)
         } else if let Some(bound) = callee.as_object::<BoundMethod>() {
+            let slot = self.stack.len() - arg_count as usize - 1;
+            self.stack[slot] = bound.receiver;
             self.call(bound.get_closure(), arg_count).map(Some)
         } else if let Some(class) = callee.as_object() {
             let instance = Instance::new(class);

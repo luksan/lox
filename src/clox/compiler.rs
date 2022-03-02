@@ -9,7 +9,7 @@ use std::rc::Rc;
 use tracing::trace_span;
 
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
-use crate::clox::value::{Function, Value};
+use crate::clox::value::{Class, Function, Value};
 use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
@@ -62,12 +62,17 @@ struct Upvalue {
 
 impl<'compiler> FunctionScope<'compiler> {
     fn new(func_type: FunctionType, outer: Option<Box<Self>>) -> Self {
+        let name = if func_type != FunctionType::Function {
+            "this"
+        } else {
+            ""
+        };
         Self {
             function: Function::new(),
             func_type,
             scope_depth: 0,
             locals: vec![Local {
-                name: "",
+                name,
                 depth: 0,
                 is_captured: false,
             }],
@@ -142,6 +147,7 @@ impl<'compiler> FunctionScope<'compiler> {
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum FunctionType {
     Function,
+    Method,
     Script,
 }
 
@@ -302,7 +308,7 @@ impl<'a> Compiler<'a> {
             TokenType::Print => p!(),
             TokenType::Return => p!(),
             TokenType::Super => p!(),
-            TokenType::This => p!(),
+            TokenType::This => p!(this, None, Precedence::None),
             TokenType::True => p!(literal, None, Precedence::None),
             TokenType::Var => p!(),
             TokenType::While => p!(),
@@ -467,7 +473,7 @@ impl<'a> Compiler<'a> {
     fn method(&mut self) {
         self.consume(TokenType::Identifier, "Expect method name.");
         let constant = self.identifier_constant(self.previous.lexeme().to_string());
-        self.function(FunctionType::Function);
+        self.function(FunctionType::Method);
         self.emit_bytes(OpCode::Method, constant);
     }
 
@@ -667,6 +673,10 @@ impl<'a> Compiler<'a> {
 
     fn variable(&mut self, can_assign: bool) {
         self.named_variable(self.previous.lexeme(), can_assign)
+    }
+
+    fn this(&mut self, _can_assign: bool) {
+        self.variable(false)
     }
 
     fn unary(&mut self, _can_assign: bool) {
