@@ -9,7 +9,7 @@ use std::rc::Rc;
 use tracing::trace_span;
 
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
-use crate::clox::value::{Class, Function, Value};
+use crate::clox::value::{Function, Value};
 use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
@@ -40,8 +40,19 @@ struct Compiler<'a> {
     panic_mode: bool,
 
     func_scope: FunctionScope<'a>,
+    current_class: Option<NonNull<ClassCompiler>>,
 
     heap: &'a mut Heap,
+}
+
+struct ClassCompiler {
+    enclosing: Option<NonNull<Self>>,
+}
+
+impl ClassCompiler {
+    fn new(enclosing: Option<NonNull<Self>>) -> Self {
+        Self { enclosing }
+    }
 }
 
 // This is struct Compiler in the book, Ch 22.
@@ -200,6 +211,8 @@ impl<'a> Compiler<'a> {
             panic_mode: false,
 
             func_scope: FunctionScope::new(FunctionType::Script, None),
+            current_class: None,
+
             heap,
         }
     }
@@ -486,6 +499,9 @@ impl<'a> Compiler<'a> {
         self.emit_bytes(OpCode::Class, name_constant);
         self.define_variable(name_constant);
 
+        let mut current_class = ClassCompiler::new(self.current_class.take());
+        self.current_class = Some((&current_class).into());
+
         self.named_variable(class_name.lexeme(), false);
         self.consume(TokenType::LeftBrace, "Expect '{' before class body.");
         while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
@@ -493,6 +509,8 @@ impl<'a> Compiler<'a> {
         }
         self.consume(TokenType::RightBrace, "Expect '}' after class body.");
         self.emit_byte(OpCode::Pop);
+
+        self.current_class = current_class.enclosing.take();
     }
 
     fn fun_declaration(&mut self) {
@@ -676,6 +694,10 @@ impl<'a> Compiler<'a> {
     }
 
     fn this(&mut self, _can_assign: bool) {
+        if self.current_class.is_none() {
+            self.error("Can't use 'this' outside of a class.");
+            return;
+        }
         self.variable(false)
     }
 
