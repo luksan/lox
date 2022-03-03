@@ -389,5 +389,5 @@ impl<T: Display + Debug> Display for Obj<T> {
 }
 
 fn value_type_str<T>() -> &'static str {
-    std::any::type_name::<T>().rsplitn(2, "::").next().unwrap()
+    std::any::type_name::<T>().rsplit_once("::").unwrap().1
 }

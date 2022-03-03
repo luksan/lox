@@ -226,10 +226,8 @@ impl Vm {
                         if let Some(value) = instance.get_field(name) {
                             self.pop(); // instance
                             self.push(value);
-                        } else {
-                            if self.bind_method(instance.get_class(), name).is_none() {
-                                runtime_error!("Undefined property '{}'.", name)?;
-                            }
+                        } else if self.bind_method(instance.get_class(), name).is_none() {
+                            runtime_error!("Undefined property '{}'.", name)?;
                         }
                     } else {
                         runtime_error!("Only instances have properties.")?;
@@ -399,7 +397,7 @@ impl Vm {
         if prev_ptr.is_null() {
             self.open_upvalues = upvalue;
         } else {
-            unsafe { (&mut *(prev_ptr as *mut Obj<Upvalue>)).next_open_upvalue = upvalue }
+            unsafe { (*(prev_ptr as *mut Obj<Upvalue>)).next_open_upvalue = upvalue }
         }
         upvalue
     }
@@ -448,7 +446,7 @@ impl Vm {
             let arg_start = self.stack.len() - arg_count as usize;
             let result = native.call_native(&self.stack[arg_start..])?;
             self.push(result);
-            return Ok(None);
+            Ok(None)
         } else {
             bail!("Can only call functions and classes.")
         }
@@ -462,7 +460,7 @@ impl Vm {
         if let Some(field) = instance.get_field(name) {
             let slot = self.stack.len() - arg_cnt as usize - 1;
             self.stack[slot] = field;
-            return self.call_value(field, arg_cnt);
+            self.call_value(field, arg_cnt)
         } else {
             let class: *const _ = instance.get_class();
             self.invoke_from_class(unsafe { &*class }, name, arg_cnt)
@@ -567,7 +565,7 @@ mod natives {
     pub fn clock(_args: &[Value]) -> Result<Value> {
         static START_TIME: OnceCell<std::time::Instant> = OnceCell::new();
         Ok(START_TIME
-            .get_or_init(|| std::time::Instant::now())
+            .get_or_init(std::time::Instant::now)
             .elapsed()
             .as_secs_f64()
             .into())

@@ -130,7 +130,7 @@ impl Token {
 
     pub fn string_literal(&self) -> &str {
         if let Some(Literal::String(s)) = &self.literal {
-            &s
+            s
         } else {
             panic!("Not a string literal.")
         }

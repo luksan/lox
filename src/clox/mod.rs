@@ -30,9 +30,10 @@ pub fn set_settings(settings: CloxSettings) {
 }
 
 fn get_settings() -> CloxSettings {
-    SETTINGS.get().copied().unwrap_or(CloxSettings::default())
+    SETTINGS.get().copied().unwrap_or_default()
 }
 
+#[allow(clippy::enum_variant_names)]
 #[derive(Copy, Clone, Debug, FromPrimitive)]
 #[repr(u8)]
 enum OpCode {
@@ -74,6 +75,7 @@ enum OpCode {
     BadOpCode,
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<u8> for OpCode {
     fn into(self) -> u8 {
         self as u8

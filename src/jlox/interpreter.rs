@@ -1,3 +1,5 @@
+#![allow(clippy::ptr_arg)]
+
 use anyhow::{anyhow, bail, Context, Result};
 
 use std::collections::HashMap;
@@ -333,7 +335,7 @@ impl Visitor<expr::Super, ExprVisitResult> for Interpreter {
                 )
             })?;
             if let LoxType::Instance(ref object) = object {
-                return Ok(method.bind(object).into());
+                Ok(method.bind(object).into())
             } else {
                 bail!("Object is not an instance.")
             }

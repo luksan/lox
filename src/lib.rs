@@ -1,4 +1,9 @@
 #![allow(dead_code)]
+#![allow(
+    clippy::option_map_unit_fn,
+    clippy::new_without_default,
+    clippy::try_err
+)]
 
 pub mod clox;
 mod jlox;

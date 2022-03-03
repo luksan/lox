@@ -130,7 +130,7 @@ pub struct Class {
 
 impl Class {
     pub fn new(name: &str, superclass: Option<Class>, methods: HashMap<String, Function>) -> Self {
-        let superclass = superclass.map(|cls| Box::new(cls));
+        let superclass = superclass.map(Box::new);
         Self {
             name: Rc::from(name),
             superclass,

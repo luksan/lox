@@ -22,11 +22,11 @@ pub fn compile(source: &str, heap: &mut Heap) -> StdResult<NonNull<Obj<Function>
     let mut compiler = Compiler::new(scanner.tokens(), heap);
     let root = Rc::new(&compiler as *const dyn HasRoots);
     compiler.heap.register_roots(&root);
-    compiler.compile().map_err(|e| LoxError::CompileError(e))?;
+    compiler.compile().map_err(LoxError::CompileError)?;
     compiler
         .end_compiler()
         .map(|func_ptr| NonNull::new(func_ptr as *mut _).unwrap())
-        .map_err(|e| LoxError::CompileError(e))
+        .map_err(LoxError::CompileError)
 }
 
 const U8_MAX_LEN: usize = 256;
@@ -93,7 +93,7 @@ impl<'compiler> FunctionScope<'compiler> {
     }
 
     fn add_local(&mut self, name: &'compiler Token) -> Result<()> {
-        if self.locals.len() >= u8::MAX as usize + 1 {
+        if self.locals.len() > u8::MAX as usize {
             bail!("Too many local variables in function.");
         }
         self.locals.push(Local {
