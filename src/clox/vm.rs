@@ -143,14 +143,16 @@ impl Vm {
             ($fmt:literal $(,)? $( $e:expr ),*) => {{
                 let idx = unsafe {frame.ip.offset_from(frame.chunk().code.as_ptr()) }- 1;
                 let line = frame.chunk().lines[idx as usize];
+                // self.stack.iter().for_each(|s|println!("{:?}", s));
                 eprintln!($fmt, $($e),*);
                 Err(anyhow!("[line {}] in script", line))
             }};
-            ($result:expr) => {{
-                if $result.is_ok() {
-                    $result
+            ($res_expr:expr) => {{
+                let result = $res_expr;
+                if result.is_ok() {
+                    result
                 }else {
-                    runtime_error!("{}", $result.unwrap_err())
+                    runtime_error!("{}", result.unwrap_err())
                 }
             }};
         }
