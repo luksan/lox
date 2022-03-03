@@ -253,6 +253,13 @@ impl Class {
         }
     }
 
+    pub(crate) fn inherit(&self, superclass: &Obj<Class>) {
+        let (sub, sup) = (self.methods.get(), superclass.methods.get());
+        assert!(!ptr::eq(sub, sup));
+        // This is safe as long as we don't inherit from ourselves.
+        unsafe { &mut *sub }.add_all(unsafe { &*sup });
+    }
+
     pub(crate) fn add_method(&self, name: &Obj<LoxStr>, method: Value) {
         unsafe { &mut *self.methods.get() }.set(name, method);
     }

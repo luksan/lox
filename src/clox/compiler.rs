@@ -508,6 +508,17 @@ impl<'a> Compiler<'a> {
         let mut current_class = ClassCompiler::new(self.current_class.take());
         self.current_class = Some((&current_class).into());
 
+        if self.match_token(TokenType::Less) {
+            // Ch 29, superclasses
+            self.consume(TokenType::Identifier, "Expect superclass name.");
+            self.variable(false);
+            if class_name.lexeme() == self.previous.lexeme() {
+                self.error("A class can't inherit from itself.");
+            }
+            self.named_variable(class_name.lexeme(), false);
+            self.emit_byte(OpCode::Inherit);
+        }
+
         self.named_variable(class_name.lexeme(), false);
         self.consume(TokenType::LeftBrace, "Expect '{' before class body.");
         while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {

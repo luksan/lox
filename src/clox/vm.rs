@@ -356,6 +356,14 @@ impl Vm {
                     let cls = self.heap.new_object(Class::new(name));
                     self.push(cls as *const _);
                 }
+                OpCode::Inherit => {
+                    let superclass = runtime_error!(self
+                        .peek_obj::<Class>(1)
+                        .context("Superclass must be a class."))?;
+                    let subclass: &Obj<Class> = self.peek_obj(0).unwrap();
+                    subclass.inherit(superclass);
+                    self.pop(); // subclass
+                }
                 OpCode::Method => {
                     self.define_method(read_string!());
                 }

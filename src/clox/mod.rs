@@ -70,6 +70,7 @@ enum OpCode {
     CloseUpvalue,
     Return,
     Class,
+    Inherit,
     Method,
     #[num_enum(default)]
     BadOpCode,
@@ -220,6 +221,7 @@ impl Chunk {
             OpCode::CloseUpvalue => simple_instr(),
             OpCode::Return => simple_instr(),
             OpCode::Class => constant_instr(),
+            OpCode::Inherit => simple_instr(),
             OpCode::Method => constant_instr(),
 
             OpCode::BadOpCode => {
