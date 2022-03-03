@@ -44,7 +44,7 @@ impl Value {
         self == Self::Nil || self == Self::Bool(false)
     }
 
-    pub fn as_object<O: Display + Debug + 'static>(self) -> Option<&'static Obj<O>> {
+    pub fn as_object<'a, O: Display + Debug + 'static>(self) -> Option<&'a Obj<O>> {
         if let Self::Obj(ptr) = self {
             ptr.cast::<O>()
         } else {
@@ -258,9 +258,8 @@ impl Class {
     }
 
     pub(crate) fn get_method(&self, name: &Obj<LoxStr>) -> Option<&Obj<Closure>> {
-        unsafe { &*self.methods.get() }
-            .get(name)
-            .map(|v| v.as_object().unwrap())
+        let method = unsafe { &*self.methods.get() }.get(name)?;
+        Some(unsafe { &*(method.as_object().unwrap() as *const _) })
     }
 }
 

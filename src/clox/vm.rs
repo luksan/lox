@@ -7,10 +7,10 @@ use crate::clox::value::{
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use tracing::{span, Level};
 
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -310,6 +310,14 @@ impl Vm {
                         self.frames.push(std::mem::replace(&mut frame, new_frame));
                     }
                 }
+                OpCode::Invoke => {
+                    // Ch 28.5
+                    let method = read_string!();
+                    let arg_cnt = read_byte!();
+                    if let Some(new_frame) = runtime_error!(self.invoke(method, arg_cnt))? {
+                        self.frames.push(std::mem::replace(&mut frame, new_frame));
+                    }
+                }
                 OpCode::Closure => {
                     let function = read_constant!().as_object::<Function>().unwrap();
                     let stack_ptr = self.stack.as_mut_ptr();
@@ -446,6 +454,35 @@ impl Vm {
         }
     }
 
+    fn invoke(&mut self, name: &Obj<LoxStr>, arg_cnt: u8) -> Result<Option<CallFrame>> {
+        let instance = self
+            .peek_obj::<Instance>(arg_cnt as usize)
+            .context("Only instances have methods.")?;
+
+        if let Some(field) = instance.get_field(name) {
+            let slot = self.stack.len() - arg_cnt as usize - 1;
+            self.stack[slot] = field;
+            return self.call_value(field, arg_cnt);
+        } else {
+            let class: *const _ = instance.get_class();
+            self.invoke_from_class(unsafe { &*class }, name, arg_cnt)
+                .map(Some)
+        }
+    }
+
+    fn invoke_from_class(
+        &mut self,
+        class: &Obj<Class>,
+        name: &Obj<LoxStr>,
+        arg_cnt: u8,
+    ) -> Result<CallFrame> {
+        if let Some(method) = class.get_method(name) {
+            self.call(method, arg_cnt)
+        } else {
+            bail!("Undefined property '{}'.", name)
+        }
+    }
+
     fn bind_method(&mut self, class: &Obj<Class>, name: &Obj<LoxStr>) -> Option<()> {
         let method = class.get_method(name)?;
         let bound = self.heap.new_object(BoundMethod::new(self.peek(0), method));
@@ -491,6 +528,10 @@ impl Vm {
 
     fn peek(&self, pos: usize) -> Value {
         self.stack[self.stack.len() - pos - 1]
+    }
+
+    fn peek_obj<O: Debug + Display + HasRoots + 'static>(&self, pos: usize) -> Option<&Obj<O>> {
+        self.peek(pos).as_object::<O>()
     }
 
     fn pop(&mut self) -> Value {

@@ -375,6 +375,10 @@ impl<'a> Compiler<'a> {
         if can_assign && self.match_token(TokenType::Equal) {
             self.expression();
             self.emit_bytes(OpCode::SetProperty, name);
+        } else if self.match_token(TokenType::LeftParen) {
+            let arg_cnt = self.argument_list();
+            self.emit_bytes(OpCode::Invoke, name);
+            self.emit_byte(arg_cnt);
         } else {
             self.emit_bytes(OpCode::GetProperty, name);
         }

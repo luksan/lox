@@ -64,6 +64,7 @@ enum OpCode {
     JumpIfFalse,
     Loop,
     Call,
+    Invoke,
     Closure,
     CloseUpvalue,
     Return,
@@ -147,6 +148,15 @@ impl Chunk {
             );
             offset + 3
         };
+        let invoke_instr = || {
+            let constant = self.code[offset + 1];
+            let arg_cnt = self.code[offset + 2];
+            println!(
+                "{:12} ({} args) {:4} '{}'",
+                op_str, arg_cnt, constant, self.constants[constant]
+            );
+            offset + 3
+        };
         match op {
             OpCode::Constant => constant_instr(),
             OpCode::Nil => simple_instr(),
@@ -176,6 +186,7 @@ impl Chunk {
             OpCode::JumpIfFalse => jump_instr(1),
             OpCode::Loop => jump_instr(-1),
             OpCode::Call => byte_instr(),
+            OpCode::Invoke => invoke_instr(),
             OpCode::Closure => {
                 let mut offset = offset + 1;
                 let constant = self.code[offset];
@@ -184,13 +195,14 @@ impl Chunk {
                 print!("{}", self.constants[constant]);
                 println!();
 
-                let function = self.constants[constant].as_object::<Function>().expect(
-                    format!(
-                        "Closure without function, found {:?}",
-                        self.constants[constant]
-                    )
-                    .as_str(),
-                );
+                let function = self.constants[constant]
+                    .as_object::<Function>()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Closure without function, found {:?}",
+                            self.constants[constant]
+                        )
+                    });
                 for _ in 0..function.upvalue_count {
                     let is_local = if self.code[offset] == 1 {
                         "local"
