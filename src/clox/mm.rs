@@ -65,8 +65,8 @@ objtypes_impl!(
 impl ObjTypes {
     pub(crate) fn free_object(self) -> Option<Self> {
         macro_rules! free_next {
-            ($ptr:expr) => {{
-                trace!("Freeing Obj<{}> @ {:?}", stringify!($ptr), $ptr);
+            ($ptr:ident) => {{
+                trace!("Freeing {:?} @ {:?}", self.cast::<$ptr>().unwrap(), $ptr);
                 unsafe { Box::from_raw($ptr.as_ptr()) }.next.get()
             }};
         }
@@ -183,6 +183,7 @@ impl Heap {
     }
 
     pub fn register_roots<'a>(&mut self, roots: &Rc<*const (dyn HasRoots + 'a)>) {
+        trace!("Registered GC root {:?}", roots);
         let weak = Rc::downgrade(roots);
         self.has_roots.push(unsafe { std::mem::transmute(weak) });
     }
@@ -196,11 +197,11 @@ impl Heap {
             self.collect_garbage();
             self.next_gc.set(self.obj_count.get() * 2);
         }
-        trace!("new Obj<{}>", value_type_str::<O>());
         self.obj_count.set(self.obj_count.get() + 1);
         let o = Obj::new(inner);
         o.next
             .set(self.objs.replace((o as *const Obj<O>).into().into()));
+        trace!("new {:?}", o);
         o
     }
 

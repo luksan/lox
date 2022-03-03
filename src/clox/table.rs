@@ -1,4 +1,4 @@
-use crate::clox::mm::{Obj, ObjTypes};
+use crate::clox::mm::{HasRoots, Obj, ObjTypes};
 use crate::clox::value::{LoxStr, Value};
 
 use std::cell::Cell;
@@ -95,7 +95,7 @@ impl LoxTable {
         }
         let key_ref = unsafe { &**key.as_ref().unwrap() };
         let entry = self.find_entry(key_ref);
-        let is_new = entry.value().is_none();
+        let is_new = entry.key().is_none();
         let tombstone = entry.is_tombstone();
         entry.set(key, value);
         if is_new && !tombstone {
@@ -180,7 +180,7 @@ impl LoxTable {
 
     fn adjust_capacity(&mut self, cap: usize) {
         let mut old = std::mem::replace(&mut self.entries, Vec::new());
-        self.entries.resize_with(cap, || Default::default());
+        self.entries.resize_with(cap, Default::default);
         self.count = 0;
         for e in old.drain(..).filter(|e| e.value().is_some()) {
             self.set(e.key.get(), e.value.get());
@@ -209,18 +209,26 @@ impl LoxTable {
     }
 }
 
+impl HasRoots for LoxTable {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        self.gc_mark(mark_obj);
+    }
+}
+
 #[cfg(test)]
 mod test {
+    // use tracing_test::traced_test;
+
     use crate::clox::mm::Heap;
-    use crate::clox::table::{LoxTable, StrPtr};
-    use crate::clox::value::{LoxStr, Value};
+    use crate::clox::table::LoxTable;
+    use crate::clox::value::Value;
+    use std::rc::Rc;
 
     #[test]
     fn basic_test() {
         let mut table = LoxTable::new();
         let heap = Heap::new();
-        let s1_val = heap.new_string("asd".to_string());
-        let s1 = s1_val.as_object::<LoxStr>().unwrap();
+        let s1 = heap.new_string("asd".to_string());
         assert!(table.get(s1).is_none());
         assert!(table.set(s1, Value::Nil));
         assert_eq!(table.get(s1), Some(Value::Nil));
@@ -228,22 +236,22 @@ mod test {
         assert_eq!(table.get(s1), Some(Value::Bool(true)));
 
         let heap2 = Heap::new(); // put a string on another heap
-        let s2_val = heap2.new_string("asd".to_string());
-        let s2 = s2_val.as_object().unwrap();
+        let s2 = heap2.new_string("asd".to_string());
         assert_eq!(table.get(s2), None); // This is None because of string interning
     }
 
+    // #[traced_test]
     #[test]
     fn test_deletion() {
         let mut table = LoxTable::new();
-        let heap = Heap::new();
-        let mut stack = vec![];
+        let mut heap = Heap::new();
+
+        let roots = Rc::new(&table as *const _);
+        heap.register_roots(&roots);
+
         macro_rules! str {
             ($s:expr) => {{
-                let v = heap.new_string($s.to_string());
-                stack.push(v);
-                // Recast via pointer so we can use str macro in a loop
-                unsafe { &*(stack.last().unwrap().as_object().unwrap() as StrPtr) }
+                heap.new_string($s.to_string())
             }};
         }
         macro_rules! get {
@@ -286,7 +294,7 @@ mod test {
         for n in 100..130 {
             let s = str!(n);
             let v = Value::Number(n as f64);
-            assert!(table.set(s, v));
+            assert!(table.set(s, v), "{n}", n = n);
             entries.push((s, v));
         }
         assert_eq!(table.count, 109);
@@ -298,8 +306,7 @@ mod test {
     fn find_key() {
         let mut table = LoxTable::new();
         let heap = Heap::new();
-        let s1_val = heap.new_string("asd".to_string());
-        let s1 = s1_val.as_object().unwrap();
+        let s1 = heap.new_string("asd".to_string());
         table.set(s1, Value::Bool(false));
         assert_eq!(table.find_key("asd"), Some(s1 as *const _));
         assert_eq!(table.find_key(s1.as_str()), Some(s1 as *const _));
