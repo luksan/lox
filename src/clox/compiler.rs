@@ -735,8 +735,15 @@ impl<'a> Compiler<'a> {
         self.consume(TokenType::Identifier, "Expect superclass method name.");
         let name = self.identifier_constant(self.previous.lexeme().to_string());
         self.named_variable("this", false);
-        self.named_variable("super", false);
-        self.emit_bytes(OpCode::GetSuper, name);
+        if self.match_token(TokenType::LeftParen) {
+            let arg_count = self.argument_list();
+            self.named_variable("super", false);
+            self.emit_bytes(OpCode::SuperInvoke, name);
+            self.emit_byte(arg_count);
+        } else {
+            self.named_variable("super", false);
+            self.emit_bytes(OpCode::GetSuper, name);
+        }
     }
     fn this(&mut self, _can_assign: bool) {
         if self.current_class.is_none() {

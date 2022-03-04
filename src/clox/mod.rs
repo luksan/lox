@@ -67,6 +67,7 @@ enum OpCode {
     Loop,
     Call,
     Invoke,
+    SuperInvoke,
     Closure,
     CloseUpvalue,
     Return,
@@ -192,6 +193,7 @@ impl Chunk {
             OpCode::Loop => jump_instr(-1),
             OpCode::Call => byte_instr(),
             OpCode::Invoke => invoke_instr(),
+            OpCode::SuperInvoke => invoke_instr(),
             OpCode::Closure => {
                 let mut offset = offset + 1;
                 let constant = self.code[offset];

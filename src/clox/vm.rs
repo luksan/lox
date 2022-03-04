@@ -321,6 +321,14 @@ impl Vm {
                         self.frames.push(std::mem::replace(&mut frame, new_frame));
                     }
                 }
+                OpCode::SuperInvoke => {
+                    let method = read_string!();
+                    let arg_cnt = read_byte!();
+                    let superclass = self.pop().as_object().unwrap();
+                    let new_frame =
+                        runtime_error!(self.invoke_from_class(superclass, method, arg_cnt))?;
+                    self.frames.push(std::mem::replace(&mut frame, new_frame));
+                }
                 OpCode::Closure => {
                     let function = read_constant!().as_object::<Function>().unwrap();
                     let stack_ptr = self.stack.as_mut_ptr();
