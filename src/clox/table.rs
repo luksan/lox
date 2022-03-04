@@ -136,7 +136,7 @@ impl LoxTable {
         }
         let cap = self.capacity() as u32;
         let hash = LoxStr::hash(k);
-        let mut index = hash % cap;
+        let mut index = hash & (cap - 1);
         loop {
             let entry = &self.entries[index as usize];
             if entry.value().is_none() && !entry.is_tombstone() {
@@ -148,13 +148,13 @@ impl LoxTable {
                 }
             }
 
-            index = (index + 1) % cap;
+            index = (index + 1) & (cap - 1);
         }
     }
 
     fn find_entry(&self, key: &LoxStr) -> &Entry {
         let capacity = self.capacity() as u32;
-        let mut index = key.hash % capacity;
+        let mut index = key.hash & (capacity - 1);
         let mut tombstone = u32::MAX;
         loop {
             let e = &self.entries[index as usize];
@@ -174,11 +174,12 @@ impl LoxTable {
                     tombstone = index;
                 }
             }
-            index = (index + 1) % capacity;
+            index = (index + 1) & (capacity - 1);
         }
     }
 
     fn adjust_capacity(&mut self, cap: usize) {
+        assert!(cap.is_power_of_two());
         let mut old = std::mem::replace(&mut self.entries, Vec::new());
         self.entries.resize_with(cap, Default::default);
         self.count = 0;
