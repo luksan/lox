@@ -226,8 +226,8 @@ impl Vm {
                         if let Some(value) = instance.get_field(name) {
                             self.pop(); // instance
                             self.push(value);
-                        } else if self.bind_method(instance.get_class(), name).is_none() {
-                            runtime_error!("Undefined property '{}'.", name)?;
+                        } else {
+                            runtime_error!(self.bind_method(instance.get_class(), name))?;
                         }
                     } else {
                         runtime_error!("Only instances have properties.")?;
@@ -243,6 +243,11 @@ impl Vm {
                     } else {
                         runtime_error!("Only instances have fields.")?;
                     }
+                }
+                OpCode::GetSuper => {
+                    let name = read_string!();
+                    let superclass = self.pop().as_object().unwrap();
+                    runtime_error!(self.bind_method(superclass, name))?;
                 }
                 OpCode::Equal => {
                     let a = self.pop();
@@ -489,12 +494,14 @@ impl Vm {
         }
     }
 
-    fn bind_method(&mut self, class: &Obj<Class>, name: &Obj<LoxStr>) -> Option<()> {
-        let method = class.get_method(name)?;
+    fn bind_method(&mut self, class: &Obj<Class>, name: &Obj<LoxStr>) -> Result<()> {
+        let method = class
+            .get_method(name)
+            .with_context(|| format!("Undefined property '{}'.", name))?;
         let bound = self.heap.new_object(BoundMethod::new(self.peek(0), method));
         self.pop();
         self.push(bound);
-        Some(())
+        Ok(())
     }
 
     fn call(&self, closure: &Obj<Closure>, arg_count: u8) -> Result<CallFrame> {

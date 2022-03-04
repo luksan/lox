@@ -47,11 +47,15 @@ struct Compiler<'a> {
 
 struct ClassCompiler {
     enclosing: Option<NonNull<Self>>,
+    has_superclass: bool,
 }
 
 impl ClassCompiler {
     fn new(enclosing: Option<NonNull<Self>>) -> Self {
-        Self { enclosing }
+        Self {
+            enclosing,
+            has_superclass: false,
+        }
     }
 }
 
@@ -92,12 +96,12 @@ impl<'compiler> FunctionScope<'compiler> {
         }
     }
 
-    fn add_local(&mut self, name: &'compiler Token) -> Result<()> {
+    fn add_local(&mut self, name: &'compiler str) -> Result<()> {
         if self.locals.len() > u8::MAX as usize {
             bail!("Too many local variables in function.");
         }
         self.locals.push(Local {
-            name: name.lexeme(),
+            name,
             depth: usize::MAX,
             is_captured: false,
         });
@@ -321,7 +325,7 @@ impl<'a> Compiler<'a> {
             TokenType::Or => p!(None, or, Precedence::Or),
             TokenType::Print => p!(),
             TokenType::Return => p!(),
-            TokenType::Super => p!(),
+            TokenType::Super => p!(super_, None, Precedence::None),
             TokenType::This => p!(this, None, Precedence::None),
             TokenType::True => p!(literal, None, Precedence::None),
             TokenType::Var => p!(),
@@ -515,8 +519,13 @@ impl<'a> Compiler<'a> {
             if class_name.lexeme() == self.previous.lexeme() {
                 self.error("A class can't inherit from itself.");
             }
+            self.begin_scope();
+            self.add_local("super");
+            self.define_variable(0);
+
             self.named_variable(class_name.lexeme(), false);
             self.emit_byte(OpCode::Inherit);
+            current_class.has_superclass = true;
         }
 
         self.named_variable(class_name.lexeme(), false);
@@ -527,6 +536,9 @@ impl<'a> Compiler<'a> {
         self.consume(TokenType::RightBrace, "Expect '}' after class body.");
         self.emit_byte(OpCode::Pop);
 
+        if current_class.has_superclass {
+            self.end_scope();
+        }
         self.current_class = current_class.enclosing.take();
     }
 
@@ -713,6 +725,19 @@ impl<'a> Compiler<'a> {
         self.named_variable(self.previous.lexeme(), can_assign)
     }
 
+    fn super_(&mut self, _can_assign: bool) {
+        if self.current_class.is_none() {
+            self.error("Can't use 'super' outside of a class.");
+        } else if unsafe { !self.current_class.unwrap().as_ref().has_superclass } {
+            self.error("Can't use 'super' in a class with no superclass.")
+        };
+        self.consume(TokenType::Dot, "Expect '.' after 'super'.");
+        self.consume(TokenType::Identifier, "Expect superclass method name.");
+        let name = self.identifier_constant(self.previous.lexeme().to_string());
+        self.named_variable("this", false);
+        self.named_variable("super", false);
+        self.emit_bytes(OpCode::GetSuper, name);
+    }
     fn this(&mut self, _can_assign: bool) {
         if self.current_class.is_none() {
             self.error("Can't use 'this' outside of a class.");
@@ -757,7 +782,7 @@ impl<'a> Compiler<'a> {
         self.make_constant(v)
     }
 
-    fn add_local(&mut self, name: &'a Token) {
+    fn add_local(&mut self, name: &'a str) {
         if let Err(e) = self.func_scope.add_local(name) {
             self.error(e);
         }
@@ -771,7 +796,7 @@ impl<'a> Compiler<'a> {
         if let Err(e) = self.func_scope.declare_local(name) {
             self.error(e);
         }
-        self.add_local(name);
+        self.add_local(name.lexeme());
     }
 
     fn parse_variable(&mut self, err: &str) -> u8 {
