@@ -2,7 +2,8 @@ use crate::clox::compiler::compile;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::table::LoxTable;
 use crate::clox::value::{
-    BoundMethod, Class, Closure, Function, Instance, LoxStr, NativeFn, NativeFnRef, Upvalue, Value,
+    BoundMethod, Class, Closure, Function, Instance, LoxObject, LoxStr, NativeFn, NativeFnRef,
+    Upvalue, Value,
 };
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
@@ -10,7 +11,7 @@ use crate::LoxError;
 use anyhow::{anyhow, bail, Context, Result};
 use tracing::{span, Level};
 
-use std::fmt::{Debug, Display, Formatter};
+use std::fmt::{Debug, Formatter};
 use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -551,7 +552,7 @@ impl Vm {
         self.stack[self.stack.len() - pos - 1]
     }
 
-    fn peek_obj<O: Debug + Display + HasRoots + 'static>(&self, pos: usize) -> Option<&Obj<O>> {
+    fn peek_obj<O: LoxObject + 'static>(&self, pos: usize) -> Option<&Obj<O>> {
         self.peek(pos).as_object::<O>()
     }
 

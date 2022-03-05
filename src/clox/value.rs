@@ -44,7 +44,7 @@ impl Value {
         self == Self::Nil || self == Self::Bool(false)
     }
 
-    pub fn as_object<'a, O: Display + Debug + 'static>(self) -> Option<&'a Obj<O>> {
+    pub fn as_object<'a, O: LoxObject + 'static>(self) -> Option<&'a Obj<O>> {
         if let Self::Obj(ptr) = self {
             ptr.cast::<O>()
         } else {
@@ -76,6 +76,8 @@ impl<O: Into<ObjTypes>> From<O> for Value {
         Self::Obj(ptr.into())
     }
 }
+
+pub trait LoxObject: Debug + Display + HasRoots {}
 
 #[derive(Debug, Clone)]
 pub struct LoxStr {
@@ -109,6 +111,8 @@ impl LoxStr {
         hash
     }
 }
+
+impl LoxObject for LoxStr {}
 
 impl HasRoots for LoxStr {
     fn mark_roots(&self, _mark_obj: &mut dyn FnMut(ObjTypes)) {
@@ -148,6 +152,8 @@ pub struct Upvalue {
     pub(crate) next_open_upvalue: *const Obj<Upvalue>,
     closed: Value,
 }
+
+impl LoxObject for Upvalue {}
 
 impl Upvalue {
     pub fn new(location: *mut Value) -> Self {
@@ -192,6 +198,8 @@ pub struct Closure {
     pub function: NonNull<Obj<Function>>,
     pub upvalues: Box<[NonNull<Obj<Upvalue>>]>,
 }
+
+impl LoxObject for Closure {}
 
 impl Closure {
     pub fn new(
@@ -245,6 +253,8 @@ pub struct Class {
     methods: UnsafeCell<LoxTable>,
 }
 
+impl LoxObject for Class {}
+
 impl Class {
     pub(crate) fn new(name: &Obj<LoxStr>) -> Self {
         Self {
@@ -289,6 +299,8 @@ pub struct Instance {
     fields: RefCell<LoxTable>,
 }
 
+impl LoxObject for Instance {}
+
 impl Instance {
     pub(crate) fn new(class: &Obj<Class>) -> Self {
         Self {
@@ -329,6 +341,8 @@ pub struct BoundMethod {
     method: NonNull<Obj<Closure>>,
 }
 
+impl LoxObject for BoundMethod {}
+
 impl BoundMethod {
     pub(crate) fn new(receiver: Value, method: &Obj<Closure>) -> Self {
         Self {
@@ -362,6 +376,8 @@ pub struct Function {
     pub(crate) name: *const Obj<LoxStr>,
     pub(crate) upvalue_count: usize,
 }
+
+impl LoxObject for Function {}
 
 impl HasRoots for Function {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
@@ -410,6 +426,8 @@ impl Display for Function {
 pub type NativeFnRef = fn(&[Value]) -> Result<Value>;
 
 pub struct NativeFn(NativeFnRef);
+
+impl LoxObject for NativeFn {}
 
 impl NativeFn {
     pub fn call_native(&self, args: &[Value]) -> Result<Value> {

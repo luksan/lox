@@ -1,6 +1,6 @@
 use crate::clox::get_settings;
 use crate::clox::table::LoxTable;
-use crate::clox::value::Value;
+use crate::clox::value::{LoxObject, Value};
 
 use tracing::{trace, trace_span};
 
@@ -73,7 +73,7 @@ impl ObjTypes {
         for_all_objtypes!(self, free_next)
     }
 
-    pub(crate) fn cast<'a, T: Display + Debug + 'static>(self) -> Option<&'a Obj<T>> {
+    pub(crate) fn cast<'a, T: LoxObject + 'static>(self) -> Option<&'a Obj<T>> {
         macro_rules! down {
             ($ptr:expr) => {
                 return (unsafe { $ptr.as_ref() } as &dyn Any).downcast_ref()
@@ -188,7 +188,7 @@ impl Heap {
         self.has_roots.push(unsafe { std::mem::transmute(weak) });
     }
 
-    pub fn new_object<O: Display + Debug + 'static + HasRoots>(&self, inner: O) -> &'static Obj<O>
+    pub fn new_object<O: LoxObject>(&self, inner: O) -> &'static Obj<O>
     where
         *const Obj<O>: Into<ObjTypes>,
         ObjTypes: From<*const Obj<O>>,
@@ -326,13 +326,13 @@ impl Deref for ValueArray {
     }
 }
 
-pub struct Obj<T: ?Sized + Display + Debug> {
+pub struct Obj<T: ?Sized + LoxObject> {
     next: Cell<Option<ObjTypes>>,
     is_marked: Cell<bool>,
     inner: T,
 }
 
-impl<T: Display + Debug + HasRoots> Obj<T>
+impl<T: LoxObject> Obj<T>
 where
     *const Obj<T>: Into<ObjTypes>,
     ObjTypes: From<*const Self>,
@@ -363,7 +363,7 @@ where
     }
 }
 
-impl<T: Display + Debug + ?Sized> Deref for Obj<T> {
+impl<T: LoxObject + ?Sized> Deref for Obj<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -371,19 +371,19 @@ impl<T: Display + Debug + ?Sized> Deref for Obj<T> {
     }
 }
 
-impl<T: Display + Debug + ?Sized> DerefMut for Obj<T> {
+impl<T: LoxObject + ?Sized> DerefMut for Obj<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
 }
 
-impl<T: Display + Debug> Debug for Obj<T> {
+impl<T: LoxObject> Debug for Obj<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "Obj<{}>{{{:?}}}", value_type_str::<T>(), self.inner)
     }
 }
 
-impl<T: Display + Debug> Display for Obj<T> {
+impl<T: LoxObject> Display for Obj<T> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }
