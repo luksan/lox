@@ -267,7 +267,7 @@ impl Class {
         let (sub, sup) = (self.methods.get(), superclass.methods.get());
         assert!(!ptr::eq(sub, sup));
         // This is safe as long as we don't inherit from ourselves.
-        unsafe { &mut *sub }.add_all(&mut unsafe { &*sup }.iter());
+        unsafe { &mut *sub }.add_all(unsafe { &*sup });
     }
 
     pub(crate) fn add_method(&self, name: &Obj<LoxStr>, method: Value) {
@@ -275,7 +275,7 @@ impl Class {
     }
 
     pub(crate) fn get_method(&self, name: &Obj<LoxStr>) -> Option<&Obj<Closure>> {
-        let method = unsafe { &*self.methods.get() }.get(name)?;
+        let method = unsafe { &*self.methods.get() }.get_value(name)?;
         Some(unsafe { &*(method.as_object().unwrap() as *const _) })
     }
 }
@@ -289,7 +289,7 @@ impl Display for Class {
 impl HasRoots for Class {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         mark_obj(self.name.into());
-        unsafe { &*self.methods.get() }.gc_mark(mark_obj);
+        unsafe { &*self.methods.get() }.mark_roots(mark_obj);
     }
 }
 
@@ -314,7 +314,7 @@ impl Instance {
     }
 
     pub(crate) fn get_field(&self, field: &Obj<LoxStr>) -> Option<Value> {
-        self.fields.borrow().get(field)
+        self.fields.borrow().get_value(field)
     }
 
     pub(crate) fn set_field(&self, field: &Obj<LoxStr>, value: Value) {
@@ -331,7 +331,7 @@ impl Display for Instance {
 impl HasRoots for Instance {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         mark_obj(self.class.into());
-        self.fields.borrow().gc_mark(mark_obj);
+        self.fields.borrow().mark_roots(mark_obj);
     }
 }
 

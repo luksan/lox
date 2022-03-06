@@ -4,23 +4,24 @@ use crate::clox::value::{LoxStr, Value};
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
+use std::ops::{Deref, DerefMut};
 use std::ptr;
 
 pub type StrPtr = *const Obj<LoxStr>;
 
 pub trait Table {
-    fn get(&self, key: &Obj<LoxStr>) -> Option<Value>;
+    fn get_value(&self, key: &Obj<LoxStr>) -> Option<Value>;
     /// Inserts a value in the table, returns false if the key already
     /// was in the table.
     fn set(&mut self, key: &Obj<LoxStr>, value: Value) -> bool;
 
     /// Remove the entry from the table, returns true if the entry was present.
     fn delete(&mut self, key: &Obj<LoxStr>) -> bool;
-    fn add_all(&mut self, other: &mut dyn Iterator<Item = (&Obj<LoxStr>, Value)>);
+    fn add_all(&mut self, other: &Self);
 }
 
 impl Table for HashMap<StrPtr, Value> {
-    fn get(&self, key: &Obj<LoxStr>) -> Option<Value> {
+    fn get_value(&self, key: &Obj<LoxStr>) -> Option<Value> {
         self.get(&(key as StrPtr)).copied()
     }
 
@@ -32,17 +33,20 @@ impl Table for HashMap<StrPtr, Value> {
         self.remove(&(key as StrPtr)).is_some()
     }
 
-    fn add_all(&mut self, other: &mut dyn Iterator<Item = (&Obj<LoxStr>, Value)>) {
-        self.extend(other.map(|(k, v)| (k as StrPtr, v)));
+    fn add_all(&mut self, other: &Self) {
+        <Self as Extend<_>>::extend(self, other);
     }
 }
 
-pub struct LoxTable {
+// pub type LoxTable = HashMap<StrPtr, Value>;
+pub type LoxTable = LoxMap;
+
+pub struct LoxMap {
     count: usize,
     entries: Vec<Entry>,
 }
 
-impl Debug for LoxTable {
+impl Debug for LoxMap {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         for (k, v) in self.iter() {
             write!(f, "{}: {}", k, v)?;
@@ -93,8 +97,8 @@ impl Default for Entry {
     }
 }
 
-impl Table for LoxTable {
-    fn get(&self, key: &Obj<LoxStr>) -> Option<Value> {
+impl Table for LoxMap {
+    fn get_value(&self, key: &Obj<LoxStr>) -> Option<Value> {
         if self.count == 0 {
             return None;
         }
@@ -128,14 +132,14 @@ impl Table for LoxTable {
         }
     }
 
-    fn add_all(&mut self, other: &mut dyn Iterator<Item = (&Obj<LoxStr>, Value)>) {
-        for (k, v) in other {
+    fn add_all(&mut self, other: &Self) {
+        for (k, v) in other.iter() {
             self.set(k, v);
         }
     }
 }
 
-impl LoxTable {
+impl LoxMap {
     pub fn new() -> Self {
         Self {
             count: 0,
@@ -147,28 +151,6 @@ impl LoxTable {
         self.entries
             .iter()
             .filter_map(|e| e.key().map(|key| (key, e.value.get())))
-    }
-
-    pub fn find_key(&self, k: &str) -> Option<StrPtr> {
-        if self.count == 0 {
-            return None;
-        }
-        let cap = self.capacity() as u32;
-        let hash = LoxStr::hash(k);
-        let mut index = hash & (cap - 1);
-        loop {
-            let entry = &self.entries[index as usize];
-            if entry.value().is_none() && !entry.is_tombstone() {
-                return None;
-            }
-            if let Some(key) = entry.key() {
-                if &**key == (k, hash) {
-                    return Some(entry.key.get());
-                }
-            }
-
-            index = (index + 1) & (cap - 1);
-        }
     }
 
     fn find_entry(&self, key: &LoxStr) -> &Entry {
@@ -207,16 +189,26 @@ impl LoxTable {
     fn capacity(&self) -> usize {
         self.entries.len()
     }
+}
 
-    pub(crate) fn gc_mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
+impl HasRoots for LoxMap {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         for (k, v) in self.iter() {
-            k.mark(callback);
-            v.mark(callback);
+            k.mark(mark_obj);
+            v.mark(mark_obj);
         }
+    }
+}
+
+pub(crate) struct StringInterner(LoxMap);
+
+impl StringInterner {
+    pub(crate) fn new() -> Self {
+        Self(LoxMap::new())
     }
 
     pub(crate) fn remove_white(&self) {
-        for e in self.entries.iter() {
+        for e in self.0.entries.iter() {
             if let Some(k) = e.key() {
                 if !k.is_marked() {
                     e.delete();
@@ -224,11 +216,41 @@ impl LoxTable {
             }
         }
     }
+
+    pub fn find_key(&self, k: &str) -> Option<StrPtr> {
+        if self.0.count == 0 {
+            return None;
+        }
+        let cap = self.capacity() as u32;
+        let hash = LoxStr::hash(k);
+        let mut index = hash & (cap - 1);
+        loop {
+            let entry = &self.entries[index as usize];
+            if entry.value().is_none() && !entry.is_tombstone() {
+                return None;
+            }
+            if let Some(key) = entry.key() {
+                if &**key == (k, hash) {
+                    return Some(entry.key.get());
+                }
+            }
+
+            index = (index + 1) & (cap - 1);
+        }
+    }
 }
 
-impl HasRoots for LoxTable {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
-        self.gc_mark(mark_obj);
+impl Deref for StringInterner {
+    type Target = LoxMap;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl DerefMut for StringInterner {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
@@ -237,30 +259,30 @@ mod test {
     // use tracing_test::traced_test;
 
     use crate::clox::mm::Heap;
-    use crate::clox::table::{LoxTable, Table};
+    use crate::clox::table::{LoxMap, StringInterner, Table};
     use crate::clox::value::Value;
     use std::rc::Rc;
 
     #[test]
     fn basic_test() {
-        let mut table = LoxTable::new();
+        let mut table = LoxMap::new();
         let heap = Heap::new();
         let s1 = heap.new_string("asd".to_string());
-        assert!(table.get(s1).is_none());
+        assert!(table.get_value(s1).is_none());
         assert!(table.set(s1, Value::Nil));
-        assert_eq!(table.get(s1), Some(Value::Nil));
+        assert_eq!(table.get_value(s1), Some(Value::Nil));
         assert!(!table.set(s1, Value::Bool(true)));
-        assert_eq!(table.get(s1), Some(Value::Bool(true)));
+        assert_eq!(table.get_value(s1), Some(Value::Bool(true)));
 
         let heap2 = Heap::new(); // put a string on another heap
         let s2 = heap2.new_string("asd".to_string());
-        assert_eq!(table.get(s2), None); // This is None because of string interning
+        assert_eq!(table.get_value(s2), None); // This is None because of string interning
     }
 
     // #[traced_test]
     #[test]
     fn test_deletion() {
-        let mut table = LoxTable::new();
+        let mut table = LoxMap::new();
         let mut heap = Heap::new();
 
         let roots = Rc::new(&table as *const _);
@@ -273,10 +295,10 @@ mod test {
         }
         macro_rules! get {
             ($k:expr) => {
-                assert_eq!(table.get($k), None)
+                assert_eq!(table.get_value($k), None)
             };
             ($k:expr, $v:expr) => {
-                assert_eq!(table.get($k), Some($v))
+                assert_eq!(table.get_value($k), Some($v))
             };
         }
         let s1 = str!("asd");
@@ -315,13 +337,13 @@ mod test {
             entries.push((s, v));
         }
         assert_eq!(table.count, 109);
-        table.adjust_capacity(109);
+        table.adjust_capacity(2);
         assert_eq!(table.count, 30);
     }
 
     #[test]
     fn find_key() {
-        let mut table = LoxTable::new();
+        let mut table = StringInterner::new();
         let heap = Heap::new();
         let s1 = heap.new_string("asd".to_string());
         table.set(s1, Value::Bool(false));

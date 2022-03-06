@@ -1,11 +1,12 @@
 use crate::clox::get_settings;
-use crate::clox::table::{LoxTable, Table};
+use crate::clox::table::{StrPtr, StringInterner, Table};
 use crate::clox::value::{LoxObject, Value};
 
 use tracing::{trace, trace_span};
 
 use std::any::Any;
 use std::cell::{Cell, UnsafeCell};
+use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
@@ -163,9 +164,18 @@ pub trait HasRoots {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes));
 }
 
+impl HasRoots for HashMap<StrPtr, Value> {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        for (k, v) in self.iter() {
+            unsafe { &**k }.mark(mark_obj);
+            v.mark(mark_obj);
+        }
+    }
+}
+
 pub struct Heap {
     objs: Cell<Option<ObjTypes>>,
-    strings: UnsafeCell<LoxTable>,
+    strings: UnsafeCell<StringInterner>,
     has_roots: Vec<Weak<*const dyn HasRoots>>,
     obj_count: Cell<usize>,
     next_gc: Cell<usize>,
@@ -175,7 +185,7 @@ impl Heap {
     pub fn new() -> Self {
         Self {
             objs: None.into(),
-            strings: LoxTable::new().into(),
+            strings: StringInterner::new().into(),
             has_roots: vec![],
             obj_count: 0.into(),
             next_gc: 100.into(),

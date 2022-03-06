@@ -193,7 +193,7 @@ impl Vm {
                 }
                 OpCode::GetGlobal => {
                     let name = read_constant!().as_object().unwrap();
-                    if let Some(v) = self.globals.get(name) {
+                    if let Some(v) = self.globals.get_value(name) {
                         self.push(v);
                     } else {
                         runtime_error!("Undefined variable '{}'.", name)?;
@@ -566,7 +566,7 @@ impl HasRoots for Vm {
         for val in self.stack.iter() {
             val.mark(mark_obj);
         }
-        self.globals.gc_mark(mark_obj);
+        self.globals.mark_roots(mark_obj);
         for frame in self.frames.iter() {
             // the currently executing frame isn't in this array,
             // but the current closure is always on the stack.
