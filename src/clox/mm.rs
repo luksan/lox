@@ -1,5 +1,5 @@
 use crate::clox::get_settings;
-use crate::clox::table::LoxTable;
+use crate::clox::table::{LoxTable, Table};
 use crate::clox::value::{LoxObject, Value};
 
 use tracing::{trace, trace_span};

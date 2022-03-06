@@ -2,6 +2,7 @@ use crate::clox::mm::{HasRoots, Obj, ObjTypes};
 use crate::clox::value::{LoxStr, Value};
 
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ptr;
 
@@ -9,9 +10,31 @@ pub type StrPtr = *const Obj<LoxStr>;
 
 pub trait Table {
     fn get(&self, key: &Obj<LoxStr>) -> Option<Value>;
+    /// Inserts a value in the table, returns false if the key already
+    /// was in the table.
     fn set(&mut self, key: &Obj<LoxStr>, value: Value) -> bool;
-    fn delete(&mut self, key: &Obj<LoxStr>);
-    fn add_all(&mut self, other: &dyn Table);
+
+    /// Remove the entry from the table, returns true if the entry was present.
+    fn delete(&mut self, key: &Obj<LoxStr>) -> bool;
+    fn add_all(&mut self, other: &mut dyn Iterator<Item = (&Obj<LoxStr>, Value)>);
+}
+
+impl Table for HashMap<StrPtr, Value> {
+    fn get(&self, key: &Obj<LoxStr>) -> Option<Value> {
+        self.get(&(key as StrPtr)).copied()
+    }
+
+    fn set(&mut self, key: &Obj<LoxStr>, value: Value) -> bool {
+        self.insert(key as StrPtr, value).is_none()
+    }
+
+    fn delete(&mut self, key: &Obj<LoxStr>) -> bool {
+        self.remove(&(key as StrPtr)).is_some()
+    }
+
+    fn add_all(&mut self, other: &mut dyn Iterator<Item = (&Obj<LoxStr>, Value)>) {
+        self.extend(other.map(|(k, v)| (k as StrPtr, v)));
+    }
 }
 
 pub struct LoxTable {
@@ -70,23 +93,15 @@ impl Default for Entry {
     }
 }
 
-impl LoxTable {
-    pub fn new() -> Self {
-        Self {
-            count: 0,
-            entries: vec![],
-        }
-    }
-
-    pub fn get(&self, key: &LoxStr) -> Option<Value> {
+impl Table for LoxTable {
+    fn get(&self, key: &Obj<LoxStr>) -> Option<Value> {
         if self.count == 0 {
             return None;
         }
         self.find_entry(key).value()
     }
 
-    /// Inserts the value in the table, returns false if a value already was present.
-    pub fn set(&mut self, key: &Obj<LoxStr>, value: Value) -> bool {
+    fn set(&mut self, key: &Obj<LoxStr>, value: Value) -> bool {
         if self.count + 1 > self.entries.len() / 4 * 3 {
             self.adjust_capacity(8.max(self.entries.len() * 2));
         }
@@ -100,12 +115,12 @@ impl LoxTable {
         is_new
     }
 
-    pub fn delete(&mut self, key: &LoxStr) -> bool {
+    fn delete(&mut self, key: &Obj<LoxStr>) -> bool {
         if self.count == 0 {
             return false;
         }
         let entry = self.find_entry(key);
-        if entry.value().is_some() {
+        if entry.key().is_some() {
             entry.delete();
             true
         } else {
@@ -113,9 +128,18 @@ impl LoxTable {
         }
     }
 
-    pub fn add_all(&mut self, other: &Self) {
-        for (k, v) in other.iter() {
+    fn add_all(&mut self, other: &mut dyn Iterator<Item = (&Obj<LoxStr>, Value)>) {
+        for (k, v) in other {
             self.set(k, v);
+        }
+    }
+}
+
+impl LoxTable {
+    pub fn new() -> Self {
+        Self {
+            count: 0,
+            entries: vec![],
         }
     }
 
@@ -213,7 +237,7 @@ mod test {
     // use tracing_test::traced_test;
 
     use crate::clox::mm::Heap;
-    use crate::clox::table::LoxTable;
+    use crate::clox::table::{LoxTable, Table};
     use crate::clox::value::Value;
     use std::rc::Rc;
 

@@ -1,6 +1,6 @@
 use crate::clox::compiler::compile;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
-use crate::clox::table::LoxTable;
+use crate::clox::table::{LoxTable, Table};
 use crate::clox::value::{
     BoundMethod, Class, Closure, Function, Instance, LoxObject, LoxStr, NativeFn, NativeFnRef,
     Upvalue, Value,

@@ -2,7 +2,7 @@ use anyhow::{bail, Result};
 use std::cell::{RefCell, UnsafeCell};
 
 use crate::clox::mm::{HasRoots, Obj, ObjTypes};
-use crate::clox::table::LoxTable;
+use crate::clox::table::{LoxTable, Table};
 use crate::clox::Chunk;
 
 use std::fmt::{Debug, Display, Formatter};
@@ -267,7 +267,7 @@ impl Class {
         let (sub, sup) = (self.methods.get(), superclass.methods.get());
         assert!(!ptr::eq(sub, sup));
         // This is safe as long as we don't inherit from ourselves.
-        unsafe { &mut *sub }.add_all(unsafe { &*sup });
+        unsafe { &mut *sub }.add_all(&mut unsafe { &*sup }.iter());
     }
 
     pub(crate) fn add_method(&self, name: &Obj<LoxStr>, method: Value) {
