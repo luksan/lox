@@ -154,28 +154,23 @@ impl LoxTable {
 
     fn find_entry(&self, key: &LoxStr) -> &Entry {
         let capacity = self.capacity() as u32;
-        let mut index = key.hash & (capacity - 1);
-        let mut tombstone = u32::MAX;
-        loop {
-            let e = &self.entries[index as usize];
+        let index = key.hash & (capacity - 1);
+        let mut tombstone = None;
+        let (head, tail) = self.entries.split_at(index as usize);
+        for e in tail.iter().chain(head) {
             if let Some(e_key) = e.key() {
                 if &**e_key == key {
-                    // FIXME: this should assume string interning and do a ptr cmp
-                    return &self.entries[index as usize];
+                    return e;
                 }
             } else {
                 if !e.is_tombstone() {
-                    return &self.entries[if tombstone < u32::MAX {
-                        tombstone
-                    } else {
-                        index
-                    } as usize];
-                } else if tombstone == u32::MAX {
-                    tombstone = index;
+                    return tombstone.unwrap_or(e);
+                } else if tombstone.is_none() {
+                    tombstone = Some(e);
                 }
             }
-            index = (index + 1) & (capacity - 1);
         }
+        unreachable!("The table is never at 100% capacity, or completely full of tombstones.")
     }
 
     fn adjust_capacity(&mut self, cap: usize) {
