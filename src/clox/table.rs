@@ -8,9 +8,9 @@ use std::ptr;
 pub type StrPtr = *const Obj<LoxStr>;
 
 pub trait Table {
-    fn get(&self, key: StrPtr) -> Option<Value>;
-    fn set(&mut self, key: StrPtr, value: Value) -> bool;
-    fn delete(&mut self, key: StrPtr);
+    fn get(&self, key: &Obj<LoxStr>) -> Option<Value>;
+    fn set(&mut self, key: &Obj<LoxStr>, value: Value) -> bool;
+    fn delete(&mut self, key: &Obj<LoxStr>);
     fn add_all(&mut self, other: &dyn Table);
 }
 
@@ -21,8 +21,8 @@ pub struct LoxTable {
 
 impl Debug for LoxTable {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        for (k, v) in self.entries() {
-            write!(f, "{}: {}", unsafe { &*k }, v)?;
+        for (k, v) in self.iter() {
+            write!(f, "{}: {}", k, v)?;
         }
         Ok(())
     }
@@ -86,15 +86,11 @@ impl LoxTable {
     }
 
     /// Inserts the value in the table, returns false if a value already was present.
-    pub fn set(&mut self, key: StrPtr, value: Value) -> bool {
+    pub fn set(&mut self, key: &Obj<LoxStr>, value: Value) -> bool {
         if self.count + 1 > self.entries.len() / 4 * 3 {
             self.adjust_capacity(8.max(self.entries.len() * 2));
         }
-        if key.is_null() {
-            panic!("Table set() called with NULL key.");
-        }
-        let key_ref = unsafe { &**key.as_ref().unwrap() };
-        let entry = self.find_entry(key_ref);
+        let entry = self.find_entry(key);
         let is_new = entry.key().is_none();
         let tombstone = entry.is_tombstone();
         entry.set(key, value);
@@ -118,16 +114,15 @@ impl LoxTable {
     }
 
     pub fn add_all(&mut self, other: &Self) {
-        for e in other.entries.iter().filter(|e| e.value().is_some()) {
-            self.set(e.key.get(), e.value.get());
+        for (k, v) in other.iter() {
+            self.set(k, v);
         }
     }
 
-    pub fn entries(&self) -> impl Iterator<Item = (StrPtr, Value)> + '_ {
+    pub fn iter(&self) -> impl Iterator<Item = (&Obj<LoxStr>, Value)> + '_ {
         self.entries
             .iter()
-            .filter(|e| e.value().is_some())
-            .map(|e| (e.key.get(), e.value.get()))
+            .filter_map(|e| e.key().map(|key| (key, e.value.get())))
     }
 
     pub fn find_key(&self, k: &str) -> Option<StrPtr> {
@@ -178,8 +173,10 @@ impl LoxTable {
         let mut old = std::mem::replace(&mut self.entries, Vec::new());
         self.entries.resize_with(cap, Default::default);
         self.count = 0;
-        for e in old.drain(..).filter(|e| e.value().is_some()) {
-            self.set(e.key.get(), e.value.get());
+        for e in old.drain(..) {
+            if let Some(key) = e.key() {
+                self.set(key, e.value.get());
+            }
         }
     }
 
@@ -188,8 +185,8 @@ impl LoxTable {
     }
 
     pub(crate) fn gc_mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
-        for (k, v) in self.entries() {
-            unsafe { &*k }.mark(callback);
+        for (k, v) in self.iter() {
+            k.mark(callback);
             v.mark(callback);
         }
     }

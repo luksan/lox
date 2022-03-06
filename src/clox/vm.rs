@@ -535,10 +535,10 @@ impl Vm {
     }
 
     fn define_native(&mut self, name: &str, function: NativeFnRef) {
-        let name: *const _ = self.heap.new_string(name.to_string());
-        self.push(name);
-        let native: *const _ = self.heap.new_object::<NativeFn>(function.into());
-        self.push(native);
+        let name = self.heap.new_string(name.to_string());
+        self.stack.push(name.into());
+        let native = self.heap.new_object::<NativeFn>(function.into());
+        self.stack.push(native.into());
         self.globals.set(name, native.into());
         self.pop();
         self.pop();
