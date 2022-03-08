@@ -991,7 +991,7 @@ impl HasRoots for Compiler<'_> {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         let mut scope = Some(&self.func_scope);
         while let Some(s) = scope {
-            scope = s.enclosing.as_ref().map(|b| &**b);
+            scope = s.enclosing.as_deref();
             s.function.mark_roots(mark_obj);
         }
     }
