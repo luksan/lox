@@ -12,6 +12,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use tracing::{span, Level};
 
 use std::fmt::{Debug, Formatter};
+use std::ops::{Index, IndexMut};
 use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -26,9 +27,85 @@ pub enum VmError {
 
 const FRAMES_MAX: usize = 64;
 
+struct Stack {
+    inner: [Value; FRAMES_MAX * 256],
+    top: usize,
+}
+
+impl Stack {
+    fn new() -> Self {
+        Self {
+            inner: [Value::Nil; FRAMES_MAX * 256],
+            top: 0,
+        }
+    }
+
+    fn push(&mut self, value: Value) {
+        self.inner[self.top] = value;
+        self.top += 1;
+    }
+
+    fn peek(&self, from_top: u8) -> Value {
+        self.inner[self.top - from_top as usize - 1]
+    }
+
+    fn pop(&mut self) -> Value {
+        self.top -= 1;
+        self.inner[self.top]
+    }
+
+    fn set_slot(&mut self, from_top: u8, value: Value) {
+        self.inner[self.top - 1 - from_top as usize] = value;
+    }
+
+    fn slice_top(&self, from: u8) -> &[Value] {
+        &self.inner[self.top - 1 - from as usize..]
+    }
+
+    fn top_slot(&self) -> usize {
+        self.top - 1
+    }
+
+    fn truncate(&mut self, to_slot: usize) {
+        self.top = to_slot;
+    }
+
+    fn get_slot_ptr(&self, slot: usize) -> *const Value {
+        self.inner.as_ptr().wrapping_add(slot)
+    }
+
+    fn as_mut_ptr(&mut self) -> *mut Value {
+        self.inner.as_mut_ptr()
+    }
+
+    fn iter(&self) -> impl DoubleEndedIterator<Item = &Value> {
+        self.inner.iter()
+    }
+}
+
+impl Index<usize> for Stack {
+    type Output = Value;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.inner[index]
+    }
+}
+
+impl IndexMut<usize> for Stack {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        &mut self.inner[index]
+    }
+}
+
+impl Debug for Stack {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", &self.inner[0..self.top])
+    }
+}
+
 pub struct Vm {
     frames: Vec<CallFrame>,
-    stack: Vec<Value>,
+    stack: Stack,
     heap: Heap,
     globals: LoxTable,
     open_upvalues: *const Obj<Upvalue>,
@@ -70,7 +147,7 @@ impl Vm {
         // println!("Value size: {}", std::mem::size_of::<Value>());
         let mut new = Self {
             frames: Vec::with_capacity(FRAMES_MAX),
-            stack: Vec::with_capacity(FRAMES_MAX * 256),
+            stack: Stack::new(),
             heap: Heap::new(),
             globals: LoxTable::new(),
             open_upvalues: ptr::null_mut(),
@@ -309,7 +386,7 @@ impl Vm {
                 OpCode::Call => {
                     // Ch 24.5.1
                     let arg_count = read_byte!();
-                    let callee = self.peek(arg_count as usize);
+                    let callee = self.peek(arg_count);
                     if let Some(new_frame) = runtime_error!(self.call_value(callee, arg_count))? {
                         self.frames.push(std::mem::replace(&mut frame, new_frame));
                     }
@@ -349,7 +426,7 @@ impl Vm {
                     self.push(closure as *const _);
                 }
                 OpCode::CloseUpvalue => {
-                    self.close_upvalues(self.stack.len() - 1);
+                    self.close_upvalues(self.stack.top_slot());
                     self.pop();
                 }
                 OpCode::Return => {
@@ -392,12 +469,7 @@ impl Vm {
     }
 
     fn print_stack(&self, hdr: &str) {
-        println!("Stack dump: {}", hdr);
-        self.stack
-            .iter()
-            .rev()
-            .enumerate()
-            .for_each(|(i, v)| println!("[{}] {:?}", i, v));
+        println!("Stack dump: {}\n{:?}", hdr, self.stack);
     }
 
     fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> &Obj<Upvalue> {
@@ -449,14 +521,12 @@ impl Vm {
         if let Some(closure) = callee.as_object() {
             self.call(closure, arg_count).map(Some)
         } else if let Some(bound) = callee.as_object::<BoundMethod>() {
-            let slot = self.stack.len() - arg_count as usize - 1;
-            self.stack[slot] = bound.receiver;
+            self.stack.set_slot(arg_count, bound.receiver);
             self.call(bound.get_closure(), arg_count).map(Some)
         } else if let Some(class) = callee.as_object() {
             let instance = Instance::new(class);
             let o = self.heap.new_object(instance);
-            let stack_pos = self.stack.len() - arg_count as usize - 1;
-            self.stack[stack_pos] = o.into();
+            self.stack.set_slot(arg_count, o.into());
             if let Some(init) = class.get_method(unsafe { self.init_string.unwrap().as_ref() }) {
                 self.call(init, arg_count).map(Some)
             } else if arg_count != 0 {
@@ -465,8 +535,7 @@ impl Vm {
                 Ok(None)
             }
         } else if let Some(native) = callee.as_object::<NativeFn>() {
-            let arg_start = self.stack.len() - arg_count as usize;
-            let result = native.call_native(&self.stack[arg_start..])?;
+            let result = native.call_native(&self.stack.slice_top(arg_count))?;
             self.push(result);
             Ok(None)
         } else {
@@ -476,12 +545,11 @@ impl Vm {
 
     fn invoke(&mut self, name: &Obj<LoxStr>, arg_cnt: u8) -> Result<Option<CallFrame>> {
         let instance = self
-            .peek_obj::<Instance>(arg_cnt as usize)
+            .peek_obj::<Instance>(arg_cnt)
             .context("Only instances have methods.")?;
 
         if let Some(field) = instance.get_field(name) {
-            let slot = self.stack.len() - arg_cnt as usize - 1;
-            self.stack[slot] = field;
+            self.stack.set_slot(arg_cnt, field);
             self.call_value(field, arg_cnt)
         } else {
             let class: *const _ = instance.get_class();
@@ -528,7 +596,7 @@ impl Vm {
         let frame = CallFrame {
             closure,
             ip: closure.function().chunk.code.as_ptr(),
-            stack_offset: self.stack.len() - arg_count as usize - 1,
+            stack_offset: self.stack.top_slot() - arg_count as usize,
         };
         // frame.disassemble();
         Ok(frame)
@@ -548,16 +616,16 @@ impl Vm {
         self.stack.push(val.into())
     }
 
-    fn peek(&self, pos: usize) -> Value {
-        self.stack[self.stack.len() - pos - 1]
+    fn peek(&self, pos: u8) -> Value {
+        self.stack.peek(pos)
     }
 
-    fn peek_obj<O: LoxObject + 'static>(&self, pos: usize) -> Option<&Obj<O>> {
+    fn peek_obj<O: LoxObject + 'static>(&self, pos: u8) -> Option<&Obj<O>> {
         self.peek(pos).as_object::<O>()
     }
 
     fn pop(&mut self) -> Value {
-        self.stack.pop().unwrap()
+        self.stack.pop()
     }
 }
 
