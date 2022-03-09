@@ -122,21 +122,22 @@ impl Debug for Vm {
 
 #[derive(Copy, Clone, Debug)]
 pub struct CallFrame {
-    closure: *const Obj<Closure>,
+    closure: NonNull<Obj<Closure>>,
     ip: *const u8,
     stack_offset: *mut Value,
 }
 
 impl CallFrame {
     fn disassemble(&self) {
-        let (func, name) = unsafe { self.closure.as_ref() }
-            .map(|c| (c.function(), c.function().name()))
-            .unwrap();
-        func.chunk.disassemble(name);
+        let closure = unsafe { self.closure.as_ref() };
+        closure
+            .function()
+            .chunk
+            .disassemble(closure.function().name());
     }
 
     fn chunk(&self) -> &'static Chunk {
-        &unsafe { self.closure.as_ref() }.unwrap().function().chunk
+        &unsafe { self.closure.as_ref() }.function().chunk
     }
 }
 
@@ -289,12 +290,12 @@ impl Vm {
                 }
                 OpCode::GetUpvalue => {
                     let slot = read_byte!();
-                    self.push(unsafe { frame.closure.as_ref().unwrap() }.read_upvalue(slot));
+                    self.push(unsafe { frame.closure.as_ref() }.read_upvalue(slot));
                 }
                 OpCode::SetUpvalue => {
                     let slot = read_byte!();
                     let value = self.peek(0);
-                    unsafe { frame.closure.as_ref().unwrap() }.write_upvalue(slot, value);
+                    unsafe { frame.closure.as_ref() }.write_upvalue(slot, value);
                 }
                 OpCode::GetProperty => {
                     let instance_val = self.peek(0);
@@ -415,7 +416,7 @@ impl Vm {
                             self.capture_upvalue(unsafe { frame.stack_offset.add(index) })
                                 .into()
                         } else {
-                            unsafe { frame.closure.as_ref().unwrap() }.upvalues[index]
+                            unsafe { frame.closure.as_ref() }.upvalues[index]
                         }
                     });
                     let closure = self.heap.new_object(closure);
@@ -589,7 +590,7 @@ impl Vm {
         }
 
         let frame = CallFrame {
-            closure,
+            closure: closure.into(),
             ip: closure.function().chunk.code.as_ptr(),
             stack_offset: self.stack.slot_ptr(arg_count),
         };
@@ -633,7 +634,7 @@ impl HasRoots for Vm {
         for frame in self.frames.iter() {
             // the currently executing frame isn't in this array,
             // but the current closure is always on the stack.
-            unsafe { &*frame.closure }.mark(mark_obj);
+            unsafe { frame.closure.as_ref() }.mark(mark_obj);
         }
         let mut uv_ptr = self.open_upvalues;
         while let Some(uv) = unsafe { uv_ptr.as_ref() } {
