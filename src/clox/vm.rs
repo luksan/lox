@@ -63,14 +63,14 @@ impl Stack {
     }
 
     /// Pushes the local at base + slot to the top of the stack.
-    fn get_local(&mut self, base: usize, slot: u8) {
-        let val = unsafe { *self.inner.as_ptr().add(base + slot as usize) };
+    fn get_local(&mut self, base: *const Value, slot: u8) {
+        let val = unsafe { *base.add(slot as usize) };
         self.push(val);
     }
 
     /// Writes the top value on the stack to the local variable at base + slot.
-    fn set_local(&mut self, base: usize, slot: u8) {
-        unsafe { *self.inner.as_mut_ptr().add(base + slot as usize) = self.peek(0) };
+    fn set_local(&mut self, base: *mut Value, slot: u8) {
+        unsafe { *base.add(slot as usize) = self.peek(0) };
     }
 
     fn slice_top(&self, from_top: u8) -> &[Value] {
@@ -79,16 +79,16 @@ impl Stack {
         }
     }
 
+    fn slot_ptr(&self, from_top: u8) -> *mut Value {
+        unsafe { self.top.sub(from_top as usize + 1) }
+    }
+
     fn top_slot(&self) -> usize {
         unsafe { self.top.offset_from(self.inner.as_ptr()) as usize - 1 }
     }
 
-    fn truncate(&mut self, to_slot: usize) {
-        self.top = unsafe { self.inner.as_mut_ptr().add(to_slot) };
-    }
-
-    fn as_mut_ptr(&mut self) -> *mut Value {
-        self.inner.as_mut_ptr()
+    fn truncate(&mut self, to_slot: *mut Value) {
+        self.top = to_slot;
     }
 
     fn iter(&self) -> impl DoubleEndedIterator<Item = &Value> {
@@ -124,7 +124,7 @@ impl Debug for Vm {
 pub struct CallFrame {
     closure: *const Obj<Closure>,
     ip: *const u8,
-    stack_offset: usize,
+    stack_offset: *mut Value,
 }
 
 impl CallFrame {
@@ -408,15 +408,12 @@ impl Vm {
                 }
                 OpCode::Closure => {
                     let function = read_constant!().as_object::<Function>().unwrap();
-                    let stack_ptr = self.stack.as_mut_ptr();
                     let closure = Closure::new(function.into(), &mut || {
                         let is_local = read_byte!() == 1;
                         let index = read_byte!() as usize;
                         if is_local {
-                            self.capture_upvalue(unsafe {
-                                stack_ptr.add(index + frame.stack_offset)
-                            })
-                            .into()
+                            self.capture_upvalue(unsafe { frame.stack_offset.add(index) })
+                                .into()
                         } else {
                             unsafe { frame.closure.as_ref().unwrap() }.upvalues[index]
                         }
@@ -425,7 +422,7 @@ impl Vm {
                     self.push(closure as *const _);
                 }
                 OpCode::CloseUpvalue => {
-                    self.close_upvalues(self.stack.top_slot());
+                    self.close_upvalues(self.stack.slot_ptr(0));
                     self.pop();
                 }
                 OpCode::Return => {
@@ -495,9 +492,8 @@ impl Vm {
         upvalue
     }
 
-    fn close_upvalues(&mut self, stack_offset: usize) {
+    fn close_upvalues(&mut self, last: *mut Value) {
         // Ch 25.4.4
-        let last = self.stack.as_mut_ptr().wrapping_add(stack_offset);
         while let Some(uv) = unsafe { (self.open_upvalues as *mut Obj<Upvalue>).as_mut() } {
             if uv.location < last {
                 break;
@@ -595,7 +591,7 @@ impl Vm {
         let frame = CallFrame {
             closure,
             ip: closure.function().chunk.code.as_ptr(),
-            stack_offset: self.stack.top_slot() - arg_count as usize,
+            stack_offset: self.stack.slot_ptr(arg_count),
         };
         // frame.disassemble();
         Ok(frame)
