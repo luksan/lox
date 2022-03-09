@@ -12,7 +12,6 @@ use anyhow::{anyhow, bail, Context, Result};
 use tracing::{span, Level};
 
 use std::fmt::{Debug, Formatter};
-use std::ops::{Index, IndexMut};
 use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
@@ -28,50 +27,64 @@ pub enum VmError {
 const FRAMES_MAX: usize = 64;
 
 struct Stack {
-    inner: [Value; FRAMES_MAX * 256],
-    top: usize,
+    inner: Box<[Value; FRAMES_MAX * 256]>,
+    top: *mut Value,
 }
 
 impl Stack {
     fn new() -> Self {
-        Self {
-            inner: [Value::Nil; FRAMES_MAX * 256],
-            top: 0,
-        }
+        let mut inner = Box::new([Value::Nil; FRAMES_MAX * 256]);
+        let top = inner.as_mut_ptr();
+        Self { inner, top }
     }
 
     fn push(&mut self, value: Value) {
-        self.inner[self.top] = value;
-        self.top += 1;
+        unsafe {
+            self.top.write(value);
+            self.top = self.top.add(1);
+        }
     }
 
     fn peek(&self, from_top: u8) -> Value {
-        self.inner[self.top - from_top as usize - 1]
+        unsafe { *self.top.sub(from_top as usize + 1) }
     }
 
     fn pop(&mut self) -> Value {
-        self.top -= 1;
-        self.inner[self.top]
+        unsafe {
+            self.top = self.top.sub(1);
+            *self.top
+        }
     }
 
     fn set_slot(&mut self, from_top: u8, value: Value) {
-        self.inner[self.top - 1 - from_top as usize] = value;
+        unsafe {
+            *self.top.sub(from_top as usize + 1) = value;
+        }
     }
 
-    fn slice_top(&self, from: u8) -> &[Value] {
-        &self.inner[self.top - 1 - from as usize..]
+    /// Pushes the local at base + slot to the top of the stack.
+    fn get_local(&mut self, base: usize, slot: u8) {
+        let val = unsafe { *self.inner.as_ptr().add(base + slot as usize) };
+        self.push(val);
+    }
+
+    /// Writes the top value on the stack to the local variable at base + slot.
+    fn set_local(&mut self, base: usize, slot: u8) {
+        unsafe { *self.inner.as_mut_ptr().add(base + slot as usize) = self.peek(0) };
+    }
+
+    fn slice_top(&self, from_top: u8) -> &[Value] {
+        unsafe {
+            std::slice::from_raw_parts(self.top.sub(from_top as usize + 1), from_top as usize + 1)
+        }
     }
 
     fn top_slot(&self) -> usize {
-        self.top - 1
+        unsafe { self.top.offset_from(self.inner.as_ptr()) as usize - 1 }
     }
 
     fn truncate(&mut self, to_slot: usize) {
-        self.top = to_slot;
-    }
-
-    fn get_slot_ptr(&self, slot: usize) -> *const Value {
-        self.inner.as_ptr().wrapping_add(slot)
+        self.top = unsafe { self.inner.as_mut_ptr().add(to_slot) };
     }
 
     fn as_mut_ptr(&mut self) -> *mut Value {
@@ -83,23 +96,9 @@ impl Stack {
     }
 }
 
-impl Index<usize> for Stack {
-    type Output = Value;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.inner[index]
-    }
-}
-
-impl IndexMut<usize> for Stack {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.inner[index]
-    }
-}
-
 impl Debug for Stack {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", &self.inner[0..self.top])
+        write!(f, "{:?}", &self.inner[0..self.top_slot() + 1])
     }
 }
 
@@ -262,11 +261,11 @@ impl Vm {
                 }
                 OpCode::GetLocal => {
                     let slot = read_byte!();
-                    self.push(self.stack[slot as usize + frame.stack_offset]);
+                    self.stack.get_local(frame.stack_offset, slot);
                 }
                 OpCode::SetLocal => {
                     let slot = read_byte!();
-                    self.stack[slot as usize + frame.stack_offset] = self.peek(0);
+                    self.stack.set_local(frame.stack_offset, slot);
                 }
                 OpCode::GetGlobal => {
                     let name = read_constant!().as_object().unwrap();
