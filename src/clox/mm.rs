@@ -39,9 +39,12 @@ macro_rules! objtypes_impl {
 
         macro_rules! for_all_objtypes {
             ($self:ident, $mac:ident) => {{
-                #[allow(non_snake_case)]
+                #[allow(unused_unsafe)]
                 match unsafe {*$self.0.as_ref()} {
-                    $( ObjKind::$typ => $mac!($self.0.cast::<Obj<$typ>>()), )+
+                    $( ObjKind::$typ => {
+                        let obj_ref = unsafe {$self.0.cast::<Obj<$typ>>().as_ref()};
+                        $mac!(obj_ref)
+                    }, )+
                 }
             }}
         }
@@ -78,11 +81,10 @@ objtypes_impl!(
 );
 
 impl ObjTypes {
-    pub(crate) fn free_object(self) -> Option<Self> {
+    pub(crate) unsafe fn free_object(self) -> Option<Self> {
         macro_rules! free_next {
             ($ptr:expr) => {{
-                trace!("Freeing {:?} @ {:?}", unsafe { $ptr.as_ref() }, $ptr);
-                unsafe { Box::from_raw($ptr.as_ptr()) }.next.get()
+                $ptr.free()
             }};
         }
         for_all_objtypes!(self, free_next)
@@ -91,7 +93,7 @@ impl ObjTypes {
     pub(crate) fn cast<'a, T: LoxObject + 'static>(self) -> Option<&'a Obj<T>> {
         macro_rules! down {
             ($ptr:expr) => {
-                return (unsafe { $ptr.as_ref() } as &dyn Any).downcast_ref()
+                return ($ptr as &dyn Any).downcast_ref()
             };
         }
         for_all_objtypes!(self, down)
@@ -100,7 +102,7 @@ impl ObjTypes {
     pub(crate) fn mark(&self, callback: &mut dyn FnMut(Self)) {
         macro_rules! set_mark {
             ($ptr:expr) => {
-                unsafe { $ptr.as_ref().mark(callback) }
+                $ptr.mark(callback)
             };
         }
         for_all_objtypes!(self, set_mark)
@@ -109,7 +111,7 @@ impl ObjTypes {
     fn blacken(&self, callback: &mut dyn FnMut(Self)) {
         macro_rules! blacken {
             ($ptr:expr) => {
-                unsafe { $ptr.as_ref().mark_roots(callback) }
+                $ptr.mark_roots(callback)
             };
         }
         for_all_objtypes!(self, blacken)
@@ -118,7 +120,7 @@ impl ObjTypes {
     fn is_marked(&self) -> bool {
         macro_rules! sweep {
             ($ptr:expr) => {{
-                unsafe { $ptr.as_ref() }.is_marked.get()
+                $ptr.is_marked.get()
             }};
         }
         for_all_objtypes!(self, sweep)
@@ -127,7 +129,7 @@ impl ObjTypes {
     fn clear_mark(&self) {
         macro_rules! sweep {
             ($ptr:expr) => {{
-                unsafe { $ptr.as_ref() }.is_marked.set(false);
+                $ptr.is_marked.set(false);
             }};
         }
         for_all_objtypes!(self, sweep)
@@ -136,7 +138,7 @@ impl ObjTypes {
     fn next(&self) -> Option<Self> {
         macro_rules! sweep {
             ($ptr:expr) => {{
-                unsafe { $ptr.as_ref() }.next.get()
+                $ptr.next.get()
             }};
         }
         for_all_objtypes!(self, sweep)
@@ -145,7 +147,7 @@ impl ObjTypes {
     fn set_next(self, next: Option<Self>) {
         macro_rules! sweep {
             ($ptr:expr) => {{
-                unsafe { $ptr.as_ref() }.next.set(next);
+                $ptr.next.set(next);
             }};
         }
         for_all_objtypes!(self, sweep)
@@ -156,7 +158,7 @@ impl Debug for ObjTypes {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         macro_rules! w {
             ($p:expr) => {
-                write!(f, "{:?}->{:?}", $p, unsafe { $p.as_ref() })
+                write!(f, "{:?}->{:?}", $p, $p as *const _)
             };
         }
         for_all_objtypes!(self, w)
@@ -167,7 +169,7 @@ impl Display for ObjTypes {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         macro_rules! w {
             ($ptr:expr) => {
-                write!(f, "{}", unsafe { $ptr.as_ref() })
+                write!(f, "{}", $ptr)
             };
         }
         for_all_objtypes!(self, w)
@@ -276,7 +278,7 @@ impl Heap {
                 next = obj.next();
                 prev = Some(obj);
             } else {
-                next = obj.free_object();
+                next = unsafe { obj.free_object() };
                 self.obj_count.set(self.obj_count.get() - 1);
                 if let Some(prev) = prev {
                     prev.set_next(next);
@@ -287,7 +289,7 @@ impl Heap {
         }
     }
 
-    pub fn free_objects(&mut self) {
+    pub unsafe fn free_objects(&mut self) {
         while let Some(next) = self.objs.get() {
             self.objs.set(next.free_object());
         }
@@ -303,7 +305,7 @@ impl Debug for Heap {
 
 impl Drop for Heap {
     fn drop(&mut self) {
-        self.free_objects();
+        unsafe { self.free_objects() }
     }
 }
 
@@ -370,6 +372,11 @@ where
             inner: from.into(),
             is_marked: false.into(),
         }))
+    }
+
+    unsafe fn free(&self) -> Option<ObjTypes> {
+        trace!("Freeing {:?} @ {:?}", self, self as *const _);
+        Box::from_raw(self as *const Self as *mut Self).next.get()
     }
 
     pub(crate) fn mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
