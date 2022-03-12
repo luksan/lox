@@ -12,43 +12,57 @@ use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
 
+#[derive(Copy, Clone, PartialEq)]
+pub struct ObjTypes(NonNull<ObjKind>);
+
+impl<T: LoxObject> From<&Obj<T>> for ObjTypes {
+    fn from(o: &Obj<T>) -> Self {
+        Self((&o.kind).into())
+    }
+}
+
+impl<T: LoxObject> From<*const Obj<T>> for ObjTypes {
+    fn from(o: *const Obj<T>) -> Self {
+        unsafe { Self(NonNull::new_unchecked(o as *mut ObjKind)) }
+    }
+}
+
+impl<T: LoxObject> From<NonNull<Obj<T>>> for ObjTypes {
+    fn from(o: NonNull<Obj<T>>) -> Self {
+        Self(o.cast())
+    }
+}
+
 macro_rules! objtypes_impl {
     ($($typ:ident),+) => {
-        #[derive(Clone, Copy, PartialEq)]
-        pub enum ObjTypes {
-            $($typ(NonNull<Obj<$typ>>),)+
-        }
-
-        $(
-        use crate::clox::value::$typ;
-
-        impl From<*const Obj<$typ>> for ObjTypes {
-            fn from(f: *const Obj<$typ>) -> Self {
-                Self::$typ(NonNull::new(f as *mut _).unwrap())
-            }
-        }
-
-        impl From<NonNull<Obj<$typ>>> for ObjTypes {
-            fn from(f: NonNull<Obj<$typ>>) -> Self {
-                Self::$typ(f)
-            }
-        }
-
-        impl From<&Obj<$typ>> for ObjTypes {
-            fn from(f: &Obj<$typ>) -> Self {
-                Self::$typ(f.into())
-            }
-        }
-        )+
+        $(use crate::clox::value::$typ;)+
 
         macro_rules! for_all_objtypes {
             ($self:ident, $mac:ident) => {{
                 #[allow(non_snake_case)]
-                match $self {
-                    $( ObjTypes::$typ($typ) => $mac!($typ), )+
+                match unsafe {*$self.0.as_ref()} {
+                    $( ObjKind::$typ => $mac!($self.0.cast::<Obj<$typ>>()), )+
                 }
             }}
         }
+
+        #[derive(Copy, Clone, Debug, PartialEq)]
+        #[repr(u8)]
+        enum ObjKind {
+            $($typ,)+
+        }
+
+        impl ObjKind {
+            fn new<T: LoxObject + 'static>() -> Self {
+                use std::any::TypeId;
+                let id = TypeId::of::<T>();
+                $(
+                if TypeId::of::<$typ>() == id { return Self::$typ}
+                )+
+                unreachable!("Missing objtype for x")
+            }
+        }
+
     }
 }
 
@@ -66,8 +80,8 @@ objtypes_impl!(
 impl ObjTypes {
     pub(crate) fn free_object(self) -> Option<Self> {
         macro_rules! free_next {
-            ($ptr:ident) => {{
-                trace!("Freeing {:?} @ {:?}", self.cast::<$ptr>().unwrap(), $ptr);
+            ($ptr:expr) => {{
+                trace!("Freeing {:?} @ {:?}", unsafe { $ptr.as_ref() }, $ptr);
                 unsafe { Box::from_raw($ptr.as_ptr()) }.next.get()
             }};
         }
@@ -336,7 +350,9 @@ impl Deref for ValueArray {
     }
 }
 
+#[repr(C)]
 pub struct Obj<T: ?Sized + LoxObject> {
+    kind: ObjKind,
     next: Cell<Option<ObjTypes>>,
     is_marked: Cell<bool>,
     inner: T,
@@ -349,6 +365,7 @@ where
 {
     fn new<S: Into<T>>(from: S) -> &'static mut Self {
         Box::leak(Box::new(Obj {
+            kind: ObjKind::new::<T>(),
             next: None.into(),
             inner: from.into(),
             is_marked: false.into(),
