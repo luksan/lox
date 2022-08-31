@@ -90,6 +90,24 @@ impl Interpreter {
         std::mem::swap(&mut env, &mut self.env);
         Continue(())
     }
+
+    fn get_superclass(
+        &mut self,
+        class: &stmt::Class,
+    ) -> ControlFlow<ExprVisitResult, Option<lox_types::Class>> {
+        if let Some(sup) = &class.superclass {
+            if let LoxType::Class(cls) = self.evaluate_for_stmt(sup)? {
+                Continue(Some(cls))
+            } else {
+                ControlFlow::Break(Err(anyhow!(
+                    "Superclass must be a class.\n[line {}]",
+                    sup.name.line()
+                )))
+            }
+        } else {
+            Continue(None)
+        }
+    }
 }
 
 /* stmt Visitors */
@@ -104,18 +122,7 @@ impl Visitor<stmt::Block, StmtVisitResult> for Interpreter {
 
 impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Class) -> StmtVisitResult {
-        let superclass = if let Some(sup) = &node.superclass {
-            if let LoxType::Class(cls) = self.evaluate_for_stmt(sup)? {
-                Some(cls)
-            } else {
-                return ControlFlow::Break(Err(anyhow!(
-                    "Superclass must be a class.\n[line {}]",
-                    sup.name.line()
-                )));
-            }
-        } else {
-            None
-        };
+        let superclass: Option<lox_types::Class> = self.get_superclass(node)?;
         self.env.define(node.name.lexeme(), LoxType::Nil);
 
         let method_env = if let Some(superclass) = superclass.as_ref() {
@@ -136,11 +143,10 @@ impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
         }
 
         let class = lox_types::Class::new(node.name.lexeme(), superclass, methods);
-        if let Err(e) = self.env.assign(&node.name, class.into()) {
-            ControlFlow::Break(Err(e))
-        } else {
-            Continue(())
-        }
+        self.env
+            .assign(&node.name, class.into())
+            .expect("This doesn't fail, since the variable name was defined above.");
+        Continue(())
     }
 }
 
