@@ -9,7 +9,7 @@ use crate::Interpreter;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
-use std::ops::Not;
+use std::ops::{ControlFlow, Not};
 use std::rc::Rc;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -256,8 +256,8 @@ impl Callable for Function {
             env.define(name.lexeme(), arg.clone());
         }
         let val = match interpreter.execute_block(&self.declaration.body, env) {
-            Ok(_) => LoxType::Nil,
-            Err(e) => e.fun_ret()?,
+            ControlFlow::Continue(()) => LoxType::Nil,
+            ControlFlow::Break(result) => result?,
         };
         if self.is_init {
             Ok(self.closure.get_at("this", 0).unwrap())
