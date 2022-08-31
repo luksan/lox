@@ -35,11 +35,12 @@ fn main() {
 
     tracing_subscriber::fmt::init();
 
-    let mut clox_settings = CloxSettings::default();
-
-    clox_settings.disassemble_compiler_output = opts.print_comp_asm;
-    clox_settings.output_ci_compliant = opts.ci_testsuite;
-    clox_settings.gc_stress_test = opts.gc_stress_test;
+    let mut clox_settings = CloxSettings {
+        disassemble_compiler_output: opts.print_comp_asm,
+        output_ci_compliant: opts.ci_testsuite,
+        gc_stress_test: opts.gc_stress_test,
+        ..Default::default()
+    };
 
     clox::set_settings(clox_settings);
 

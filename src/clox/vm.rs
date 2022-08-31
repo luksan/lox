@@ -531,7 +531,7 @@ impl Vm {
                 Ok(None)
             }
         } else if let Some(native) = callee.as_object::<NativeFn>() {
-            let result = native.call_native(&self.stack.slice_top(arg_count))?;
+            let result = native.call_native(self.stack.slice_top(arg_count))?;
             self.push(result);
             Ok(None)
         } else {

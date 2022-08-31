@@ -163,12 +163,10 @@ impl LoxMap {
                 if &**e_key == key {
                     return e;
                 }
-            } else {
-                if !e.is_tombstone() {
-                    return tombstone.unwrap_or(e);
-                } else if tombstone.is_none() {
-                    tombstone = Some(e);
-                }
+            } else if !e.is_tombstone() {
+                return tombstone.unwrap_or(e);
+            } else if tombstone.is_none() {
+                tombstone = Some(e);
             }
         }
         unreachable!("The table is never at 100% capacity, or completely full of tombstones.")
@@ -176,7 +174,7 @@ impl LoxMap {
 
     fn adjust_capacity(&mut self, cap: usize) {
         assert!(cap.is_power_of_two());
-        let mut old = std::mem::replace(&mut self.entries, Vec::new());
+        let mut old = std::mem::take(&mut self.entries);
         self.entries.resize_with(cap, Default::default);
         self.count = 0;
         for e in old.drain(..) {

@@ -12,7 +12,7 @@ use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ObjTypes(NonNull<ObjKind>);
 
 impl<T: LoxObject> From<&Obj<T>> for ObjTypes {
