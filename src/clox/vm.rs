@@ -414,7 +414,6 @@ impl Vm {
                         let index = read_byte!() as usize;
                         if is_local {
                             self.capture_upvalue(unsafe { frame.stack_offset.add(index) })
-                                .into()
                         } else {
                             unsafe { frame.closure.as_ref() }.upvalues[index]
                         }

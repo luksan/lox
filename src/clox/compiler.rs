@@ -9,7 +9,7 @@ use std::rc::Rc;
 use tracing::trace_span;
 
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
-use crate::clox::value::{Function, Value};
+use crate::clox::value::{Function, ValueEnum as Value};
 use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
@@ -979,7 +979,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn make_constant(&mut self, c: impl Into<Value>) -> u8 {
-        let i = self.current_chunk().add_constant(c);
+        let i = self.current_chunk().add_constant(c.into());
         if i > u8::MAX as usize {
             self.error("Too many constants in one chunk.");
             0

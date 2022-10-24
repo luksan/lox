@@ -1,12 +1,13 @@
 use crate::clox::get_settings;
 use crate::clox::table::{StrPtr, StringInterner, Table};
-use crate::clox::value::{LoxObject, Value};
+use crate::clox::value::{LoxObject, Value, ValueEnum};
 
 use tracing::{trace, trace_span};
 
 use std::any::Any;
 use std::cell::{Cell, UnsafeCell};
 use std::collections::HashMap;
+use std::ffi::c_void;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
@@ -81,6 +82,10 @@ objtypes_impl!(
 );
 
 impl ObjTypes {
+    pub(crate) fn as_ptr(self) -> *const c_void {
+        self.0.as_ptr() as *const _
+    }
+
     pub(crate) unsafe fn free_object(self) -> Option<Self> {
         macro_rules! free_next {
             ($ptr:expr) => {{
@@ -393,7 +398,8 @@ where
     }
 
     pub fn as_value(&self) -> Value {
-        ObjTypes::from(self).into()
+        let x: ValueEnum = ObjTypes::from(self).into();
+        x.into()
     }
 }
 

@@ -63,7 +63,7 @@ struct Entry {
 #[test]
 fn sizeof_entry() {
     // println!("sizeof entry {}", std::mem::size_of::<Entry>());
-    assert_eq!(std::mem::size_of::<Entry>(), 24);
+    assert_eq!(std::mem::size_of::<Entry>(), 16);
 }
 
 impl Entry {
