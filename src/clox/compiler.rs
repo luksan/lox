@@ -459,8 +459,9 @@ impl<'a> Compiler<'a> {
             loop {
                 if self.func_scope.function.arity == 255 {
                     self.error_at_current("Can't have more than 255 parameters.");
+                } else {
+                    self.func_scope.function.arity += 1;
                 }
-                self.func_scope.function.arity += 1;
                 let constant = self.parse_variable("Expect parameter name.");
                 self.define_variable(constant);
                 if !self.match_token(TokenType::Comma) {
@@ -838,8 +839,9 @@ impl<'a> Compiler<'a> {
                 self.expression();
                 if arg_count == u8::MAX {
                     self.error("Can't have more than 255 arguments.");
+                } else {
+                    arg_count += 1;
                 }
-                arg_count += 1;
                 if !self.match_token(TokenType::Comma) {
                     break;
                 }
