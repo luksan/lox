@@ -469,7 +469,7 @@ impl Vm {
         println!("Stack dump: {}\n{:?}", hdr, self.stack);
     }
 
-    fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> &Obj<Upvalue> {
+    fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> Pin<&'static Obj<Upvalue>> {
         let mut uv_ptr = self.open_upvalues;
         let mut prev_ptr = None;
         // check if we already have an open upvalue for this stack slot
@@ -478,7 +478,7 @@ impl Vm {
                 break;
             }
             if uv.get_val_ptr() == stack_ptr {
-                return uv.get_ref();
+                return uv;
             }
             prev_ptr = uv_ptr;
             uv_ptr = uv.get_next_open();
@@ -492,7 +492,7 @@ impl Vm {
         } else {
             self.open_upvalues = Some(Pin::static_ref(upvalue));
         }
-        upvalue
+        Pin::static_ref(upvalue)
     }
 
     fn close_upvalues(&mut self, last: *mut Value) {

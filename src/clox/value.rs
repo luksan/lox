@@ -209,7 +209,7 @@ impl Display for Upvalue {
 #[derive(Debug)]
 pub struct Closure {
     pub function: NonNull<Obj<Function>>,
-    pub upvalues: Box<[NonNull<Obj<Upvalue>>]>,
+    pub upvalues: Box<[Pin<&'static Obj<Upvalue>>]>,
 }
 
 impl LoxObject for Closure {}
@@ -217,7 +217,7 @@ impl LoxObject for Closure {}
 impl Closure {
     pub fn new(
         function: NonNull<Obj<Function>>,
-        uvg: &mut dyn FnMut() -> NonNull<Obj<Upvalue>>,
+        uvg: &mut dyn FnMut() -> Pin<&'static Obj<Upvalue>>,
     ) -> Self {
         let mut upvalues = vec![];
         upvalues.resize_with(unsafe { function.as_ref().upvalue_count }, uvg);
@@ -233,14 +233,12 @@ impl Closure {
 
     pub fn read_upvalue(&self, slot: u8) -> Value {
         let slot = self.upvalues[slot as usize];
-        unsafe { slot.as_ref().read() }
+        slot.as_ref().read()
     }
 
     pub fn write_upvalue(&self, slot: u8, value: Value) {
         let slot = self.upvalues[slot as usize];
-        unsafe {
-            slot.as_ref().write(value);
-        }
+        slot.as_ref().write(value);
     }
 }
 
@@ -248,7 +246,7 @@ impl HasRoots for Closure {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         unsafe { self.function.as_ref() }.mark(mark_obj);
         for uv in self.upvalues.iter() {
-            let uv = unsafe { uv.as_ref() };
+            let uv = uv.as_ref();
             uv.mark(mark_obj);
         }
     }
