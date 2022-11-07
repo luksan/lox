@@ -12,7 +12,7 @@ use anyhow::{anyhow, bail, Context, Result};
 use tracing::{span, Level};
 
 use std::fmt::{Debug, Formatter};
-use std::ptr;
+use std::pin::Pin;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
@@ -107,7 +107,7 @@ pub struct Vm {
     stack: Stack,
     heap: Heap,
     globals: LoxTable,
-    open_upvalues: *const Obj<Upvalue>,
+    open_upvalues: Option<Pin<&'static Obj<Upvalue>>>,
 
     init_string: Option<NonNull<Obj<LoxStr>>>,
 }
@@ -150,7 +150,7 @@ impl Vm {
             stack: Stack::new(),
             heap: Heap::new(),
             globals: LoxTable::new(),
-            open_upvalues: ptr::null_mut(),
+            open_upvalues: None,
 
             init_string: None,
         };
@@ -471,36 +471,38 @@ impl Vm {
 
     fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> &Obj<Upvalue> {
         let mut uv_ptr = self.open_upvalues;
-        let mut prev_ptr = ptr::null();
-        while let Some(uv) = unsafe { uv_ptr.as_ref() } {
-            if uv.location < stack_ptr {
+        let mut prev_ptr = None;
+        // check if we already have an open upvalue for this stack slot
+        while let Some(uv) = uv_ptr {
+            if uv.get_val_ptr() < stack_ptr {
                 break;
             }
-            if uv.location == stack_ptr {
-                return unsafe { &*uv_ptr };
+            if uv.get_val_ptr() == stack_ptr {
+                return uv.get_ref();
             }
             prev_ptr = uv_ptr;
-            uv_ptr = uv.next_open_upvalue;
+            uv_ptr = uv.get_next_open();
         }
-        let mut upvalue = Upvalue::new(stack_ptr);
-        upvalue.next_open_upvalue = uv_ptr;
+        let upvalue = Upvalue::new(stack_ptr);
+        upvalue.set_next_open(uv_ptr);
         let upvalue = self.heap.new_object(upvalue);
-        if prev_ptr.is_null() {
-            self.open_upvalues = upvalue;
+
+        if let Some(prev_ptr) = prev_ptr {
+            prev_ptr.set_next_open(Some(Pin::static_ref(upvalue)));
         } else {
-            unsafe { (*(prev_ptr as *mut Obj<Upvalue>)).next_open_upvalue = upvalue }
+            self.open_upvalues = Some(Pin::static_ref(upvalue));
         }
         upvalue
     }
 
     fn close_upvalues(&mut self, last: *mut Value) {
         // Ch 25.4.4
-        while let Some(uv) = unsafe { (self.open_upvalues as *mut Obj<Upvalue>).as_mut() } {
-            if uv.location < last {
+        while let Some(uv) = self.open_upvalues.as_ref() {
+            if uv.get_val_ptr() < last {
                 break;
             }
-            unsafe { uv.close() }
-            self.open_upvalues = uv.next_open_upvalue;
+            Upvalue::close(*uv);
+            self.open_upvalues = uv.get_next_open();
         }
     }
 
@@ -637,9 +639,9 @@ impl HasRoots for Vm {
             unsafe { frame.closure.as_ref() }.mark(mark_obj);
         }
         let mut uv_ptr = self.open_upvalues;
-        while let Some(uv) = unsafe { uv_ptr.as_ref() } {
+        while let Some(uv) = uv_ptr.as_ref() {
             uv.mark(mark_obj);
-            uv_ptr = uv.next_open_upvalue;
+            uv_ptr = uv.get_next_open();
         }
 
         self.init_string.map(|str| mark_obj(str.into()));

@@ -1,11 +1,13 @@
 use anyhow::{bail, Result};
-use std::cell::{RefCell, UnsafeCell};
+use std::cell::{Cell, RefCell, UnsafeCell};
 
 use crate::clox::mm::{HasRoots, Obj, ObjTypes};
 use crate::clox::table::{LoxTable, Table};
 use crate::clox::Chunk;
 
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomPinned;
+use std::pin::Pin;
 use std::ptr;
 use std::ptr::NonNull;
 
@@ -146,11 +148,10 @@ impl Display for LoxStr {
 
 #[derive(Debug)]
 pub struct Upvalue {
-    // TODO: Pointing into the stack is op as long as it doesn't reallocate, which it shouldn't
-    // since it is pre-allocated in Vm::new(). Consider using a boxed slice instead for the stack.
-    pub(crate) location: *mut Value,
-    pub(crate) next_open_upvalue: *const Obj<Upvalue>,
-    closed: Value,
+    location: Cell<*mut Value>,
+    next_open_upvalue: Cell<Option<Pin<&'static Obj<Upvalue>>>>,
+    closed: Cell<Value>,
+    _pinned: PhantomPinned,
 }
 
 impl LoxObject for Upvalue {}
@@ -158,32 +159,44 @@ impl LoxObject for Upvalue {}
 impl Upvalue {
     pub fn new(location: *mut Value) -> Self {
         Self {
-            location,
-            next_open_upvalue: ptr::null_mut(),
-            closed: Value::Nil,
+            location: location.into(),
+            next_open_upvalue: None.into(),
+            closed: Value::Nil.into(),
+            _pinned: PhantomPinned::default(),
         }
     }
 
-    /// SAFETY: Upvalue must not move in memory after close() is called.
-    pub unsafe fn close(&mut self) {
-        self.closed = *self.location;
-        self.location = &mut self.closed as *mut _;
+    pub fn get_val_ptr(&self) -> *const Value {
+        self.location.get()
+    }
+
+    pub fn get_next_open(&self) -> Option<Pin<&'static Obj<Upvalue>>> {
+        self.next_open_upvalue.get()
+    }
+
+    pub fn set_next_open(&self, next: Option<Pin<&'static Obj<Upvalue>>>) {
+        self.next_open_upvalue.set(next);
+    }
+
+    pub fn close(this: Pin<&Obj<Self>>) {
+        this.closed.set(unsafe { *this.location.get() });
+        this.location.set(this.closed.as_ptr());
     }
 
     pub fn read(&self) -> Value {
-        unsafe { *self.location.as_ref().unwrap() }
+        unsafe { *self.location.get() }
     }
 
     pub fn write(&self, value: Value) {
         unsafe {
-            *self.location.as_mut().unwrap() = value;
+            *self.location.get().as_mut().unwrap() = value;
         }
     }
 }
 
 impl HasRoots for Upvalue {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
-        self.closed.mark(mark_obj);
+        self.closed.get().mark(mark_obj);
     }
 }
 
