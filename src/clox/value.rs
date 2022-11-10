@@ -114,6 +114,19 @@ impl LoxStr {
     }
 }
 
+#[test]
+fn test_fnv1a() {
+    let vectors: &[(&str, u32)] = &[
+        ("1234", 0xfdc422fd),
+        ("Clox fnv1a impl.", 0x14117b55),
+        ("Test 3!\"#", 0xc8ee58ac),
+    ];
+    for (s, hash) in vectors {
+        let lox_str = LoxStr::from_str(s);
+        assert_eq!(lox_str.hash, *hash);
+    }
+}
+
 impl LoxObject for LoxStr {}
 
 impl HasRoots for LoxStr {
