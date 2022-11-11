@@ -60,6 +60,12 @@ struct Entry {
     value: Cell<Value>,
 }
 
+#[test]
+fn sizeof_entry() {
+    // println!("sizeof entry {}", std::mem::size_of::<Entry>());
+    assert_eq!(std::mem::size_of::<Entry>(), 24);
+}
+
 impl Entry {
     fn key(&self) -> Option<&Obj<LoxStr>> {
         unsafe { self.key.get().as_ref() }
@@ -154,24 +160,27 @@ impl LoxMap {
     }
 
     fn find_entry(&self, key: &LoxStr) -> &Entry {
-        let capacity = self.capacity() as u32;
-        let index = key.hash & (capacity - 1);
+        let mask = self.capacity() - 1;
+        let mut index = key.hash as usize & mask;
         let mut tombstone = None;
-        let (head, tail) = self.entries.split_at(index as usize);
-        for e in tail.iter().chain(head) {
-            if let Some(e_key) = e.key() {
-                if &**e_key == key {
-                    return e;
-                }
-            } else {
-                if !e.is_tombstone() {
-                    return tombstone.unwrap_or(e);
-                } else if tombstone.is_none() {
-                    tombstone = Some(e);
+        loop {
+            // SAFETY: the index is always in bounds since capacity is a power of 2
+            let entry = unsafe { self.entries.get_unchecked(index) };
+            index = (index + 1) & mask;
+
+            match entry.key() {
+                Some(entry_key) if &**entry_key == key => return entry,
+                Some(_) => {}
+                None => {
+                    if !entry.is_tombstone() {
+                        return tombstone.unwrap_or(entry);
+                    } else if tombstone.is_none() {
+                        tombstone = Some(entry)
+                    }
                 }
             }
         }
-        unreachable!("The table is never at 100% capacity, or completely full of tombstones.")
+        // unreachable!("The table is never at 100% capacity, or completely full of tombstones.")
     }
 
     fn adjust_capacity(&mut self, cap: usize) {
