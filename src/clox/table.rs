@@ -43,7 +43,7 @@ pub type LoxTable = LoxMap;
 
 pub struct LoxMap {
     count: usize,
-    entries: Vec<Entry>,
+    entries: Box<[Entry]>,
 }
 
 impl Debug for LoxMap {
@@ -149,7 +149,7 @@ impl LoxMap {
     pub fn new() -> Self {
         Self {
             count: 0,
-            entries: vec![],
+            entries: Box::new([]),
         }
     }
 
@@ -185,10 +185,11 @@ impl LoxMap {
 
     fn adjust_capacity(&mut self, cap: usize) {
         assert!(cap.is_power_of_two());
-        let mut old = std::mem::replace(&mut self.entries, Vec::new());
-        self.entries.resize_with(cap, Default::default);
+        let mut new = Vec::with_capacity(cap);
+        new.resize_with(cap, Entry::default);
+        let old = std::mem::replace(&mut self.entries, new.into_boxed_slice());
         self.count = 0;
-        for e in old.drain(..) {
+        for e in old.into_iter() {
             if let Some(key) = e.key() {
                 self.set(key, e.value.get());
             }
