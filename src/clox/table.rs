@@ -5,7 +5,7 @@ use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
-use std::ptr;
+use std::ptr::NonNull;
 
 pub type StrPtr = *const Obj<LoxStr>;
 
@@ -56,7 +56,7 @@ impl Debug for LoxMap {
 }
 
 struct Entry {
-    key: Cell<StrPtr>,
+    key: Cell<Option<NonNull<Obj<LoxStr>>>>,
     value: Cell<Value>,
 }
 
@@ -68,11 +68,11 @@ fn sizeof_entry() {
 
 impl Entry {
     fn key(&self) -> Option<&Obj<LoxStr>> {
-        unsafe { self.key.get().as_ref() }
+        self.key.get().map(|ptr| unsafe { ptr.as_ref() })
     }
 
     fn value(&self) -> Option<Value> {
-        if !self.key.get().is_null() {
+        if self.key.get().is_some() {
             Some(self.value.get())
         } else {
             None
@@ -80,16 +80,16 @@ impl Entry {
     }
 
     fn delete(&self) {
-        self.key.set(ptr::null());
+        self.key.set(None);
         self.value.set(Value::Bool(true));
     }
 
     fn is_tombstone(&self) -> bool {
-        self.key.get().is_null() && self.value.get() == Value::Bool(true)
+        self.key.get().is_none() && self.value.get() == Value::Bool(true)
     }
 
-    fn set(&self, key: StrPtr, val: Value) {
-        self.key.set(key);
+    fn set(&self, key: &Obj<LoxStr>, val: Value) {
+        self.key.set(Some(key.into()));
         self.value.set(val);
     }
 }
@@ -97,7 +97,7 @@ impl Entry {
 impl Default for Entry {
     fn default() -> Self {
         Self {
-            key: Cell::new(ptr::null()),
+            key: Cell::new(None),
             value: Value::Nil.into(),
         }
     }
@@ -159,17 +159,16 @@ impl LoxMap {
             .filter_map(|e| e.key().map(|key| (key, e.value.get())))
     }
 
-    fn find_entry(&self, key: &LoxStr) -> &Entry {
+    fn find_entry(&self, key: &Obj<LoxStr>) -> &Entry {
         let mask = self.capacity() - 1;
         let mut index = key.hash as usize & mask;
         let mut tombstone = None;
         loop {
             // SAFETY: the index is always in bounds since capacity is a power of 2
             let entry = unsafe { self.entries.get_unchecked(index) };
-            index = (index + 1) & mask;
 
             match entry.key() {
-                Some(entry_key) if &**entry_key == key => return entry,
+                Some(entry_key) if &**entry_key == &**key => return entry,
                 Some(_) => {}
                 None => {
                     if !entry.is_tombstone() {
@@ -179,6 +178,7 @@ impl LoxMap {
                     }
                 }
             }
+            index = (index + 1) & mask;
         }
         // unreachable!("The table is never at 100% capacity, or completely full of tombstones.")
     }
@@ -241,7 +241,7 @@ impl StringInterner {
             }
             if let Some(key) = entry.key() {
                 if &**key == (k, hash) {
-                    return Some(entry.key.get());
+                    return Some(key as _);
                 }
             }
 
