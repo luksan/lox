@@ -140,6 +140,26 @@ impl CallFrame {
     }
 }
 
+pub struct Runnable<'vm> {
+    vm: &'vm mut Vm,
+    frame: CallFrame,
+}
+
+impl Runnable<'_> {
+    pub fn run(&mut self) -> Result<(), VmError> {
+        self.vm.run(&self.frame)?;
+        self.vm.push(unsafe { self.frame.closure.as_ref() });
+        Ok(())
+    }
+}
+
+impl Drop for Runnable<'_> {
+    fn drop(&mut self) {
+        // remove the pointer to out call frame from the stack
+        self.vm.stack.pop();
+    }
+}
+
 impl Vm {
     pub fn new() -> Self {
         // println!("Created new VM.");
@@ -163,6 +183,12 @@ impl Vm {
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
         let root_reg = Rc::new(self as *const dyn HasRoots);
         self.heap.register_roots(&root_reg);
+        self.compile(source)?.run()
+    }
+
+    pub fn compile(&mut self, source: &str) -> Result<Runnable, VmError> {
+        let root_reg = Rc::new(self as *const dyn HasRoots);
+        self.heap.register_roots(&root_reg);
         let function = compile(source, &mut self.heap)?;
         self.push(ObjTypes::from(function));
         let closure = self.heap.new_object(Closure::new(function, &mut || {
@@ -171,12 +197,14 @@ impl Vm {
         self.pop();
         self.push(closure as *const _);
         let frame = self.call(closure, 0)?;
-        self.run(frame)
+        Ok(Runnable { vm: self, frame })
     }
 
-    fn run(&mut self, mut frame: CallFrame) -> Result<(), VmError> {
+    fn run(&mut self, frame: &CallFrame) -> Result<(), VmError> {
         let trace_span = span!(Level::TRACE, "Vm::run()");
         let _enter = trace_span.enter();
+
+        let mut frame = frame.clone();
 
         macro_rules! ip_incr {
             ($inc:expr) => {
@@ -665,5 +693,14 @@ fn test_interpret() {
     let mut vm = Vm::new();
     for _ in 0..100 {
         vm.interpret("var x=0;").unwrap();
+    }
+}
+
+#[test]
+fn test_compile_run() {
+    let mut vm = Vm::new();
+    let mut runner = vm.compile("var x=0;").unwrap();
+    for _ in 0..1000 {
+        runner.run().unwrap();
     }
 }
