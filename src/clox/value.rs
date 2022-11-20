@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use std::cell::{Cell, RefCell, UnsafeCell};
+use std::cell::{Cell, UnsafeCell};
 
 use crate::clox::mm::{HasRoots, Obj, ObjTypes};
 use crate::clox::table::{LoxTable, Table};
@@ -482,7 +482,7 @@ impl HasRoots for Class {
 #[derive(Debug)]
 pub struct Instance {
     class: NonNull<Obj<Class>>,
-    fields: RefCell<LoxTable>,
+    fields: UnsafeCell<LoxTable>,
 }
 
 impl LoxObject for Instance {}
@@ -500,11 +500,11 @@ impl Instance {
     }
 
     pub(crate) fn get_field(&self, field: &Obj<LoxStr>) -> Option<Value> {
-        self.fields.borrow().get_value(field)
+        unsafe { &*self.fields.get() }.get_value(field)
     }
 
     pub(crate) fn set_field(&self, field: &Obj<LoxStr>, value: Value) {
-        self.fields.borrow_mut().set(field, value);
+        unsafe { &mut *self.fields.get() }.set(field, value);
     }
 }
 
@@ -517,7 +517,7 @@ impl Display for Instance {
 impl HasRoots for Instance {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         mark_obj(self.class.into());
-        self.fields.borrow().mark_roots(mark_obj);
+        unsafe { &*self.fields.get() }.mark_roots(mark_obj);
     }
 }
 
