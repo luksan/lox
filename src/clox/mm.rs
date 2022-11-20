@@ -300,6 +300,15 @@ impl Heap {
         }
         self.obj_count.set(0);
     }
+
+    pub fn print_heap(&self) {
+        println!("Heap objects");
+        let mut next_obj = self.objs.get();
+        while let Some(obj) = next_obj {
+            println!("  {:?}", obj);
+            next_obj = obj.next();
+        }
+    }
 }
 
 impl Debug for Heap {
