@@ -11,7 +11,7 @@ use std::pin::Pin;
 use std::ptr;
 use std::ptr::NonNull;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 #[repr(transparent)]
 pub struct ValuePacked(u64);
 
@@ -146,6 +146,12 @@ impl From<ValuePacked> for ValueEnum {
 impl Display for ValuePacked {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", ValueEnum::from(*self))
+    }
+}
+
+impl Debug for ValuePacked {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", ValueEnum::from(self.clone()))
     }
 }
 
