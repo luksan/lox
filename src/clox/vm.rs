@@ -56,6 +56,10 @@ impl Stack {
         }
     }
 
+    fn remove_cnt(&mut self, cnt: u8) {
+        self.top = unsafe { self.top.sub(cnt as usize) };
+    }
+
     fn set_slot(&mut self, from_top: u8, value: Value) {
         unsafe {
             *self.top.sub(from_top as usize + 1) = value;
@@ -83,6 +87,7 @@ impl Stack {
         unsafe { self.top.sub(from_top as usize + 1) }
     }
 
+    /// Index of the topmost valid value on the stack.
     fn top_slot(&self) -> usize {
         unsafe { self.top.offset_from(self.inner.as_ptr()) as usize - 1 }
     }
@@ -92,7 +97,7 @@ impl Stack {
     }
 
     fn iter(&self) -> impl DoubleEndedIterator<Item = &Value> {
-        self.inner.iter()
+        self.inner[0..self.top_slot() + 1].iter()
     }
 }
 
@@ -250,6 +255,7 @@ impl Vm {
                 let line = frame.chunk().lines[idx as usize];
                 // self.stack.iter().for_each(|s|println!("{:?}", s));
                 eprintln!($fmt, $($e),*);
+                // Err(anyhow!("[line {}] in script, op idx {}", line, idx))
                 Err(anyhow!("[line {}] in script", line))
             }};
             ($res_expr:expr) => {{
@@ -560,6 +566,7 @@ impl Vm {
             }
         } else if let Some(native) = callee.as_object::<NativeFn>() {
             let result = native.call_native(&self.stack.slice_top(arg_count))?;
+            self.stack.remove_cnt(arg_count + 1);
             self.push(result);
             Ok(None)
         } else {
