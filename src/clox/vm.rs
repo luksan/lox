@@ -87,9 +87,9 @@ impl Stack {
         unsafe { self.top.sub(from_top as usize + 1) }
     }
 
-    /// Index of the topmost valid value on the stack.
-    fn top_slot(&self) -> usize {
-        unsafe { self.top.offset_from(self.inner.as_ptr()) as usize - 1 }
+    /// Number of active stack entries.
+    fn len(&self) -> usize {
+        unsafe { self.top.offset_from(self.inner.as_ptr()) as usize }
     }
 
     fn truncate(&mut self, to_slot: *mut Value) {
@@ -97,13 +97,13 @@ impl Stack {
     }
 
     fn iter(&self) -> impl DoubleEndedIterator<Item = &Value> {
-        self.inner[0..self.top_slot() + 1].iter()
+        self.inner[0..self.len()].iter()
     }
 }
 
 impl Debug for Stack {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", &self.inner[0..self.top_slot() + 1])
+        write!(f, "{:?}", &self.inner[0..self.len()])
     }
 }
 
