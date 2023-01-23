@@ -124,7 +124,7 @@ impl Debug for Vm {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Clone, Debug)]
 pub struct CallFrame {
     closure: NonNull<Obj<Closure>>,
     ip: *const u8,

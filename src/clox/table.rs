@@ -189,7 +189,7 @@ impl LoxMap {
         new.resize_with(cap, Entry::default);
         let old = std::mem::replace(&mut self.entries, new.into_boxed_slice());
         self.count = 0;
-        for e in old.into_iter() {
+        for e in old.iter() {
             if let Some(key) = e.key() {
                 self.set(key, e.value.get());
             }

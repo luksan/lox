@@ -151,7 +151,7 @@ impl Display for ValuePacked {
 
 impl Debug for ValuePacked {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", ValueEnum::from(self.clone()))
+        write!(f, "{:?}", ValueEnum::from(*self))
     }
 }
 

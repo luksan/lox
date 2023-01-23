@@ -133,13 +133,15 @@ impl<'compiler> FunctionScope<'compiler> {
         Ok(())
     }
 
-    fn resolve_local(&self, name: &str) -> Result<Option<usize>> {
+    /// Returns the stack slot of a local variable, or None if no such local variable exists.
+    /// Errors if the variable exists but isn't initialized.
+    fn resolve_local(&self, name: &str) -> Result<Option<u8>> {
         for (i, local) in self.locals.iter().enumerate().rev() {
             if local.name == name {
                 if local.depth == usize::MAX {
                     bail!("Can't read local variable in its own initializer.");
                 }
-                return Ok(Some(i));
+                return Ok(Some(i as u8));
             }
         }
         Ok(None)
@@ -148,8 +150,8 @@ impl<'compiler> FunctionScope<'compiler> {
     fn resolve_upvalue(&mut self, name: &str) -> Result<Option<u8>> {
         if let Some(enclosing) = self.enclosing.as_mut() {
             if let Some(local) = enclosing.resolve_local(name).unwrap() {
-                enclosing.locals[local].is_captured = true;
-                return Ok(Some(self.add_upvalue(local as u8, true)?));
+                enclosing.locals[local as usize].is_captured = true;
+                return Ok(Some(self.add_upvalue(local, true)?));
             }
             if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
                 return Ok(Some(self.add_upvalue(upvalue, false)?));
@@ -696,29 +698,26 @@ impl<'a> Compiler<'a> {
     }
 
     fn named_variable(&mut self, name: &str, can_assign: bool) {
-        let arg = self.func_scope.resolve_local(name).unwrap_or_else(|e| {
-            self.error(e);
-            None
-        });
-        let c;
-        let (get_op, set_op) = if let Some(local) = arg {
-            c = local as u8;
-            (OpCode::GetLocal, OpCode::SetLocal)
-        } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name).unwrap_or_else(|e| {
-            self.error(e);
-            None
-        }) {
-            c = upvalue as u8;
-            (OpCode::GetUpvalue, OpCode::SetUpvalue)
-        } else {
-            c = self.identifier_constant(name.to_string());
-            (OpCode::GetGlobal, OpCode::SetGlobal)
+        let mut get_slot_and_ops = || -> Result<_> {
+            Ok(if let Some(local) = self.func_scope.resolve_local(name)? {
+                (local, OpCode::GetLocal, OpCode::SetLocal)
+            } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name)? {
+                (upvalue, OpCode::GetUpvalue, OpCode::SetUpvalue)
+            } else {
+                let global_var_name = self.identifier_constant(name.to_string());
+                (global_var_name, OpCode::GetGlobal, OpCode::SetGlobal)
+            })
         };
+
+        let (frame_slot, get_op, set_op) = get_slot_and_ops().unwrap_or_else(|e: _| {
+            self.error(e);
+            (0, OpCode::BadOpCode, OpCode::BadOpCode)
+        });
         if can_assign && self.match_token(TokenType::Equal) {
             self.expression();
-            self.emit_bytes(set_op, c);
+            self.emit_bytes(set_op, frame_slot);
         } else {
-            self.emit_bytes(get_op, c);
+            self.emit_bytes(get_op, frame_slot);
         }
     }
 
@@ -785,6 +784,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    /// Make a string constant on the heap for this identifier
     fn identifier_constant(&mut self, name: String) -> u8 {
         let v: *const _ = self.heap.new_string(name);
         self.make_constant(v)
@@ -876,6 +876,8 @@ impl<'a> Compiler<'a> {
         }
     }
 
+    /// Consumes the token and returns true if the current token in the stream matches.
+    /// Returns false and leaves the token in place otherwise.
     fn match_token(&mut self, token: TokenType) -> bool {
         if !self.check(token) {
             return false;
