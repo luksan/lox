@@ -3,7 +3,8 @@
 use anyhow::{anyhow, bail, Context, Result};
 
 use std::collections::HashMap;
-use std::result::Result as StdResult;
+use std::ops::ControlFlow;
+use std::ops::ControlFlow::Continue;
 
 use crate::jlox::ast::{
     expr,
@@ -38,8 +39,8 @@ impl Interpreter {
 
     pub fn interpret(&mut self, statements: &[Stmt]) -> Result<()> {
         for stmt in statements {
-            if let Err(MaybeFunRet::Error(err)) = self.execute(stmt) {
-                return Err(err);
+            if let ControlFlow::Break(result) = self.execute(stmt) {
+                result?;
             }
         }
         Ok(())
@@ -69,63 +70,59 @@ impl Interpreter {
         expr.accept(self)
     }
 
+    fn evaluate_for_stmt(
+        &mut self,
+        expr: &dyn Accepts<Self, ExprVisitResult>,
+    ) -> ControlFlow<ExprVisitResult, LoxType> {
+        let result = self.evaluate(expr);
+        if let Ok(val) = result {
+            Continue(val)
+        } else {
+            ControlFlow::Break(result)
+        }
+    }
+
     pub fn execute_block(&mut self, statements: &ListStmt, mut env: Env) -> StmtVisitResult {
         std::mem::swap(&mut env, &mut self.env);
-        let mut result = Ok(());
         for statement in statements {
-            result = statement.accept(self);
-            if result.is_err() {
-                break;
-            }
+            statement.accept(self)?;
         }
         std::mem::swap(&mut env, &mut self.env);
-        result
+        Continue(())
     }
-}
 
-#[derive(thiserror::Error, Debug)]
-pub enum MaybeFunRet {
-    #[error("Return value from Lox function call.")]
-    Return(LoxType),
-    #[error("Lox runtime error")]
-    Error(#[from] anyhow::Error),
-}
-
-impl MaybeFunRet {
-    pub fn fun_ret(self) -> StdResult<LoxType, anyhow::Error> {
-        match self {
-            MaybeFunRet::Return(ret) => Ok(ret),
-            MaybeFunRet::Error(err) => Err(err),
+    fn get_superclass(
+        &mut self,
+        class: &stmt::Class,
+    ) -> ControlFlow<ExprVisitResult, Option<lox_types::Class>> {
+        if let Some(sup) = &class.superclass {
+            if let LoxType::Class(cls) = self.evaluate_for_stmt(sup)? {
+                Continue(Some(cls))
+            } else {
+                ControlFlow::Break(Err(anyhow!(
+                    "Superclass must be a class.\n[line {}]",
+                    sup.name.line()
+                )))
+            }
+        } else {
+            Continue(None)
         }
     }
 }
 
 /* stmt Visitors */
-type StmtVisitResult = StdResult<(), MaybeFunRet>;
+type StmtVisitResult = ControlFlow<ExprVisitResult>;
 
 impl Visitor<stmt::Block, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Block) -> StmtVisitResult {
         let env = self.env.create_local();
-        self.execute_block(&node.statements, env)?;
-        Ok(())
+        self.execute_block(&node.statements, env)
     }
 }
 
 impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Class) -> StmtVisitResult {
-        let superclass = if let Some(sup) = &node.superclass {
-            if let LoxType::Class(cls) = self.evaluate(sup)? {
-                Some(cls)
-            } else {
-                Err(anyhow!(
-                    "Superclass must be a class.\n[line {}]",
-                    sup.name.line()
-                ))?;
-                unreachable!();
-            }
-        } else {
-            None
-        };
+        let superclass: Option<lox_types::Class> = self.get_superclass(node)?;
         self.env.define(node.name.lexeme(), LoxType::Nil);
 
         let method_env = if let Some(superclass) = superclass.as_ref() {
@@ -146,15 +143,17 @@ impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
         }
 
         let class = lox_types::Class::new(node.name.lexeme(), superclass, methods);
-        self.env.assign(&node.name, class.into())?;
-        Ok(())
+        self.env
+            .assign(&node.name, class.into())
+            .expect("This doesn't fail, since the variable name was defined above.");
+        Continue(())
     }
 }
 
 impl Visitor<stmt::Expression, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Expression) -> StmtVisitResult {
-        self.evaluate(&node.expression)?;
-        Ok(())
+        self.evaluate_for_stmt(&node.expression)?;
+        Continue(())
     }
 }
 
@@ -162,56 +161,53 @@ impl Visitor<stmt::Function, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Function) -> StmtVisitResult {
         let function = lox_types::Function::new(node, self.env.clone());
         self.env.define(node.name.lexeme(), function.into());
-        Ok(())
+        Continue(())
     }
 }
 
 impl Visitor<stmt::If, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::If) -> StmtVisitResult {
-        if self.evaluate(&node.condition)?.is_truthy() {
+        if self.evaluate_for_stmt(&node.condition)?.is_truthy() {
             self.execute(&node.thenBranch)
         } else if let Some(els) = &node.elseBranch {
             self.execute(els)
         } else {
-            Ok(())
+            Continue(())
         }
     }
 }
 
 impl Visitor<stmt::Print, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Print) -> StmtVisitResult {
-        let val = self.evaluate(&node.expression)?;
+        let val = self.evaluate_for_stmt(&node.expression)?;
         println!("{}", val);
-        Ok(())
+        Continue(())
     }
 }
 
 impl Visitor<stmt::Return, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Return) -> StmtVisitResult {
-        let value = match &node.value {
-            Some(v) => self.evaluate(v)?,
+        ControlFlow::Break(Ok(match &node.value {
+            Some(v) => self.evaluate_for_stmt(v)?,
             None => LoxType::Nil,
-        };
-        // Abort the tree-walk and return the value as an error to the
-        // place where the callable was called.
-        Err(MaybeFunRet::Return(value))
+        }))
     }
 }
 
 impl Visitor<stmt::Var, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::Var) -> StmtVisitResult {
-        let value = self.evaluate(&node.initializer)?;
+        let value = self.evaluate_for_stmt(&node.initializer)?;
         self.env.define(node.name.lexeme(), value);
-        Ok(())
+        Continue(())
     }
 }
 
 impl Visitor<stmt::While, StmtVisitResult> for Interpreter {
     fn visit(&mut self, node: &stmt::While) -> StmtVisitResult {
-        while self.evaluate(&node.condition)?.is_truthy() {
+        while self.evaluate_for_stmt(&node.condition)?.is_truthy() {
             self.execute(&node.body)?;
         }
-        Ok(())
+        Continue(())
     }
 }
 
