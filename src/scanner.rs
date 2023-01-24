@@ -190,8 +190,9 @@ impl<'src> SourceCursor<'src> {
         self.current.clone().next()
     }
 
-    pub fn peek_next(&self) -> Option<char> {
-        self.current.clone().nth(1)
+    pub fn peek2(&self) -> Option<[char; 2]> {
+        let mut i = self.current.clone();
+        Some([i.next()?, i.next()?])
     }
 
     pub fn substring(&self, start: usize, rear: usize) -> &str {
@@ -322,8 +323,8 @@ impl<'src> Scanner<'src> {
 
     fn number(&mut self) -> Result<TokenType> {
         self.cursor.advance_while(char::is_ascii_digit);
-        match (self.cursor.peek(), self.cursor.peek_next()) {
-            (Some('.'), Some(d)) if d.is_ascii_digit() => {
+        match self.cursor.peek2() {
+            Some(['.', d]) if d.is_ascii_digit() => {
                 self.cursor.advance(); // consume '.'
                 self.cursor.advance_while(char::is_ascii_digit);
             }
