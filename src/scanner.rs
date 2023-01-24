@@ -5,7 +5,7 @@ use std::fmt::{Debug, Formatter};
 use crate::LoxError;
 
 use std::result::Result as StdResult;
-use std::str::{Chars, FromStr};
+use std::str::Chars;
 
 #[derive(Clone, Copy, Debug)]
 pub enum TokenType {
@@ -219,6 +219,7 @@ pub struct Scanner<'src> {
     had_error: bool,
 
     cursor: SourceCursor<'src>,
+    curr_literal: Option<Literal>,
 }
 
 impl<'src> Scanner<'src> {
@@ -228,6 +229,7 @@ impl<'src> Scanner<'src> {
             tokens: vec![],
             had_error: false,
             cursor: SourceCursor::new(source),
+            curr_literal: None,
         }
     }
 
@@ -303,13 +305,7 @@ impl<'src> Scanner<'src> {
             typ: tok,
             lexeme: lexeme.to_owned(),
             line: self.cursor.curr_line,
-            literal: match tok {
-                TokenType::String => Some(Literal::String(self.cursor.substring(1, 1).to_owned())),
-                TokenType::Number => Some(Literal::Number(
-                    f64::from_str(lexeme).context("Number parsing error")?,
-                )),
-                _ => None,
-            },
+            literal: self.curr_literal.take(),
         }))
     }
 
@@ -332,14 +328,21 @@ impl<'src> Scanner<'src> {
             }
             _ => {}
         }
+        self.curr_literal = Some(Literal::Number(
+            self.cursor
+                .substring(0, 0)
+                .parse()
+                .context("Number parsing error")?,
+        ));
         Ok(TokenType::Number)
     }
 
     fn string(&mut self) -> Result<TokenType> {
         self.cursor
             .find(|c| *c == '"')
-            .map(|_| TokenType::String)
-            .ok_or(anyhow!("Unterminated string."))
+            .ok_or(anyhow!("Unterminated string."))?;
+        self.curr_literal = Some(Literal::String(self.cursor.substring(1, 1).to_owned()));
+        Ok(TokenType::String)
     }
 
     fn ch2(&mut self, ch: char, matches: TokenType, nope: TokenType) -> TokenType {
