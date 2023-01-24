@@ -199,6 +199,14 @@ impl<'src> SourceCursor<'src> {
     }
 }
 
+impl<'a> Iterator for SourceCursor<'a> {
+    type Item = char;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.advance()
+    }
+}
+
 pub struct Scanner<'src> {
     source: &'src str,
     tokens: Vec<Token>,
@@ -248,7 +256,7 @@ impl<'src> Scanner<'src> {
     }
 
     fn scan_token(&mut self) -> Result<Option<Token>> {
-        let char = self.advance().unwrap(); // scan_token() is only called while !is_at_end()
+        let char = self.cursor.advance().unwrap(); // scan_token() is only called while !is_at_end()
         let tok = match char {
             '(' => TokenType::LeftParen,
             ')' => TokenType::RightParen,
@@ -266,11 +274,7 @@ impl<'src> Scanner<'src> {
             '>' => self.ch2('=', TokenType::GreaterEqual, TokenType::Greater),
 
             '/' if self.check('/') => {
-                while let Some(ch) = self.advance() {
-                    if ch == '\n' {
-                        break;
-                    }
-                }
+                self.cursor.find(|c| *c == '\n');
                 self.line += 1;
                 return Ok(None);
             }
@@ -318,13 +322,12 @@ impl<'src> Scanner<'src> {
 
     fn number(&mut self) -> Result<TokenType> {
         self.cursor.advance_while(char::is_ascii_digit);
-        if self.peek() == Some('.') {
-            if let Some(after_dot) = self.cursor.peek_next() {
-                if after_dot.is_ascii_digit() {
-                    self.advance(); // consume '.'
-                    self.cursor.advance_while(char::is_ascii_digit);
-                }
+        match (self.cursor.peek(), self.cursor.peek_next()) {
+            (Some('.'), Some(d)) if d.is_ascii_digit() => {
+                self.cursor.advance(); // consume '.'
+                self.cursor.advance_while(char::is_ascii_digit);
             }
+            _ => {}
         }
         Ok(TokenType::Number)
     }
@@ -339,16 +342,8 @@ impl<'src> Scanner<'src> {
         if self.is_at_end() {
             bail!("Unterminated string.");
         }
-        self.advance(); // The closing "
+        self.cursor.advance(); // The closing "
         Ok(TokenType::String)
-    }
-
-    fn advance(&mut self) -> Option<char> {
-        self.cursor.advance()
-    }
-
-    fn peek(&self) -> Option<char> {
-        self.cursor.peek()
     }
 
     fn ch2(&mut self, ch: char, matches: TokenType, nope: TokenType) -> TokenType {
@@ -361,8 +356,8 @@ impl<'src> Scanner<'src> {
 
     // Consume the next character if it matches
     fn check(&mut self, ch: char) -> bool {
-        if self.peek() == Some(ch) {
-            self.advance();
+        if self.cursor.peek() == Some(ch) {
+            self.cursor.advance();
             true
         } else {
             false
@@ -370,6 +365,6 @@ impl<'src> Scanner<'src> {
     }
 
     fn is_at_end(&self) -> bool {
-        self.peek().is_none()
+        self.cursor.peek().is_none()
     }
 }
