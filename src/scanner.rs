@@ -336,12 +336,10 @@ impl<'src> Scanner<'src> {
     }
 
     fn string(&mut self) -> Result<TokenType> {
-        self.cursor.advance_while(|&c| c != '"');
-        if self.is_at_end() {
-            bail!("Unterminated string.");
-        }
-        self.cursor.advance(); // The closing "
-        Ok(TokenType::String)
+        self.cursor
+            .find(|c| *c == '"')
+            .map(|_| TokenType::String)
+            .ok_or(anyhow!("Unterminated string."))
     }
 
     fn ch2(&mut self, ch: char, matches: TokenType, nope: TokenType) -> TokenType {
