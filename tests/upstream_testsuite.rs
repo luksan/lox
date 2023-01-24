@@ -1,16 +1,13 @@
 use std::fmt::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering::SeqCst;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use lazy_regex::regex_captures;
 
-const PROJ_ROOT: &'static str = env!("CARGO_MANIFEST_DIR");
-
 #[test]
-fn run_all_tests() -> Result<()> {
+fn run_all_upstream_tests() -> Result<()> {
     let test_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../craftinginterpreters/test/");
     run_tests_recursive(test_dir)?;
     println!("Successfully ran {} tests.", TEST_CTR.load(SeqCst));
@@ -36,37 +33,16 @@ fn run_tests_recursive(p: impl AsRef<Path>) -> Result<()> {
     Ok(())
 }
 
-macro_rules! bail_ne {
-    ($expect:expr, $actual:expr, $msg:expr) => {
-        if $expect != $actual {
-            bail!(format!(
-                "{} : \n  expected {:?}\n  actual   {:?}",
-                $msg, $expect, $actual
-            ))
-        }
-    };
-}
-
 fn run_single<P: AsRef<Path>>(p: P) -> Result<()> {
     let case = TestCase::from_path(p)?;
 
-    let mut lox = PathBuf::from(PROJ_ROOT);
-    lox.push("target");
-    lox.push("release");
-    lox.push("clox");
-    let output = Command::new(lox)
+    assert_cmd::Command::cargo_bin("clox")?
         .arg("--ci-testsuite")
         .arg(case.file)
-        .output()?;
-    let stdout = std::str::from_utf8(&output.stdout)?;
-    bail_ne!(case.expect_stdout, stdout, "stdout");
-    let stderr = std::str::from_utf8(&output.stderr)?;
-    bail_ne!(case.expect_stderr, stderr, "stderr");
-    bail_ne!(
-        Some(case.expect_exit_code),
-        output.status.code(),
-        "exit code"
-    );
+        .assert()
+        .try_stdout(case.expect_stdout)?
+        .try_stderr(case.expect_stderr)?
+        .try_code(case.expect_exit_code)?;
 
     Ok(())
 }
