@@ -1,36 +1,53 @@
 use std::fmt::Write;
+use std::fs::DirEntry;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicU64;
-use std::sync::atomic::Ordering::SeqCst;
 
 use anyhow::{Context, Result};
 use lazy_regex::regex_captures;
 
+const UPSTREAM_TEST_DIR: &'static str =
+    concat!(env!("CARGO_MANIFEST_DIR"), "/../craftinginterpreters/test/");
+
 #[test]
 fn run_all_upstream_tests() -> Result<()> {
-    let test_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../craftinginterpreters/test/");
-    run_tests_recursive(test_dir)?;
-    println!("Successfully ran {} tests.", TEST_CTR.load(SeqCst));
+    let test_cnt = run_tests_recursive(UPSTREAM_TEST_DIR, &mut |entry| {
+        ["expressions", "scanning", "benchmark"].contains(&entry.file_name().to_str().unwrap())
+    })?;
+    println!("Successfully ran {test_cnt} tests.");
     Ok(())
 }
 
-static TEST_CTR: AtomicU64 = AtomicU64::new(0);
+#[test]
+fn run_single_named() -> Result<()> {
+    let test_name = "literals.lox";
+    assert!(
+        run_tests_recursive(UPSTREAM_TEST_DIR, &mut |entry| {
+            entry.path().is_file() && entry.file_name().to_str().unwrap() != test_name
+        })? > 0,
+        "Didn't run a single test."
+    );
+    Ok(())
+}
 
-fn run_tests_recursive(p: impl AsRef<Path>) -> Result<()> {
+fn run_tests_recursive(
+    p: impl AsRef<Path>,
+    reject_matching: &mut impl FnMut(&DirEntry) -> bool,
+) -> Result<usize> {
+    let mut test_cnt = 0;
     for t in std::fs::read_dir(p)? {
         let entry = t?;
-        if ["expressions", "scanning", "benchmark"].contains(&entry.file_name().to_str().unwrap()) {
+        if reject_matching(&entry) {
             continue;
         }
         let path = entry.path();
         if path.is_dir() {
-            run_tests_recursive(path)?;
+            test_cnt += run_tests_recursive(path, reject_matching)?;
         } else {
-            TEST_CTR.fetch_add(1, SeqCst);
+            test_cnt += 1;
             run_single(path).with_context(|| format!("Testcase {entry:?} failed."))?;
         }
     }
-    Ok(())
+    Ok(test_cnt)
 }
 
 fn run_single<P: AsRef<Path>>(p: P) -> Result<()> {
