@@ -152,6 +152,7 @@ struct SourceCursor<'src> {
     start: Chars<'src>,
     current: Chars<'src>,
     curr_len: usize,
+    curr_line: usize,
 }
 
 impl<'src> SourceCursor<'src> {
@@ -161,6 +162,7 @@ impl<'src> SourceCursor<'src> {
             start: source.chars(),
             current: source.chars(),
             curr_len: 0,
+            curr_line: 1, // current line for error reports
         }
     }
 
@@ -174,6 +176,9 @@ impl<'src> SourceCursor<'src> {
         let next = self.current.next();
         let new_len = self.current.as_str().len();
         self.curr_len += old_len - new_len;
+        if next == Some('\n') {
+            self.curr_line += 1;
+        }
         next
     }
 
@@ -214,7 +219,6 @@ pub struct Scanner<'src> {
     had_error: bool,
 
     cursor: SourceCursor<'src>,
-    line: usize, // current line for error reports
 }
 
 impl<'src> Scanner<'src> {
@@ -224,7 +228,6 @@ impl<'src> Scanner<'src> {
             tokens: vec![],
             had_error: false,
             cursor: SourceCursor::new(source),
-            line: 1,
         }
     }
 
@@ -244,11 +247,12 @@ impl<'src> Scanner<'src> {
                 Ok(Some(tok)) => self.tokens.push(tok),
                 Err(err) => {
                     self.had_error = true;
-                    eprintln!("[line {}] Error: {}", self.line, err);
+                    eprintln!("[line {}] Error: {}", self.cursor.curr_line, err);
                 }
             }
         }
-        self.tokens.push(Token::new(TokenType::Eof, "", self.line));
+        self.tokens
+            .push(Token::new(TokenType::Eof, "", self.cursor.curr_line));
         if self.had_error {
             Err(LoxError::CompileError(anyhow!("Errors during scanning.")))
         } else {
@@ -276,13 +280,11 @@ impl<'src> Scanner<'src> {
 
             '/' if self.check('/') => {
                 self.cursor.find(|c| *c == '\n');
-                self.line += 1;
                 return Ok(None);
             }
             '/' => TokenType::Slash,
 
             '\n' => {
-                self.line += 1;
                 return Ok(None);
             }
             w if w.is_ascii_whitespace() => return Ok(None),
@@ -300,7 +302,7 @@ impl<'src> Scanner<'src> {
         Ok(Some(Token {
             typ: tok,
             lexeme: lexeme.to_owned(),
-            line: self.line,
+            line: self.cursor.curr_line,
             literal: match tok {
                 TokenType::String => Some(Literal::String(self.cursor.substring(1, 1).to_owned())),
                 TokenType::Number => Some(Literal::Number(
@@ -334,12 +336,7 @@ impl<'src> Scanner<'src> {
     }
 
     fn string(&mut self) -> Result<TokenType> {
-        self.cursor.advance_while(|&c| {
-            if c == '\n' {
-                self.line += 1;
-            }
-            c != '"'
-        });
+        self.cursor.advance_while(|&c| c != '"');
         if self.is_at_end() {
             bail!("Unterminated string.");
         }
