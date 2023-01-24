@@ -148,34 +148,26 @@ impl Debug for Token {
 }
 
 struct SourceCursor<'src> {
-    source: &'src str,
-    start: Chars<'src>,
+    start: &'src str,
     current: Chars<'src>,
-    curr_len: usize,
     curr_line: usize,
 }
 
 impl<'src> SourceCursor<'src> {
     pub fn new(source: &'src str) -> Self {
         Self {
-            source,
-            start: source.chars(),
+            start: source,
             current: source.chars(),
-            curr_len: 0,
             curr_line: 1, // current line for error reports
         }
     }
 
     pub fn set_start(&mut self) {
-        self.start = self.current.clone();
-        self.curr_len = 0;
+        self.start = self.current.as_str();
     }
 
     pub fn advance(&mut self) -> Option<char> {
-        let old_len = self.current.as_str().len();
         let next = self.current.next();
-        let new_len = self.current.as_str().len();
-        self.curr_len += old_len - new_len;
         if next == Some('\n') {
             self.curr_line += 1;
         }
@@ -201,7 +193,8 @@ impl<'src> SourceCursor<'src> {
     }
 
     pub fn substring(&self, start: usize, rear: usize) -> &str {
-        &self.start.as_str()[start..self.curr_len - rear]
+        let curr_len = self.start.len() - self.current.as_str().len();
+        &self.start[start..curr_len - rear]
     }
 }
 
@@ -214,7 +207,6 @@ impl<'a> Iterator for SourceCursor<'a> {
 }
 
 pub struct Scanner<'src> {
-    source: &'src str,
     tokens: Vec<Token>,
     had_error: bool,
 
@@ -225,7 +217,6 @@ pub struct Scanner<'src> {
 impl<'src> Scanner<'src> {
     pub fn new(source: &'src str) -> Self {
         Self {
-            source,
             tokens: vec![],
             had_error: false,
             cursor: SourceCursor::new(source),
@@ -340,7 +331,7 @@ impl<'src> Scanner<'src> {
     fn string(&mut self) -> Result<TokenType> {
         self.cursor
             .find(|c| *c == '"')
-            .ok_or(anyhow!("Unterminated string."))?;
+            .context("Unterminated string.")?;
         self.curr_literal = Some(Literal::String(self.cursor.substring(1, 1).to_owned()));
         Ok(TokenType::String)
     }
