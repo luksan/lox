@@ -84,11 +84,9 @@ impl Interpreter {
 
     pub fn execute_block(&mut self, statements: &ListStmt, mut env: Env) -> StmtVisitResult {
         std::mem::swap(&mut env, &mut self.env);
-        for statement in statements {
-            statement.accept(self)?;
-        }
+        let ret = statements.iter().try_fold((), |_, stmt| stmt.accept(self));
         std::mem::swap(&mut env, &mut self.env);
-        Continue(())
+        ret
     }
 
     fn get_superclass(
