@@ -84,7 +84,7 @@ impl Interpreter {
 
     pub fn execute_block(&mut self, statements: &ListStmt, mut env: Env) -> StmtVisitResult {
         std::mem::swap(&mut env, &mut self.env);
-        let ret = statements.iter().try_fold((), |_, stmt| stmt.accept(self));
+        let ret = statements.iter().try_for_each(|stmt| stmt.accept(self));
         std::mem::swap(&mut env, &mut self.env);
         ret
     }
