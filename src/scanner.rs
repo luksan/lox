@@ -209,15 +209,43 @@ impl<'a> Iterator for SourceCursor<'a> {
 pub struct Scanner<'src> {
     tokens: Vec<Token>,
     had_error: bool,
+    at_eof: bool,
 
     cursor: SourceCursor<'src>,
     curr_literal: Option<Literal>,
+}
+
+impl Iterator for Scanner<'_> {
+    type Item = Token;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.at_eof {
+            return None;
+        }
+        loop {
+            if !self.is_at_end() {
+                self.cursor.set_start();
+                match self.scan_token() {
+                    Ok(None) => {}
+                    Ok(tok) => break tok,
+                    Err(err) => {
+                        self.had_error = true;
+                        eprintln!("[line {}] Error: {}", self.cursor.curr_line, err);
+                    }
+                }
+            } else {
+                self.at_eof = true;
+                break Some(Token::new(TokenType::Eof, "", self.cursor.curr_line));
+            }
+        }
+    }
 }
 
 impl<'src> Scanner<'src> {
     pub fn new(source: &'src str) -> Self {
         Self {
             tokens: vec![],
+            at_eof: false,
             had_error: false,
             cursor: SourceCursor::new(source),
             curr_literal: None,
@@ -246,6 +274,10 @@ impl<'src> Scanner<'src> {
         }
         self.tokens
             .push(Token::new(TokenType::Eof, "", self.cursor.curr_line));
+        self.scanning_errors()
+    }
+
+    pub fn scanning_errors(&self) -> Result<(), LoxError> {
         if self.had_error {
             Err(LoxError::CompileError(anyhow!("Errors during scanning.")))
         } else {

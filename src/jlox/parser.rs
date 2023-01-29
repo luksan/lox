@@ -5,28 +5,28 @@ use crate::jlox::ast::{
     stmt::{self, ListStmt, Stmt},
 };
 use crate::scanner::TokenType::*;
-use crate::scanner::{Scanner, Token, TokenType};
+use crate::scanner::{Token, TokenType};
 use crate::LoxType;
 
 use std::iter::Peekable;
-use std::vec::IntoIter;
 
-pub struct Parser {
-    tokens: Peekable<IntoIter<Token>>,
+pub struct Parser<'s> {
+    tokens: Peekable<&'s mut dyn Iterator<Item = Token>>,
     had_error: bool,
 }
 
 pub type ParseResult = Result<Expr>;
 
-impl Parser {
-    pub fn new(scanner: Scanner) -> Self {
+impl<'s> Parser<'s> {
+    pub fn parse(scanner: &'s mut dyn Iterator<Item = Token>) -> Result<Vec<Stmt>> {
         Self {
-            tokens: scanner.take_tokens().into_iter().peekable(),
+            tokens: scanner.peekable(),
             had_error: false,
         }
+        .parse_self()
     }
 
-    pub fn parse(&mut self) -> Result<Vec<Stmt>> {
+    fn parse_self(&mut self) -> Result<Vec<Stmt>> {
         let mut statements = Vec::new();
         while !self.at_end() {
             match self.declaration() {

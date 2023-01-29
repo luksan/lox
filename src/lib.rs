@@ -82,13 +82,11 @@ impl Lox {
 
     fn run(&mut self, source: impl AsRef<str>) -> Result<(), LoxError> {
         let mut scanner = scanner::Scanner::new(source.as_ref());
-        let scan_result = scanner.scan_tokens();
-        let mut parser = Parser::new(scanner);
-        let ast = parser.parse().map_err(|e| {
+        let ast = Parser::parse(&mut scanner).map_err(|e| {
             self.had_error = true;
             LoxError::CompileError(e)
         })?;
-        scan_result?; // abort if there were scanning errors, but not before trying to parse
+        scanner.scanning_errors()?; // abort if there were scanning errors, but not before trying to parse
 
         let errors = Resolver::resolve(&mut self.interpreter, &ast);
         if !errors.is_empty() {
