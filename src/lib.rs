@@ -90,11 +90,7 @@ impl Lox {
         })?;
         scan_result?; // abort if there were scanning errors, but not before trying to parse
 
-        let (resolved, errors) = Resolver::resolve(
-            std::mem::replace(&mut self.interpreter, Interpreter::new()),
-            &ast,
-        );
-        self.interpreter = resolved;
+        let errors = Resolver::resolve(&mut self.interpreter, &ast);
         if !errors.is_empty() {
             return Err(LoxError::CompileError(anyhow!(
                 "Aborting due to resolver errors."

@@ -260,6 +260,7 @@ impl Callable for Function {
             ControlFlow::Break(result) => result?,
         };
         if self.is_init {
+            // Return "self" from the class initializer, not the value of the initializer body.
             Ok(self.closure.get_at("this", 0).unwrap())
         } else {
             Ok(val)
