@@ -205,8 +205,8 @@ struct PrattRule {
 type ParseFn = fn(&mut Compiler<'_>, bool);
 type OptParseFn = Option<ParseFn>;
 
-impl<'compiler> Compiler<'compiler> {
-    fn new(tokens: &'compiler [Token], heap: &'compiler mut Heap) -> Self {
+impl<'pratt> Compiler<'pratt> {
+    fn new(tokens: &'pratt [Token], heap: &'pratt mut Heap) -> Self {
         let tok0 = &tokens[0];
         Self {
             tokens,
@@ -679,6 +679,13 @@ impl<'compiler> Compiler<'compiler> {
         self.emit_constant(n.into());
     }
 
+    fn and(&mut self, _can_assign: bool) {
+        let end_jump = self.emit_jump(OpCode::JumpIfFalse);
+        self.emit_byte(OpCode::Pop);
+        self.parse_precedence(Precedence::And);
+        self.patch_jump(end_jump);
+    }
+
     fn or(&mut self, _can_assign: bool) {
         let else_jump = self.emit_jump(OpCode::JumpIfFalse);
         let end_jump = self.emit_jump(OpCode::Jump);
@@ -691,30 +698,6 @@ impl<'compiler> Compiler<'compiler> {
 
     fn string(&mut self, _can_assign: bool) {
         self.emit_string_constant(self.previous().string_literal().to_string());
-    }
-
-    fn named_variable(&mut self, name: &str, can_assign: bool) {
-        let mut get_slot_and_ops = || -> Result<_> {
-            Ok(if let Some(local) = self.func_scope.resolve_local(name)? {
-                (local, OpCode::GetLocal, OpCode::SetLocal)
-            } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name)? {
-                (upvalue, OpCode::GetUpvalue, OpCode::SetUpvalue)
-            } else {
-                let global_var_name = self.identifier_constant(name.to_string());
-                (global_var_name, OpCode::GetGlobal, OpCode::SetGlobal)
-            })
-        };
-
-        let (frame_slot, get_op, set_op) = get_slot_and_ops().unwrap_or_else(|e: _| {
-            self.error(e);
-            (0, OpCode::BadOpCode, OpCode::BadOpCode)
-        });
-        if can_assign && self.match_token(TokenType::Equal) {
-            self.expression();
-            self.emit_bytes(set_op, frame_slot);
-        } else {
-            self.emit_bytes(get_op, frame_slot);
-        }
     }
 
     fn variable(&mut self, can_assign: bool) {
@@ -779,14 +762,17 @@ impl<'compiler> Compiler<'compiler> {
             self.error("Invalid assignment target.")
         }
     }
+}
 
+// helper methods
+impl<'helpers> Compiler<'helpers> {
     /// Make a string constant on the heap for this identifier
     fn identifier_constant(&mut self, name: String) -> u8 {
         let v: *const _ = self.heap.new_string(name);
         self.make_constant(v)
     }
 
-    fn add_local(&mut self, name: &'compiler str) {
+    fn add_local(&mut self, name: &'helpers str) {
         if let Err(e) = self.func_scope.add_local(name) {
             self.error(e);
         }
@@ -847,18 +833,38 @@ impl<'compiler> Compiler<'compiler> {
         arg_count
     }
 
-    fn and(&mut self, _can_assign: bool) {
-        let end_jump = self.emit_jump(OpCode::JumpIfFalse);
-        self.emit_byte(OpCode::Pop);
-        self.parse_precedence(Precedence::And);
-        self.patch_jump(end_jump);
-    }
+    fn named_variable(&mut self, name: &str, can_assign: bool) {
+        let mut get_slot_and_ops = || -> Result<_> {
+            Ok(if let Some(local) = self.func_scope.resolve_local(name)? {
+                (local, OpCode::GetLocal, OpCode::SetLocal)
+            } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name)? {
+                (upvalue, OpCode::GetUpvalue, OpCode::SetUpvalue)
+            } else {
+                let global_var_name = self.identifier_constant(name.to_string());
+                (global_var_name, OpCode::GetGlobal, OpCode::SetGlobal)
+            })
+        };
 
+        let (frame_slot, get_op, set_op) = get_slot_and_ops().unwrap_or_else(|e: _| {
+            self.error(e);
+            (0, OpCode::BadOpCode, OpCode::BadOpCode)
+        });
+        if can_assign && self.match_token(TokenType::Equal) {
+            self.expression();
+            self.emit_bytes(set_op, frame_slot);
+        } else {
+            self.emit_bytes(get_op, frame_slot);
+        }
+    }
+}
+
+// Token iteration
+impl<'tok_iter> Compiler<'tok_iter> {
     fn current(&self) -> &Token {
         self.curr_tok
     }
 
-    fn previous(&self) -> &'compiler Token {
+    fn previous(&self) -> &'tok_iter Token {
         self.prev_tok
     }
 
@@ -902,7 +908,7 @@ impl<'compiler> Compiler<'compiler> {
         self.error_at(self.curr_tok, msg);
     }
 
-    fn error_at(&mut self, token: &'compiler Token, msg: &str) {
+    fn error_at(&mut self, token: &'tok_iter Token, msg: &str) {
         if self.panic_mode {
             return;
         }
@@ -919,7 +925,10 @@ impl<'compiler> Compiler<'compiler> {
         self.had_error = true;
         self.panic_mode = true;
     }
+}
 
+// Bytecode output routines
+impl<'bytecode> Compiler<'bytecode> {
     fn current_chunk(&mut self) -> &mut Chunk {
         &mut self.func_scope.function.chunk
     }
