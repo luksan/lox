@@ -19,12 +19,11 @@ pub fn compile(source: &str, heap: &mut Heap) -> StdResult<NonNull<Obj<Function>
     let _e = span.enter();
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens()?;
-    let mut compiler = Compiler::new(scanner.tokens(), heap);
+    let compiler = Compiler::new(scanner.tokens(), heap);
     let root = Rc::new(&compiler as *const dyn HasRoots);
     compiler.heap.register_roots(&root);
-    compiler.compile().map_err(LoxError::CompileError)?;
     compiler
-        .end_compiler()
+        .compile()
         .map(|func_ptr| NonNull::new(func_ptr as *mut _).unwrap())
         .map_err(LoxError::CompileError)
 }
@@ -224,7 +223,7 @@ impl<'compiler> Compiler<'compiler> {
         }
     }
 
-    pub fn compile(&mut self) -> Result<()> {
+    fn compile(mut self) -> Result<*const Obj<Function>> {
         /*for t in &self.tokens {
             println!("{:?}", t.tok_type());
         }*/
@@ -232,10 +231,7 @@ impl<'compiler> Compiler<'compiler> {
         while !self.match_token(TokenType::Eof) {
             self.declaration()
         }
-        Ok(())
-    }
 
-    pub fn end_compiler(mut self) -> Result<*const Obj<Function>> {
         self.emit_return();
 
         if get_settings().disassemble_compiler_output {
