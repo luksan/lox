@@ -68,7 +68,7 @@ struct FunctionScope {
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum Upvalue {
-    Local(u8),
+    Local(LocalIdx),
     Up(UpvalueIdx),
 }
 
@@ -88,9 +88,18 @@ impl Upvalue {
 
     pub fn index(&self) -> u8 {
         match self {
-            Upvalue::Local(idx) => *idx,
+            Upvalue::Local(idx) => idx.0,
             Upvalue::Up(idx) => idx.0,
         }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct LocalIdx(u8);
+
+impl Into<u8> for LocalIdx {
+    fn into(self) -> u8 {
+        self.0
     }
 }
 
@@ -157,13 +166,13 @@ impl<'compiler> FunctionScope {
 
     /// Returns the stack slot of a local variable, or None if no such local variable exists.
     /// Errors if the variable exists but isn't initialized.
-    fn resolve_local(&self, name: &str) -> Result<Option<u8>> {
+    fn resolve_local(&self, name: &str) -> Result<Option<LocalIdx>> {
         for (i, local) in self.locals.iter().enumerate().rev() {
             if local.name == name {
                 if local.depth == usize::MAX {
                     bail!("Can't read local variable in its own initializer.");
                 }
-                return Ok(Some(i as u8));
+                return Ok(Some(LocalIdx(i as u8)));
             }
         }
         Ok(None)
@@ -175,7 +184,7 @@ impl<'compiler> FunctionScope {
         let Some(enclosing) = self.enclosing.as_mut() else { return Ok(None) };
 
         if let Some(local) = enclosing.resolve_local(name).unwrap() {
-            enclosing.locals[local as usize].is_captured = true;
+            enclosing.capture_local(local);
             Some(Upvalue::Local(local))
         } else if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
             Some(Upvalue::Up(upvalue))
@@ -184,6 +193,11 @@ impl<'compiler> FunctionScope {
         }
         .map(|upvalue| self.add_upvalue(upvalue))
         .transpose()
+    }
+
+    /// Mark the local variable as captured by an upvalue
+    fn capture_local(&mut self, idx: LocalIdx) {
+        self.locals[idx.0 as usize].is_captured = true;
     }
 }
 
@@ -832,7 +846,7 @@ impl<'helpers> Compiler<'helpers> {
     fn named_variable(&mut self, name: &str, can_assign: bool) {
         let mut get_slot_and_ops = || -> Result<_> {
             Ok(if let Some(local) = self.func_scope.resolve_local(name)? {
-                (local, OpCode::GetLocal, OpCode::SetLocal)
+                (local.into(), OpCode::GetLocal, OpCode::SetLocal)
             } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name)? {
                 (upvalue.into(), OpCode::GetUpvalue, OpCode::SetUpvalue)
             } else {
