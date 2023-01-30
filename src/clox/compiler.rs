@@ -467,7 +467,7 @@ impl<'pratt> Compiler<'pratt> {
         self.declare_variable();
 
         self.emit_bytes(OpCode::Class, name_constant);
-        self.define_variable(name_constant);
+        self.define_variable(Some(name_constant));
 
         let mut current_class = ClassCompiler::new(self.current_class.take());
         self.current_class = Some((&current_class).into());
@@ -481,7 +481,7 @@ impl<'pratt> Compiler<'pratt> {
             }
             self.begin_scope();
             self.add_local("super".to_string());
-            self.define_variable(0);
+            self.define_variable(None);
 
             self.named_variable(class_name, false);
             self.emit_byte(OpCode::Inherit);
@@ -728,7 +728,7 @@ impl<'pratt> Compiler<'pratt> {
 // helper methods
 impl<'helpers> Compiler<'helpers> {
     /// Make a string constant on the heap for this identifier
-    fn identifier_constant(&mut self, name: String) -> u8 {
+    fn identifier_constant(&mut self, name: String) -> ChunkConst {
         let v: *const _ = self.heap.new_string(name);
         self.make_constant(v)
     }
@@ -739,8 +739,11 @@ impl<'helpers> Compiler<'helpers> {
         }
     }
 
+    /// Declare a local variable, do nothing if current scope is global
+    /// Chapter 22.3
     fn declare_variable(&mut self) {
-        if self.func_scope.scope_depth == 0 {
+        if self.scope_depth() == 0 {
+            // Global scope
             return;
         }
         let name = self.previous();
@@ -750,13 +753,17 @@ impl<'helpers> Compiler<'helpers> {
         self.add_local(name.lexeme().to_string());
     }
 
-    fn parse_variable(&mut self, err: &str) -> u8 {
+    /// Parse a global or local variable, return the ChunkConst if the
+    /// identifier was stored in the constant table.
+    fn parse_variable(&mut self, err: &str) -> Option<ChunkConst> {
         self.consume(TokenType::Identifier, err);
         self.declare_variable();
         if self.func_scope.scope_depth > 0 {
-            return 0;
+            // We don't store the name of local variables.
+            // Chapter 22.3
+            return None;
         }
-        self.identifier_constant(self.previous().lexeme().to_string())
+        Some(self.identifier_constant(self.previous().lexeme().to_string()))
     }
 
     fn mark_initialized(&mut self) {
@@ -767,12 +774,12 @@ impl<'helpers> Compiler<'helpers> {
         self.func_scope.locals.last_mut().map(|l| l.depth = depth);
     }
 
-    fn define_variable(&mut self, global: u8) {
+    fn define_variable(&mut self, global: Option<ChunkConst>) {
         if self.scope_depth() > 0 {
             self.mark_initialized();
             return;
         }
-        self.emit_bytes(OpCode::DefineGlobal, global)
+        self.emit_bytes(OpCode::DefineGlobal, global.unwrap())
     }
 
     fn argument_list(&mut self) -> u8 {
@@ -802,7 +809,7 @@ impl<'helpers> Compiler<'helpers> {
                 (upvalue, OpCode::GetUpvalue, OpCode::SetUpvalue)
             } else {
                 let global_var_name = self.identifier_constant(name.to_string());
-                (global_var_name, OpCode::GetGlobal, OpCode::SetGlobal)
+                (global_var_name.into(), OpCode::GetGlobal, OpCode::SetGlobal)
             })
         };
 
@@ -929,6 +936,16 @@ impl<'tok_iter> Compiler<'tok_iter> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ChunkConst {
+    idx: u8,
+}
+impl Into<u8> for ChunkConst {
+    fn into(self) -> u8 {
+        self.idx
+    }
+}
+
 // Bytecode output routines
 impl<'bytecode> Compiler<'bytecode> {
     fn current_chunk(&mut self) -> &mut Chunk {
@@ -995,14 +1012,15 @@ impl<'bytecode> Compiler<'bytecode> {
         self.emit_bytes(OpCode::Constant, idx);
     }
 
-    fn make_constant(&mut self, c: impl Into<Value>) -> u8 {
+    fn make_constant(&mut self, c: impl Into<Value>) -> ChunkConst {
         let i = self.current_chunk().add_constant(c.into());
-        if i > u8::MAX as usize {
+        let idx = if i > u8::MAX as usize {
             self.error("Too many constants in one chunk.");
             0
         } else {
             i as u8
-        }
+        };
+        ChunkConst { idx }
     }
 }
 
