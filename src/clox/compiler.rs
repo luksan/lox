@@ -39,20 +39,18 @@ struct Compiler<'a> {
     panic_mode: bool,
 
     func_scope: FunctionScope,
-    current_class: Option<NonNull<ClassCompiler>>,
+    current_class: Option<ClassCompiler>,
 
     heap: &'a mut Heap,
 }
 
 struct ClassCompiler {
-    enclosing: Option<NonNull<Self>>,
     has_superclass: bool,
 }
 
 impl ClassCompiler {
-    fn new(enclosing: Option<NonNull<Self>>) -> Self {
+    fn new() -> Self {
         Self {
-            enclosing,
             has_superclass: false,
         }
     }
@@ -469,8 +467,7 @@ impl<'pratt> Compiler<'pratt> {
         self.emit_bytes(OpCode::Class, name_constant);
         self.define_variable(Some(name_constant));
 
-        let mut current_class = ClassCompiler::new(self.current_class.take());
-        self.current_class = Some((&current_class).into());
+        let enclosing_class_decl = self.current_class.replace(ClassCompiler::new());
 
         if self.match_token(TokenType::Less) {
             // Ch 29, superclasses
@@ -485,7 +482,7 @@ impl<'pratt> Compiler<'pratt> {
 
             self.named_variable(class_name, false);
             self.emit_byte(OpCode::Inherit);
-            current_class.has_superclass = true;
+            self.current_class.as_mut().unwrap().has_superclass = true;
         }
 
         self.named_variable(class_name, false);
@@ -496,10 +493,11 @@ impl<'pratt> Compiler<'pratt> {
         self.consume(TokenType::RightBrace, "Expect '}' after class body.");
         self.emit_byte(OpCode::Pop);
 
-        if current_class.has_superclass {
+        if self.current_class.as_ref().unwrap().has_superclass {
+            // close the scope created above for storing "super"
             self.end_scope();
         }
-        self.current_class = current_class.enclosing.take();
+        self.current_class = enclosing_class_decl;
     }
 
     fn fun_declaration(&mut self) {
@@ -666,10 +664,12 @@ impl<'pratt> Compiler<'pratt> {
     }
 
     fn super_(&mut self, _can_assign: bool) {
-        if self.current_class.is_none() {
-            self.error("Can't use 'super' outside of a class.");
-        } else if unsafe { !self.current_class.unwrap().as_ref().has_superclass } {
-            self.error("Can't use 'super' in a class with no superclass.")
+        match self.current_class.as_ref() {
+            None => self.error("Can't use 'super' outside of a class."),
+            Some(cls) if !cls.has_superclass => {
+                self.error("Can't use 'super' in a class with no superclass.")
+            }
+            _ => {}
         };
         self.consume(TokenType::Dot, "Expect '.' after 'super'.");
         self.consume(TokenType::Identifier, "Expect superclass method name.");
