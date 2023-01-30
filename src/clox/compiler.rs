@@ -69,25 +69,28 @@ struct FunctionScope {
 #[derive(Copy, Clone, Debug, PartialEq)]
 enum Upvalue {
     Local(u8),
-    Up(u8),
+    Up(UpvalueIdx),
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+struct UpvalueIdx(u8);
+
+impl Into<u8> for UpvalueIdx {
+    fn into(self) -> u8 {
+        self.0
+    }
 }
 
 impl Upvalue {
-    fn new(index: u8, is_local: bool) -> Self {
-        if is_local {
-            Self::Local(index)
-        } else {
-            Self::Up(index)
-        }
-    }
-
     pub fn is_local(&self) -> bool {
         matches!(self, Self::Local(_))
     }
 
     pub fn index(&self) -> u8 {
-        let (Self::Local(x) | Self::Up(x)) = self;
-        *x
+        match self {
+            Upvalue::Local(idx) => *idx,
+            Upvalue::Up(idx) => idx.0,
+        }
     }
 }
 
@@ -127,16 +130,16 @@ impl<'compiler> FunctionScope {
 
     /// Adds an upvalue to the upvalues array and returns the local index
     /// in the array. If the upvalue already exists the existing slot is returned.
-    fn add_upvalue(&mut self, new: Upvalue) -> Result<u8> {
+    fn add_upvalue(&mut self, new: Upvalue) -> Result<UpvalueIdx> {
         if let Some(i) = self.upvalues.iter().position(|&uv| uv == new) {
-            return Ok(i as u8);
+            return Ok(UpvalueIdx(i as u8));
         }
         if self.upvalues.len() >= U8_MAX_LEN {
             bail!("Too many closure variables in function.")
         }
         self.upvalues.push(new);
         self.function.upvalue_count = self.upvalues.len();
-        Ok((self.function.upvalue_count - 1) as u8)
+        Ok(UpvalueIdx((self.function.upvalue_count - 1) as u8))
     }
 
     /// Check that the variable isn't already declared in the current scope
@@ -168,7 +171,7 @@ impl<'compiler> FunctionScope {
 
     /// Create a chain of upvalues through the function scopes,
     /// calling add_upvalue() in each scope and returning the result.
-    fn resolve_upvalue(&mut self, name: &str) -> Result<Option<u8>> {
+    fn resolve_upvalue(&mut self, name: &str) -> Result<Option<UpvalueIdx>> {
         let Some(enclosing) = self.enclosing.as_mut() else { return Ok(None) };
 
         if let Some(local) = enclosing.resolve_local(name).unwrap() {
