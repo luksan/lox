@@ -447,47 +447,6 @@ impl<'pratt> Compiler<'pratt> {
         self.consume(TokenType::RightBrace, "Expect '}' after block.");
     }
 
-    fn function(&mut self, func_type: FunctionType) {
-        let outer_scope =
-            std::mem::replace(&mut self.func_scope, FunctionScope::new(func_type, None));
-        self.func_scope.enclosing = Some(Box::new(outer_scope));
-        self.func_scope.function.name = self.heap.new_string(self.previous().lexeme().to_string());
-        self.begin_scope();
-        self.consume(TokenType::LeftParen, "Expect '(' after function name.");
-        if !self.check(TokenType::RightParen) {
-            loop {
-                if self.func_scope.function.arity == 255 {
-                    self.error_at_current("Can't have more than 255 parameters.");
-                } else {
-                    self.func_scope.function.arity += 1;
-                }
-                let constant = self.parse_variable("Expect parameter name.");
-                self.define_variable(constant);
-                if !self.match_token(TokenType::Comma) {
-                    break;
-                }
-            }
-        }
-        self.consume(TokenType::RightParen, "Expect ')' after parameters.");
-        self.consume(TokenType::LeftBrace, "Expect '{' before function body.");
-        self.block();
-        self.emit_return();
-
-        if get_settings().disassemble_compiler_output {
-            self.func_scope.function.disassemble();
-        }
-
-        // The compiler scope for the current function ends here
-        let outer_scope = *self.func_scope.enclosing.take().unwrap();
-        let new = std::mem::replace(&mut self.func_scope, outer_scope);
-        let func = self.heap.new_object(new.function);
-        let val = self.make_constant(func as *const _);
-        self.emit_bytes(OpCode::Closure, val);
-        for uv in new.upvalues {
-            self.emit_bytes(uv.is_local, uv.index);
-        }
-    }
-
     fn method(&mut self) {
         self.consume(TokenType::Identifier, "Expect method name.");
         let constant = self.identifier_constant(self.previous().lexeme().to_string());
@@ -856,6 +815,47 @@ impl<'helpers> Compiler<'helpers> {
             self.emit_bytes(set_op, frame_slot);
         } else {
             self.emit_bytes(get_op, frame_slot);
+        }
+    }
+
+    fn function(&mut self, func_type: FunctionType) {
+        let outer_scope =
+            std::mem::replace(&mut self.func_scope, FunctionScope::new(func_type, None));
+        self.func_scope.enclosing = Some(Box::new(outer_scope));
+        self.func_scope.function.name = self.heap.new_string(self.previous().lexeme().to_string());
+        self.begin_scope();
+        self.consume(TokenType::LeftParen, "Expect '(' after function name.");
+        if !self.check(TokenType::RightParen) {
+            loop {
+                if self.func_scope.function.arity == 255 {
+                    self.error_at_current("Can't have more than 255 parameters.");
+                } else {
+                    self.func_scope.function.arity += 1;
+                }
+                let constant = self.parse_variable("Expect parameter name.");
+                self.define_variable(constant);
+                if !self.match_token(TokenType::Comma) {
+                    break;
+                }
+            }
+        }
+        self.consume(TokenType::RightParen, "Expect ')' after parameters.");
+        self.consume(TokenType::LeftBrace, "Expect '{' before function body.");
+        self.block();
+        self.emit_return();
+
+        if get_settings().disassemble_compiler_output {
+            self.func_scope.function.disassemble();
+        }
+
+        // The compiler scope for the current function ends here
+        let outer_scope = *self.func_scope.enclosing.take().unwrap();
+        let new = std::mem::replace(&mut self.func_scope, outer_scope);
+        let func = self.heap.new_object(new.function);
+        let val = self.make_constant(func as *const _);
+        self.emit_bytes(OpCode::Closure, val);
+        for uv in new.upvalues {
+            self.emit_bytes(uv.is_local, uv.index);
         }
     }
 }
