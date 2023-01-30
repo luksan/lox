@@ -72,6 +72,16 @@ struct Upvalue {
     is_local: bool,
 }
 
+impl Upvalue {
+    pub fn is_local(&self) -> bool {
+        self.is_local
+    }
+
+    pub fn index(&self) -> u8 {
+        self.index
+    }
+}
+
 impl<'compiler> FunctionScope {
     fn new(func_type: FunctionType, outer: Option<Box<Self>>) -> Self {
         let name = if func_type != FunctionType::Function {
@@ -106,6 +116,8 @@ impl<'compiler> FunctionScope {
         Ok(())
     }
 
+    /// Adds an upvalue to the upvalues array and returns the local index
+    /// in the array. If the upvalue already exists the existing slot is returned.
     fn add_upvalue(&mut self, index: u8, is_local: bool) -> Result<u8> {
         let new = Upvalue { index, is_local };
         if let Some(i) = self.upvalues.iter().position(|&uv| uv == new) {
@@ -119,6 +131,7 @@ impl<'compiler> FunctionScope {
         Ok((self.function.upvalue_count - 1) as u8)
     }
 
+    /// Check that the variable isn't already declared in the current scope
     fn declare_local(&mut self, name: &Token) -> Result<()> {
         for local in self.locals.iter().rev() {
             if local.depth < self.scope_depth {
@@ -145,17 +158,21 @@ impl<'compiler> FunctionScope {
         Ok(None)
     }
 
+    /// Create a chain of upvalues through the function scopes,
+    /// calling add_upvalue() in each scope and returning the result.
     fn resolve_upvalue(&mut self, name: &str) -> Result<Option<u8>> {
-        if let Some(enclosing) = self.enclosing.as_mut() {
-            if let Some(local) = enclosing.resolve_local(name).unwrap() {
-                enclosing.locals[local as usize].is_captured = true;
-                return Ok(Some(self.add_upvalue(local, true)?));
-            }
-            if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
-                return Ok(Some(self.add_upvalue(upvalue, false)?));
-            }
+        let Some(enclosing) = self.enclosing.as_mut() else { return Ok(None) };
+
+        if let Some(local) = enclosing.resolve_local(name).unwrap() {
+            enclosing.locals[local as usize].is_captured = true;
+            Some((local, true))
+        } else if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
+            Some((upvalue, false))
+        } else {
+            None
         }
-        Ok(None)
+        .map(|(idx, is_local)| self.add_upvalue(idx, is_local))
+        .transpose()
     }
 }
 
@@ -806,7 +823,7 @@ impl<'helpers> Compiler<'helpers> {
             Ok(if let Some(local) = self.func_scope.resolve_local(name)? {
                 (local, OpCode::GetLocal, OpCode::SetLocal)
             } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name)? {
-                (upvalue, OpCode::GetUpvalue, OpCode::SetUpvalue)
+                (upvalue.into(), OpCode::GetUpvalue, OpCode::SetUpvalue)
             } else {
                 let global_var_name = self.identifier_constant(name.to_string());
                 (global_var_name.into(), OpCode::GetGlobal, OpCode::SetGlobal)
@@ -862,7 +879,7 @@ impl<'helpers> Compiler<'helpers> {
         let val = self.make_constant(func as *const _);
         self.emit_bytes(OpCode::Closure, val);
         for uv in new.upvalues {
-            self.emit_bytes(uv.is_local, uv.index);
+            self.emit_bytes(uv.is_local(), uv.index());
         }
     }
 }
