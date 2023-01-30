@@ -35,7 +35,7 @@ struct Compiler<'a> {
     tokens: &'a [Token],
     tok_pos: usize,
     prev_tok: &'a Token,
-    current: &'a Token,
+    curr_tok: &'a Token,
     had_error: bool,
     panic_mode: bool,
 
@@ -213,7 +213,7 @@ impl<'compiler> Compiler<'compiler> {
             tokens,
             tok_pos: 0,
             prev_tok: tok0,
-            current: tok0,
+            curr_tok: tok0,
             had_error: false,
             panic_mode: false,
 
@@ -664,12 +664,12 @@ impl<'compiler> Compiler<'compiler> {
 
     fn synchronize(&mut self) {
         self.panic_mode = false;
-        while self.current.tok_type() != TokenType::Eof
+        while self.current().tok_type() != TokenType::Eof
             && self.previous().tok_type() != TokenType::Semicolon
         {
             use TokenType::*;
             if matches!(
-                self.current.tok_type(),
+                self.current().tok_type(),
                 Class | Fun | Var | For | If | While | Print | Return
             ) {
                 break;
@@ -774,7 +774,7 @@ impl<'compiler> Compiler<'compiler> {
         };
         let can_assign = precedence <= Precedence::Assignment;
         prefix_rule(self, can_assign);
-        while precedence <= self.get_rule(self.current.tok_type()).precedence {
+        while precedence <= self.get_rule(self.current().tok_type()).precedence {
             self.advance();
             let infix_rule = self.get_rule(self.previous().tok_type()).infix;
             infix_rule.unwrap()(self, can_assign);
@@ -858,6 +858,10 @@ impl<'compiler> Compiler<'compiler> {
         self.patch_jump(end_jump);
     }
 
+    fn current(&self) -> &Token {
+        self.curr_tok
+    }
+
     fn previous(&self) -> &'compiler Token {
         self.prev_tok
     }
@@ -868,12 +872,12 @@ impl<'compiler> Compiler<'compiler> {
             //            self.error_current("Unexpected end of token stream.");
             //          return;
         }
-        self.prev_tok = mem::replace(&mut self.current, &self.tokens[self.tok_pos]);
+        self.prev_tok = mem::replace(&mut self.curr_tok, &self.tokens[self.tok_pos]);
         self.tok_pos += 1;
     }
 
     fn consume(&mut self, typ: TokenType, err_msg: &str) {
-        if self.current.tok_type() == typ {
+        if self.current().tok_type() == typ {
             self.advance()
         } else {
             self.error_at_current(err_msg)
@@ -891,7 +895,7 @@ impl<'compiler> Compiler<'compiler> {
     }
 
     fn check(&self, token: TokenType) -> bool {
-        self.current.tok_type() == token
+        self.current().tok_type() == token
     }
 
     fn error(&mut self, msg: impl Display) {
@@ -899,7 +903,7 @@ impl<'compiler> Compiler<'compiler> {
     }
 
     fn error_at_current(&mut self, msg: &str) {
-        self.error_at(self.current, msg);
+        self.error_at(self.curr_tok, msg);
     }
 
     fn error_at(&mut self, token: &'compiler Token, msg: &str) {
