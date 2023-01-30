@@ -67,18 +67,27 @@ struct FunctionScope {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
-struct Upvalue {
-    index: u8,
-    is_local: bool,
+enum Upvalue {
+    Local(u8),
+    Up(u8),
 }
 
 impl Upvalue {
+    fn new(index: u8, is_local: bool) -> Self {
+        if is_local {
+            Self::Local(index)
+        } else {
+            Self::Up(index)
+        }
+    }
+
     pub fn is_local(&self) -> bool {
-        self.is_local
+        matches!(self, Self::Local(_))
     }
 
     pub fn index(&self) -> u8 {
-        self.index
+        let (Self::Local(x) | Self::Up(x)) = self;
+        *x
     }
 }
 
@@ -118,8 +127,7 @@ impl<'compiler> FunctionScope {
 
     /// Adds an upvalue to the upvalues array and returns the local index
     /// in the array. If the upvalue already exists the existing slot is returned.
-    fn add_upvalue(&mut self, index: u8, is_local: bool) -> Result<u8> {
-        let new = Upvalue { index, is_local };
+    fn add_upvalue(&mut self, new: Upvalue) -> Result<u8> {
         if let Some(i) = self.upvalues.iter().position(|&uv| uv == new) {
             return Ok(i as u8);
         }
@@ -165,13 +173,13 @@ impl<'compiler> FunctionScope {
 
         if let Some(local) = enclosing.resolve_local(name).unwrap() {
             enclosing.locals[local as usize].is_captured = true;
-            Some((local, true))
+            Some(Upvalue::Local(local))
         } else if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
-            Some((upvalue, false))
+            Some(Upvalue::Up(upvalue))
         } else {
             None
         }
-        .map(|(idx, is_local)| self.add_upvalue(idx, is_local))
+        .map(|upvalue| self.add_upvalue(upvalue))
         .transpose()
     }
 }
