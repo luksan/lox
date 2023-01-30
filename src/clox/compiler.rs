@@ -34,7 +34,7 @@ const U8_MAX_LEN: usize = 256;
 struct Compiler<'a> {
     tokens: &'a [Token],
     tok_pos: usize,
-    previous: &'a Token,
+    prev_tok: &'a Token,
     current: &'a Token,
     had_error: bool,
     panic_mode: bool,
@@ -206,13 +206,13 @@ struct PrattRule {
 type ParseFn = fn(&mut Compiler<'_>, bool);
 type OptParseFn = Option<ParseFn>;
 
-impl<'a> Compiler<'a> {
-    fn new(tokens: &'a [Token], heap: &'a mut Heap) -> Self {
+impl<'compiler> Compiler<'compiler> {
+    fn new(tokens: &'compiler [Token], heap: &'compiler mut Heap) -> Self {
         let tok0 = &tokens[0];
         Self {
             tokens,
             tok_pos: 0,
-            previous: tok0,
+            prev_tok: tok0,
             current: tok0,
             had_error: false,
             panic_mode: false,
@@ -342,7 +342,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn binary(&mut self, _can_assign: bool) {
-        let typ = self.previous.tok_type();
+        let typ = self.previous().tok_type();
         let rule = self.get_rule(typ);
         self.parse_precedence(rule.precedence.next_higher());
         macro_rules! b {
@@ -377,7 +377,7 @@ impl<'a> Compiler<'a> {
 
     fn dot(&mut self, can_assign: bool) {
         self.consume(TokenType::Identifier, "Expect property name after '.'.");
-        let name = self.identifier_constant(self.previous.lexeme().to_string());
+        let name = self.identifier_constant(self.previous().lexeme().to_string());
         if can_assign && self.match_token(TokenType::Equal) {
             self.expression();
             self.emit_bytes(OpCode::SetProperty, name);
@@ -391,7 +391,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn literal(&mut self, _can_assign: bool) {
-        self.emit_byte(match self.previous.tok_type() {
+        self.emit_byte(match self.previous().tok_type() {
             TokenType::False => OpCode::False,
             TokenType::Nil => OpCode::Nil,
             TokenType::True => OpCode::True,
@@ -454,7 +454,7 @@ impl<'a> Compiler<'a> {
         let outer_scope =
             std::mem::replace(&mut self.func_scope, FunctionScope::new(func_type, None));
         self.func_scope.enclosing = Some(Box::new(outer_scope));
-        self.func_scope.function.name = self.heap.new_string(self.previous.lexeme().to_string());
+        self.func_scope.function.name = self.heap.new_string(self.previous().lexeme().to_string());
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expect '(' after function name.");
         if !self.check(TokenType::RightParen) {
@@ -493,8 +493,8 @@ impl<'a> Compiler<'a> {
 
     fn method(&mut self) {
         self.consume(TokenType::Identifier, "Expect method name.");
-        let constant = self.identifier_constant(self.previous.lexeme().to_string());
-        let func_type = if self.previous.lexeme() == "init" {
+        let constant = self.identifier_constant(self.previous().lexeme().to_string());
+        let func_type = if self.previous().lexeme() == "init" {
             FunctionType::Initializer
         } else {
             FunctionType::Method
@@ -505,8 +505,8 @@ impl<'a> Compiler<'a> {
 
     fn class_declaration(&mut self) {
         self.consume(TokenType::Identifier, "Expect class name.");
-        let class_name = self.previous;
-        let name_constant = self.identifier_constant(self.previous.lexeme().to_string());
+        let class_name = self.previous().lexeme();
+        let name_constant = self.identifier_constant(class_name.to_string());
         self.declare_variable();
 
         self.emit_bytes(OpCode::Class, name_constant);
@@ -519,19 +519,19 @@ impl<'a> Compiler<'a> {
             // Ch 29, superclasses
             self.consume(TokenType::Identifier, "Expect superclass name.");
             self.variable(false);
-            if class_name.lexeme() == self.previous.lexeme() {
+            if class_name == self.previous().lexeme() {
                 self.error("A class can't inherit from itself.");
             }
             self.begin_scope();
             self.add_local("super");
             self.define_variable(0);
 
-            self.named_variable(class_name.lexeme(), false);
+            self.named_variable(class_name, false);
             self.emit_byte(OpCode::Inherit);
             current_class.has_superclass = true;
         }
 
-        self.named_variable(class_name.lexeme(), false);
+        self.named_variable(class_name, false);
         self.consume(TokenType::LeftBrace, "Expect '{' before class body.");
         while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
             self.method();
@@ -665,7 +665,7 @@ impl<'a> Compiler<'a> {
     fn synchronize(&mut self) {
         self.panic_mode = false;
         while self.current.tok_type() != TokenType::Eof
-            && self.previous.tok_type() != TokenType::Semicolon
+            && self.previous().tok_type() != TokenType::Semicolon
         {
             use TokenType::*;
             if matches!(
@@ -679,7 +679,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn number(&mut self, _can_assign: bool) {
-        let n = self.previous.number_literal();
+        let n = self.previous().number_literal();
         self.emit_constant(n.into());
     }
 
@@ -694,7 +694,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn string(&mut self, _can_assign: bool) {
-        self.emit_string_constant(self.previous.string_literal().to_string());
+        self.emit_string_constant(self.previous().string_literal().to_string());
     }
 
     fn named_variable(&mut self, name: &str, can_assign: bool) {
@@ -722,7 +722,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn variable(&mut self, can_assign: bool) {
-        self.named_variable(self.previous.lexeme(), can_assign)
+        self.named_variable(self.previous().lexeme(), can_assign)
     }
 
     fn super_(&mut self, _can_assign: bool) {
@@ -733,7 +733,7 @@ impl<'a> Compiler<'a> {
         };
         self.consume(TokenType::Dot, "Expect '.' after 'super'.");
         self.consume(TokenType::Identifier, "Expect superclass method name.");
-        let name = self.identifier_constant(self.previous.lexeme().to_string());
+        let name = self.identifier_constant(self.previous().lexeme().to_string());
         self.named_variable("this", false);
         if self.match_token(TokenType::LeftParen) {
             let arg_count = self.argument_list();
@@ -754,7 +754,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn unary(&mut self, _can_assign: bool) {
-        let typ = self.previous.tok_type();
+        let typ = self.previous().tok_type();
         self.parse_precedence(Precedence::Unary);
         match typ {
             TokenType::Bang => self.emit_byte(OpCode::Not),
@@ -765,7 +765,7 @@ impl<'a> Compiler<'a> {
 
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
-        let prefix_rule = match self.get_rule(self.previous.tok_type()).prefix {
+        let prefix_rule = match self.get_rule(self.previous().tok_type()).prefix {
             Some(p) => p,
             None => {
                 self.error("Expect expression.");
@@ -776,7 +776,7 @@ impl<'a> Compiler<'a> {
         prefix_rule(self, can_assign);
         while precedence <= self.get_rule(self.current.tok_type()).precedence {
             self.advance();
-            let infix_rule = self.get_rule(self.previous.tok_type()).infix;
+            let infix_rule = self.get_rule(self.previous().tok_type()).infix;
             infix_rule.unwrap()(self, can_assign);
         }
         if can_assign && self.match_token(TokenType::Equal) {
@@ -790,7 +790,7 @@ impl<'a> Compiler<'a> {
         self.make_constant(v)
     }
 
-    fn add_local(&mut self, name: &'a str) {
+    fn add_local(&mut self, name: &'compiler str) {
         if let Err(e) = self.func_scope.add_local(name) {
             self.error(e);
         }
@@ -800,7 +800,7 @@ impl<'a> Compiler<'a> {
         if self.func_scope.scope_depth == 0 {
             return;
         }
-        let name = self.previous;
+        let name = self.previous();
         if let Err(e) = self.func_scope.declare_local(name) {
             self.error(e);
         }
@@ -813,7 +813,7 @@ impl<'a> Compiler<'a> {
         if self.func_scope.scope_depth > 0 {
             return 0;
         }
-        self.identifier_constant(self.previous.lexeme().to_string())
+        self.identifier_constant(self.previous().lexeme().to_string())
     }
 
     fn mark_initialized(&mut self) {
@@ -858,13 +858,17 @@ impl<'a> Compiler<'a> {
         self.patch_jump(end_jump);
     }
 
+    fn previous(&self) -> &'compiler Token {
+        self.prev_tok
+    }
+
     fn advance(&mut self) {
         if self.tok_pos >= self.tokens.len() {
             self.tok_pos = self.tokens.len() - 1;
             //            self.error_current("Unexpected end of token stream.");
             //          return;
         }
-        self.previous = mem::replace(&mut self.current, &self.tokens[self.tok_pos]);
+        self.prev_tok = mem::replace(&mut self.current, &self.tokens[self.tok_pos]);
         self.tok_pos += 1;
     }
 
@@ -891,14 +895,14 @@ impl<'a> Compiler<'a> {
     }
 
     fn error(&mut self, msg: impl Display) {
-        self.error_at(self.previous, msg.to_string().as_str());
+        self.error_at(self.previous(), msg.to_string().as_str());
     }
 
     fn error_at_current(&mut self, msg: &str) {
         self.error_at(self.current, msg);
     }
 
-    fn error_at(&mut self, token: &'a Token, msg: &str) {
+    fn error_at(&mut self, token: &'compiler Token, msg: &str) {
         if self.panic_mode {
             return;
         }
@@ -925,7 +929,7 @@ impl<'a> Compiler<'a> {
     }
 
     fn emit_byte(&mut self, byte: impl Into<u8>) {
-        let line = self.previous.line() as u16;
+        let line = self.previous().line() as u16;
         self.current_chunk().write_u8(byte, line);
     }
 
