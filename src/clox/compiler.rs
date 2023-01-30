@@ -38,7 +38,7 @@ struct Compiler<'a> {
     had_error: bool,
     panic_mode: bool,
 
-    func_scope: FunctionScope<'a>,
+    func_scope: FunctionScope,
     current_class: Option<NonNull<ClassCompiler>>,
 
     heap: &'a mut Heap,
@@ -59,13 +59,13 @@ impl ClassCompiler {
 }
 
 // This is struct Compiler in the book, Ch 22.
-struct FunctionScope<'compiler> {
+struct FunctionScope {
     function: Function,
     func_type: FunctionType,
     scope_depth: usize,
-    locals: Vec<Local<'compiler>>,
+    locals: Vec<Local>,
     upvalues: Vec<Upvalue>,
-    enclosing: Option<Box<FunctionScope<'compiler>>>,
+    enclosing: Option<Box<FunctionScope>>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -74,13 +74,14 @@ struct Upvalue {
     is_local: bool,
 }
 
-impl<'compiler> FunctionScope<'compiler> {
+impl<'compiler> FunctionScope {
     fn new(func_type: FunctionType, outer: Option<Box<Self>>) -> Self {
         let name = if func_type != FunctionType::Function {
             "this"
         } else {
             ""
-        };
+        }
+        .to_string();
         Self {
             function: Function::new(),
             func_type,
@@ -95,7 +96,7 @@ impl<'compiler> FunctionScope<'compiler> {
         }
     }
 
-    fn add_local(&mut self, name: &'compiler str) -> Result<()> {
+    fn add_local(&mut self, name: String) -> Result<()> {
         if self.locals.len() > u8::MAX as usize {
             bail!("Too many local variables in function.");
         }
@@ -120,7 +121,7 @@ impl<'compiler> FunctionScope<'compiler> {
         Ok((self.function.upvalue_count - 1) as u8)
     }
 
-    fn declare_local(&mut self, name: &'compiler Token) -> Result<()> {
+    fn declare_local(&mut self, name: &Token) -> Result<()> {
         for local in self.locals.iter().rev() {
             if local.depth < self.scope_depth {
                 break;
@@ -168,8 +169,8 @@ enum FunctionType {
     Script,
 }
 
-struct Local<'a> {
-    name: &'a str,
+struct Local {
+    name: String,
     depth: usize,
     is_captured: bool,
 }
@@ -501,7 +502,8 @@ impl<'pratt> Compiler<'pratt> {
 
     fn class_declaration(&mut self) {
         self.consume(TokenType::Identifier, "Expect class name.");
-        let class_name = self.previous().lexeme();
+        let class_name = self.previous();
+        let class_name = class_name.lexeme();
         let name_constant = self.identifier_constant(class_name.to_string());
         self.declare_variable();
 
@@ -519,7 +521,7 @@ impl<'pratt> Compiler<'pratt> {
                 self.error("A class can't inherit from itself.");
             }
             self.begin_scope();
-            self.add_local("super");
+            self.add_local("super".to_string());
             self.define_variable(0);
 
             self.named_variable(class_name, false);
@@ -772,7 +774,7 @@ impl<'helpers> Compiler<'helpers> {
         self.make_constant(v)
     }
 
-    fn add_local(&mut self, name: &'helpers str) {
+    fn add_local(&mut self, name: String) {
         if let Err(e) = self.func_scope.add_local(name) {
             self.error(e);
         }
@@ -783,10 +785,10 @@ impl<'helpers> Compiler<'helpers> {
             return;
         }
         let name = self.previous();
-        if let Err(e) = self.func_scope.declare_local(name) {
+        if let Err(e) = self.func_scope.declare_local(&name) {
             self.error(e);
         }
-        self.add_local(name.lexeme());
+        self.add_local(name.lexeme().to_string());
     }
 
     fn parse_variable(&mut self, err: &str) -> u8 {
@@ -864,8 +866,8 @@ impl<'tok_iter> Compiler<'tok_iter> {
         self.curr_tok
     }
 
-    fn previous(&self) -> &'tok_iter Token {
-        self.prev_tok
+    fn previous(&self) -> Token {
+        self.prev_tok.clone()
     }
 
     fn advance(&mut self) {
@@ -905,10 +907,10 @@ impl<'tok_iter> Compiler<'tok_iter> {
     }
 
     fn error_at_current(&mut self, msg: &str) {
-        self.error_at(self.curr_tok, msg);
+        self.error_at(self.current().clone(), msg);
     }
 
-    fn error_at(&mut self, token: &'tok_iter Token, msg: &str) {
+    fn error_at(&mut self, token: Token, msg: &str) {
         if self.panic_mode {
             return;
         }
