@@ -111,29 +111,25 @@ impl<'compiler> FunctionScope {
             ""
         }
         .to_string();
-        Self {
+        let this_slot = Local::new(name);
+        let mut scope = Self {
             function: Function::new(),
             func_type,
             scope_depth: 0,
-            locals: vec![Local {
-                name,
-                depth: 0,
-                is_captured: false,
-            }],
+            locals: vec![this_slot],
             upvalues: vec![],
             enclosing: outer,
-        }
+        };
+        // mark the "this" slot as initialized
+        scope.mark_local_initialized();
+        scope
     }
 
     fn add_local(&mut self, name: String) -> Result<()> {
         if self.locals.len() > u8::MAX as usize {
             bail!("Too many local variables in function.");
         }
-        self.locals.push(Local {
-            name,
-            depth: usize::MAX,
-            is_captured: false,
-        });
+        self.locals.push(Local::new(name));
         Ok(())
     }
 
@@ -169,7 +165,7 @@ impl<'compiler> FunctionScope {
     fn resolve_local(&self, name: &str) -> Result<Option<LocalIdx>> {
         for (i, local) in self.locals.iter().enumerate().rev() {
             if local.name == name {
-                if local.depth == usize::MAX {
+                if !local.is_initialized() {
                     bail!("Can't read local variable in its own initializer.");
                 }
                 return Ok(Some(LocalIdx(i as u8)));
@@ -199,6 +195,13 @@ impl<'compiler> FunctionScope {
     fn capture_local(&mut self, idx: LocalIdx) {
         self.locals[idx.0 as usize].is_captured = true;
     }
+
+    /// Mark the newest local variable as initialized
+    pub fn mark_local_initialized(&mut self) {
+        self.locals
+            .last_mut()
+            .map(|local| local.depth = self.scope_depth);
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -213,6 +216,20 @@ struct Local {
     name: String,
     depth: usize,
     is_captured: bool,
+}
+
+impl Local {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+            depth: usize::MAX,
+            is_captured: false,
+        }
+    }
+
+    pub fn is_initialized(&self) -> bool {
+        self.depth < usize::MAX
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialOrd, PartialEq, IntoPrimitive, TryFromPrimitive)]
@@ -812,8 +829,7 @@ impl<'helpers> Compiler<'helpers> {
         if self.scope_depth() == 0 {
             return;
         }
-        let depth = self.scope_depth();
-        self.func_scope.locals.last_mut().map(|l| l.depth = depth);
+        self.func_scope.mark_local_initialized();
     }
 
     fn define_variable(&mut self, global: Option<ChunkConst>) {
