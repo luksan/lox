@@ -38,7 +38,7 @@ struct Compiler<'a> {
     had_error: bool,
     panic_mode: bool,
 
-    func_scope: FunctionScope,
+    func_scope: Box<FunctionScope>,
     current_class: Option<ClassCompiler>,
 
     heap: &'a mut Heap,
@@ -104,25 +104,34 @@ impl Into<u8> for LocalIdx {
 }
 
 impl<'compiler> FunctionScope {
-    fn new(func_type: FunctionType, outer: Option<Box<Self>>) -> Self {
-        let name = if func_type != FunctionType::Function {
+    pub fn new(func_type: FunctionType) -> Box<Self> {
+        let slot0_name = if func_type != FunctionType::Function {
             "this"
         } else {
             ""
         }
         .to_string();
-        let this_slot = Local::new(name);
+        let this_slot = Local::new(slot0_name);
         let mut scope = Self {
             function: Function::new(),
             func_type,
             scope_depth: 0,
             locals: vec![this_slot],
             upvalues: vec![],
-            enclosing: outer,
+            enclosing: None,
         };
         // mark the "this" slot as initialized
         scope.mark_local_initialized();
-        scope
+        scope.into()
+    }
+
+    pub fn create_inner_scope(self: &mut Box<Self>, func_type: FunctionType) {
+        self.enclosing = Some(mem::replace(self, FunctionScope::new(func_type)));
+    }
+
+    pub fn release_enclosing(self: &mut Box<Self>) -> Option<Box<Self>> {
+        let outer = self.enclosing.take()?;
+        Some(mem::replace(self, outer))
     }
 
     fn add_local(&mut self, name: String) -> Result<()> {
@@ -274,7 +283,7 @@ impl<'pratt> Compiler<'pratt> {
             had_error: false,
             panic_mode: false,
 
-            func_scope: FunctionScope::new(FunctionType::Script, None),
+            func_scope: FunctionScope::new(FunctionType::Script).into(),
             current_class: None,
 
             heap,
@@ -884,9 +893,7 @@ impl<'helpers> Compiler<'helpers> {
     }
 
     fn function(&mut self, func_type: FunctionType) {
-        let outer_scope =
-            std::mem::replace(&mut self.func_scope, FunctionScope::new(func_type, None));
-        self.func_scope.enclosing = Some(Box::new(outer_scope));
+        self.func_scope.create_inner_scope(func_type);
         self.func_scope.function.name = self.heap.new_string(self.previous().lexeme().to_string());
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expect '(' after function name.");
@@ -914,8 +921,8 @@ impl<'helpers> Compiler<'helpers> {
         }
 
         // The compiler scope for the current function ends here
-        let outer_scope = *self.func_scope.enclosing.take().unwrap();
-        let new = std::mem::replace(&mut self.func_scope, outer_scope);
+        let new = self.func_scope.release_enclosing().unwrap();
+
         let func = self.heap.new_object(new.function);
         let val = self.make_constant(func as *const _);
         self.emit_bytes(OpCode::Closure, val);
@@ -1086,7 +1093,7 @@ impl HasRoots for Compiler<'_> {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         let mut scope = Some(&self.func_scope);
         while let Some(s) = scope {
-            scope = s.enclosing.as_deref();
+            scope = s.enclosing.as_ref();
             s.function.mark_roots(mark_obj);
         }
     }
