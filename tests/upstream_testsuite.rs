@@ -55,6 +55,7 @@ fn run_single<P: AsRef<Path>>(p: P) -> Result<()> {
 
     assert_cmd::Command::cargo_bin("clox")?
         .arg("--ci-testsuite")
+        .arg("--gc-stress-test")
         .arg(case.file)
         .assert()
         .try_stdout(case.expect_stdout)?
