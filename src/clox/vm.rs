@@ -13,6 +13,7 @@ use tracing::{span, Level};
 
 use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
+use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
 
@@ -113,7 +114,7 @@ pub struct Vm {
     heap: Heap,
     globals: LoxTable,
     open_upvalues: Option<Pin<&'static Obj<Upvalue>>>,
-    init_string: NonNull<Obj<LoxStr>>,
+    init_string: *const Obj<LoxStr>,
 }
 
 impl Debug for Vm {
@@ -176,11 +177,11 @@ impl Vm {
             globals: LoxTable::new(),
             open_upvalues: None,
 
-            init_string: NonNull::dangling(),
+            init_string: ptr::null(),
         };
         let new_ptr = Rc::new(&new as *const dyn HasRoots);
         new.heap.register_roots(&new_ptr);
-        new.init_string = new.heap.new_string("init".to_string()).into();
+        new.init_string = new.heap.new_string("init".to_string());
         new.define_native("clock", natives::clock);
         new
     }
@@ -557,7 +558,7 @@ impl Vm {
             let instance = Instance::new(class);
             let o = self.heap.new_object(instance);
             self.stack.set_slot(arg_count, o.into());
-            if let Some(init) = class.get_method(unsafe { self.init_string.as_ref() }) {
+            if let Some(init) = class.get_method(unsafe { &*self.init_string }) {
                 self.call(init, arg_count).map(Some)
             } else if arg_count != 0 {
                 bail!("Expected 0 arguments but got {}.", arg_count)
@@ -676,8 +677,9 @@ impl HasRoots for Vm {
             uv.mark(mark_obj);
             uv_ptr = uv.get_next_open();
         }
-
-        unsafe { self.init_string.as_ref() }.mark_roots(mark_obj);
+        if !self.init_string.is_null() {
+            unsafe { &*self.init_string }.mark(mark_obj);
+        }
     }
 }
 
