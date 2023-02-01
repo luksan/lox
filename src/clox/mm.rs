@@ -89,7 +89,7 @@ impl ObjTypes {
     pub(crate) unsafe fn free_object(self) -> Option<Self> {
         macro_rules! free_next {
             ($ptr:expr) => {{
-                $ptr.free()
+                unsafe { $ptr.free() }
             }};
         }
         for_all_objtypes!(self, free_next)
@@ -296,7 +296,7 @@ impl Heap {
 
     pub unsafe fn free_objects(&mut self) {
         while let Some(next) = self.objs.get() {
-            self.objs.set(next.free_object());
+            self.objs.set(unsafe { next.free_object() });
         }
         self.obj_count.set(0);
     }
@@ -390,7 +390,9 @@ where
 
     unsafe fn free(&self) -> Option<ObjTypes> {
         trace!("Freeing {:?} @ {:?}", self, self as *const _);
-        Box::from_raw(self as *const Self as *mut Self).next.get()
+        unsafe { Box::from_raw(self as *const Self as *mut Self) }
+            .next
+            .get()
     }
 
     pub(crate) fn mark(&self, callback: &mut dyn FnMut(ObjTypes)) {

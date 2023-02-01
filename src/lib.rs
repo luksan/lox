@@ -4,7 +4,7 @@
     clippy::new_without_default,
     clippy::try_err
 )]
-
+#[deny(unsafe_op_in_unsafe_fn)]
 pub mod clox;
 mod jlox;
 mod scanner;
