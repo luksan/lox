@@ -19,8 +19,9 @@ pub fn compile(source: &str, heap: &mut Heap) -> StdResult<NonNull<Obj<Function>
     let _e = span.enter();
     let mut scanner = Scanner::new(source);
     scanner.scan_tokens()?;
-    let compiler = Compiler::new(scanner.tokens(), heap);
-    let root = Rc::new(&compiler as *const dyn HasRoots);
+    // The compiler has to be behind a mut ref, so it can't move in memory for the GC root ref
+    let compiler = &mut Compiler::new(scanner.tokens(), heap);
+    let root = Rc::new(compiler as *const dyn HasRoots);
     compiler.heap.register_roots(&root);
     compiler
         .compile()
@@ -58,7 +59,7 @@ impl ClassCompiler {
 
 // This is struct Compiler in the book, Ch 22.
 struct FunctionScope {
-    function: Function,
+    func_obj: *const Obj<Function>,
     func_type: FunctionType,
     scope_depth: usize,
     locals: Vec<Local>,
@@ -104,7 +105,7 @@ impl Into<u8> for LocalIdx {
 }
 
 impl<'compiler> FunctionScope {
-    pub fn new(func_type: FunctionType) -> Box<Self> {
+    pub fn new(func_type: FunctionType, func_obj: *const Obj<Function>) -> Box<Self> {
         let slot0_name = if func_type != FunctionType::Function {
             "this"
         } else {
@@ -113,7 +114,7 @@ impl<'compiler> FunctionScope {
         .to_string();
         let this_slot = Local::new(slot0_name);
         let mut scope = Self {
-            function: Function::new(),
+            func_obj,
             func_type,
             scope_depth: 0,
             locals: vec![this_slot],
@@ -124,9 +125,19 @@ impl<'compiler> FunctionScope {
         scope.mark_local_initialized();
         scope.into()
     }
+    pub fn function(&mut self) -> &mut Function {
+        unsafe { &mut **(self.func_obj as *mut Obj<Function>) }
+    }
+    pub fn function_obj(&self) -> &Obj<Function> {
+        unsafe { &*self.func_obj }
+    }
 
-    pub fn create_inner_scope(self: &mut Box<Self>, func_type: FunctionType) {
-        self.enclosing = Some(mem::replace(self, FunctionScope::new(func_type)));
+    pub fn create_inner_scope(
+        self: &mut Box<Self>,
+        func_type: FunctionType,
+        func_obj: *const Obj<Function>,
+    ) {
+        self.enclosing = Some(mem::replace(self, FunctionScope::new(func_type, func_obj)));
     }
 
     pub fn release_enclosing(self: &mut Box<Self>) -> Option<Box<Self>> {
@@ -152,8 +163,8 @@ impl<'compiler> FunctionScope {
             bail!("Too many closure variables in function.")
         }
         self.upvalues.push(new);
-        self.function.upvalue_count = self.upvalues.len();
-        Ok(UpvalueIdx((self.function.upvalue_count - 1) as u8))
+        self.function().upvalue_count = self.upvalues.len();
+        Ok(UpvalueIdx((self.function().upvalue_count - 1) as u8))
     }
 
     /// Check that the variable isn't already declared in the current scope
@@ -275,6 +286,7 @@ type OptParseFn = Option<ParseFn>;
 impl<'pratt> Compiler<'pratt> {
     fn new(tokens: &'pratt [Token], heap: &'pratt mut Heap) -> Self {
         let tok0 = &tokens[0];
+        let func_obj = heap.new_object(Function::new());
         Self {
             tokens,
             tok_pos: 0,
@@ -283,14 +295,14 @@ impl<'pratt> Compiler<'pratt> {
             had_error: false,
             panic_mode: false,
 
-            func_scope: FunctionScope::new(FunctionType::Script).into(),
+            func_scope: FunctionScope::new(FunctionType::Script, func_obj).into(),
             current_class: None,
 
             heap,
         }
     }
 
-    fn compile(mut self) -> Result<*const Obj<Function>> {
+    fn compile(&mut self) -> Result<*const Obj<Function>> {
         /*for t in &self.tokens {
             println!("{:?}", t.tok_type());
         }*/
@@ -302,13 +314,13 @@ impl<'pratt> Compiler<'pratt> {
         self.emit_return();
 
         if get_settings().disassemble_compiler_output {
-            self.func_scope.function.disassemble();
+            self.func_scope.function().disassemble();
         }
 
         if self.had_error {
             bail!("Compilation failed.")
         }
-        Ok(self.heap.new_object(self.func_scope.function))
+        Ok(self.func_scope.func_obj)
     }
 
     fn begin_scope(&mut self) {
@@ -893,16 +905,20 @@ impl<'helpers> Compiler<'helpers> {
     }
 
     fn function(&mut self, func_type: FunctionType) {
-        self.func_scope.create_inner_scope(func_type);
-        self.func_scope.function.name = self.heap.new_string(self.previous().lexeme().to_string());
+        let span = trace_span!("function", name = self.previous().lexeme());
+        let _e = span.enter();
+        let func_obj = self.heap.new_object(Function::new());
+        self.func_scope.create_inner_scope(func_type, func_obj);
+        self.func_scope.function().name =
+            self.heap.new_string(self.previous().lexeme().to_string());
         self.begin_scope();
         self.consume(TokenType::LeftParen, "Expect '(' after function name.");
         if !self.check(TokenType::RightParen) {
             loop {
-                if self.func_scope.function.arity == 255 {
+                if self.func_scope.function().arity == 255 {
                     self.error_at_current("Can't have more than 255 parameters.");
                 } else {
-                    self.func_scope.function.arity += 1;
+                    self.func_scope.function().arity += 1;
                 }
                 let constant = self.parse_variable("Expect parameter name.");
                 self.define_variable(constant);
@@ -917,14 +933,13 @@ impl<'helpers> Compiler<'helpers> {
         self.emit_return();
 
         if get_settings().disassemble_compiler_output {
-            self.func_scope.function.disassemble();
+            self.func_scope.function().disassemble();
         }
 
         // The compiler scope for the current function ends here
         let new = self.func_scope.release_enclosing().unwrap();
 
-        let func = self.heap.new_object(new.function);
-        let val = self.make_constant(func as *const _);
+        let val = self.make_constant(new.func_obj);
         self.emit_bytes(OpCode::Closure, val);
         for uv in new.upvalues {
             self.emit_bytes(uv.is_local(), uv.index());
@@ -1014,7 +1029,7 @@ impl Into<u8> for ChunkConst {
 // Bytecode output routines
 impl<'bytecode> Compiler<'bytecode> {
     fn current_chunk(&mut self) -> &mut Chunk {
-        &mut self.func_scope.function.chunk
+        &mut self.func_scope.function().chunk
     }
 
     fn scope_depth(&self) -> usize {
@@ -1093,8 +1108,8 @@ impl HasRoots for Compiler<'_> {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         let mut scope = Some(&self.func_scope);
         while let Some(s) = scope {
+            s.function_obj().mark(mark_obj);
             scope = s.enclosing.as_ref();
-            s.function.mark_roots(mark_obj);
         }
     }
 }
