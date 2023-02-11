@@ -309,11 +309,11 @@ impl Vm {
         }
 
         macro_rules! binary_op {
-            ($op:tt) => {binary_op!("Operands must be numbers.", $op)};
-            ($err:literal, $op:tt) => {
+            ($op:tt) => {binary_op!(bail!("Operands must be numbers."), $op)};
+            ($err:expr, $op:tt) => {
                 match (self.peek(1).as_f64(), self.peek(0).as_f64()) {
                     (Some(a), Some(b)) => { self.pop(); self.pop(); self.push(a $op b); }
-                    _ => bail!($err),
+                    _ => { $err; }
                 }
             };
         }
@@ -400,7 +400,7 @@ impl Vm {
                 }
                 OpCode::Greater => binary_op!(>),
                 OpCode::Less => binary_op!(<),
-                OpCode::Add => {
+                OpCode::Add => binary_op!({
                     if let (Some(a), Some(b)) = (self.peek(1).as_str(), self.peek(0).as_str()) {
                         let new = [a, b].join("");
                         let s: *const _ = self.heap.new_string(new);
@@ -408,9 +408,9 @@ impl Vm {
                         self.pop();
                         self.push(s);
                     } else {
-                        binary_op!("Operands must be two numbers or two strings.", +)
-                    }
-                }
+                        bail!("Operands must be two numbers or two strings.");
+                    }}, +),
+
                 OpCode::Subtract => binary_op!(-),
                 OpCode::Multiply => binary_op!(*),
                 OpCode::Divide => binary_op!(/),
