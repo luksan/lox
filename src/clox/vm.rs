@@ -332,22 +332,19 @@ impl Vm {
                     unsafe { frame.closure.as_ref() }.write_upvalue(slot, value);
                 }
                 OpCode::GetProperty => {
-                    let instance_val = self.peek(0);
-                    if let Some(instance) = instance_val.as_object::<Instance>() {
-                        let name = read_constant!().as_object().unwrap();
-                        if let Some(value) = instance.get_field(name) {
-                            self.pop(); // instance
-                            self.push(value);
-                        } else {
-                            runtime_error!(self.bind_method(instance.get_class(), name))?;
-                        }
-                    } else {
-                        runtime_error!("Only instances have properties.")?;
-                    }
+                    let Some(instance) = self.peek(0).as_object::<Instance>() else {
+                        return runtime_error!("Only instances have properties.")?;
+                    };
+                    let name = read_constant!().as_object().unwrap();
+                    let Some(value) = instance.get_field(name) else {
+                        runtime_error!(self.bind_method(instance.get_class(), name))?;
+                        unreachable!();
+                    };
+                    self.pop(); // instance
+                    self.push(value);
                 }
                 OpCode::SetProperty => {
-                    let instance_val = self.peek(1);
-                    if let Some(instance) = instance_val.as_object::<Instance>() {
+                    if let Some(instance) = self.peek(1).as_object::<Instance>() {
                         instance.set_field(read_constant!().as_object().unwrap(), self.peek(0));
                         let value = self.pop();
                         self.pop();

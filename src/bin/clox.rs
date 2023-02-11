@@ -44,19 +44,16 @@ fn main() {
 
     clox::set_settings(clox_settings);
 
-    if let Some(ref script) = opts.script {
-        if let Err(e) = run_file(script) {
-            let exit_code = match e {
-                LoxError::CompileError(_) => 65,
-                LoxError::RuntimeError(e) => {
-                    eprintln!("{}", e);
-                    70
-                }
-            };
-            std::process::exit(exit_code);
-        }
-    } else {
-        repl();
+    let Some(ref script) = opts.script else { repl(); return; };
+    if let Err(e) = run_file(script) {
+        let exit_code = match e {
+            LoxError::CompileError(_) => 65,
+            LoxError::RuntimeError(e) => {
+                eprintln!("{}", e);
+                70
+            }
+        };
+        std::process::exit(exit_code);
     }
 }
 
