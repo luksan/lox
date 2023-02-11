@@ -312,7 +312,7 @@ impl Vm {
             ($op:tt) => {binary_op!("Operands must be numbers.", $op)};
             ($err:literal, $op:tt) => {
                 match (self.peek(1).as_f64(), self.peek(0).as_f64()) {
-                    (Ok(a), Ok(b)) => { self.pop(); self.pop(); self.push(a $op b); }
+                    (Some(a), Some(b)) => { self.pop(); self.pop(); self.push(a $op b); }
                     _ => bail!($err),
                 }
             };
@@ -419,7 +419,7 @@ impl Vm {
                     self.push(neg)
                 }
                 OpCode::Negate => {
-                    if let Ok(x) = self.peek(0).as_f64() {
+                    if let Some(x) = self.peek(0).as_f64() {
                         self.pop();
                         self.push(-x);
                     } else {

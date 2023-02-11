@@ -1,4 +1,4 @@
-use anyhow::{bail, Result};
+use anyhow::Result;
 use std::cell::{Cell, UnsafeCell};
 
 use crate::clox::mm::{HasRoots, Obj, ObjTypes};
@@ -50,11 +50,11 @@ impl ValuePacked {
             None
         }
     }
-    pub fn as_f64(self) -> Result<f64> {
+    pub fn as_f64(self) -> Option<f64> {
         if self.is_float() {
-            Ok(f64::from_bits(self.0))
+            Some(f64::from_bits(self.0))
         } else {
-            bail!("Not a number.")
+            None
         }
     }
 
@@ -193,10 +193,10 @@ impl Display for ValueEnum {
 }
 
 impl ValueEnum {
-    pub fn as_f64(self) -> Result<f64> {
+    pub fn as_f64(self) -> Option<f64> {
         match self {
-            Self::Number(f) => Ok(f),
-            _ => bail!("Not a number."),
+            Self::Number(f) => Some(f),
+            _ => None,
         }
     }
 
