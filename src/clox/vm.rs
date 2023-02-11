@@ -109,7 +109,6 @@ impl Debug for Stack {
 }
 
 pub struct Vm {
-    frames: Vec<CallFrame>,
     stack: Stack,
     heap: Heap,
     globals: LoxTable,
@@ -144,6 +143,44 @@ impl CallFrame {
     fn chunk(&self) -> &'static Chunk {
         &unsafe { self.closure.as_ref() }.function().chunk
     }
+
+    fn current_line(&self) -> isize {
+        let idx = unsafe { self.ip.offset_from(self.chunk().code.as_ptr()) } - 1;
+        self.chunk().lines[idx as usize] as _
+    }
+}
+
+struct CallStack(Vec<CallFrame>);
+
+impl CallStack {
+    fn new() -> Self {
+        Self(Vec::with_capacity(FRAMES_MAX))
+    }
+
+    fn current_frame(&mut self) -> &mut CallFrame {
+        self.0.last_mut().unwrap()
+    }
+
+    fn push_frame(&mut self, new_frame: CallFrame) -> Result<&mut CallFrame> {
+        if self.0.len() > FRAMES_MAX {
+            bail!("Stack overflow.");
+        }
+        self.0.push(new_frame);
+        Ok(self.0.last_mut().unwrap())
+    }
+
+    fn pop_frame(&mut self) -> Option<&mut CallFrame> {
+        self.0.pop().unwrap();
+        self.0.last_mut()
+    }
+}
+
+impl HasRoots for CallStack {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        for frame in self.0.iter() {
+            unsafe { frame.closure.as_ref() }.mark(mark_obj);
+        }
+    }
 }
 
 pub struct Runnable<'vm> {
@@ -171,7 +208,6 @@ impl Vm {
         // println!("Created new VM.");
         // println!("Value size: {}", std::mem::size_of::<Value>());
         let mut new = Self {
-            frames: Vec::with_capacity(FRAMES_MAX),
             stack: Stack::new(),
             heap: Heap::new(),
             globals: LoxTable::new(),
@@ -210,7 +246,24 @@ impl Vm {
         let trace_span = span!(Level::TRACE, "Vm::run()");
         let _enter = trace_span.enter();
 
-        let mut frame = frame.clone();
+        let call_stack = &mut CallStack::new();
+        let root_handle = Rc::new(call_stack as *const _);
+        self.heap.register_roots(&root_handle);
+
+        call_stack.push_frame(frame.clone()).unwrap();
+        if let Err(e) = self.run_inner(call_stack) {
+            eprintln!("{e}");
+            Err(anyhow!(
+                "[line {}] in script",
+                call_stack.current_frame().current_line()
+            ))?
+        } else {
+            Ok(())
+        }
+    }
+
+    fn run_inner(&mut self, call_stack: &mut CallStack) -> Result<()> {
+        let mut frame = call_stack.current_frame();
 
         macro_rules! ip_incr {
             ($inc:expr) => {
@@ -249,38 +302,21 @@ impl Vm {
             };
         }
 
-        macro_rules! runtime_error {
-            // FIXME: Ch 24.5.3 -> stack trace
-            ($fmt:literal $(,)? $( $e:expr ),*) => {{
-                let idx = unsafe {frame.ip.offset_from(frame.chunk().code.as_ptr()) }- 1;
-                let line = frame.chunk().lines[idx as usize];
-                // self.stack.iter().for_each(|s|println!("{:?}", s));
-                eprintln!($fmt, $($e),*);
-                // Err(anyhow!("[line {}] in script, op idx {}", line, idx))
-                Err(anyhow!("[line {}] in script", line))
-            }};
-            ($res_expr:expr) => {{
-                let result = $res_expr;
-                if result.is_ok() {
-                    result
-                }else {
-                    runtime_error!("{}", result.unwrap_err())
-                }
-            }};
+        macro_rules! push_callframe {
+            ($new_frame:expr) => {
+                frame = call_stack.push_frame($new_frame)?;
+            };
         }
 
         macro_rules! binary_op {
-            ($op:tt) => {binary_op!("Operands must be numbers.", $op)};
-            ($err:literal, $op:tt) => {{ loop {
-                let (a,b) = if let Ok(ab)  =self.peek(0).as_f64().and_then(|b|self.peek(1).as_f64().map(|a|(a,b))) {
-                    ab
-                }else { break runtime_error!($err)};
-                self.pop(); self.pop();
-                self.push(a $op b);
-                break Ok(());
-            }?;
-            }
-        }}
+            ($op:tt) => {binary_op!(bail!("Operands must be numbers."), $op)};
+            ($err:expr, $op:tt) => {
+                match (self.peek(1).as_f64(), self.peek(0).as_f64()) {
+                    (Some(a), Some(b)) => { self.pop(); self.pop(); self.push(a $op b); }
+                    _ => { $err; }
+                }
+            };
+        }
 
         loop {
             // frame.chunk().disassemble_instruction(unsafe { frame.ip.offset_from(frame.chunk().code.as_ptr()) } as usize);
@@ -304,11 +340,11 @@ impl Vm {
                 }
                 OpCode::GetGlobal => {
                     let name = read_constant!().as_object().unwrap();
-                    if let Some(v) = self.globals.get_value(name) {
-                        self.push(v);
-                    } else {
-                        runtime_error!("Undefined variable '{}'.", name)?;
-                    }
+                    let v = self
+                        .globals
+                        .get_value(name)
+                        .with_context(|| format!("Undefined variable '{}'.", name))?;
+                    self.push(v);
                 }
                 OpCode::DefineGlobal => {
                     let name = read_constant!().as_object().unwrap();
@@ -319,7 +355,7 @@ impl Vm {
                     let name = read_constant!().as_object().unwrap();
                     if self.globals.set(name, self.peek(0)) {
                         self.globals.delete(name);
-                        runtime_error!("Undefined variable '{}'.", name)?;
+                        bail!("Undefined variable '{}'.", name);
                     }
                 }
                 OpCode::GetUpvalue => {
@@ -332,31 +368,30 @@ impl Vm {
                     unsafe { frame.closure.as_ref() }.write_upvalue(slot, value);
                 }
                 OpCode::GetProperty => {
-                    let Some(instance) = self.peek(0).as_object::<Instance>() else {
-                        return runtime_error!("Only instances have properties.")?;
-                    };
+                    let instance = self
+                        .peek(0)
+                        .as_object::<Instance>()
+                        .with_context(|| format!("Only instances have properties."))?;
                     let name = read_constant!().as_object().unwrap();
-                    let Some(value) = instance.get_field(name) else {
-                        runtime_error!(self.bind_method(instance.get_class(), name))?;
-                        unreachable!();
-                    };
-                    self.pop(); // instance
-                    self.push(value);
-                }
-                OpCode::SetProperty => {
-                    if let Some(instance) = self.peek(1).as_object::<Instance>() {
-                        instance.set_field(read_constant!().as_object().unwrap(), self.peek(0));
-                        let value = self.pop();
-                        self.pop();
+                    if let Some(value) = instance.get_field(name) {
+                        self.pop(); // instance
                         self.push(value);
                     } else {
-                        runtime_error!("Only instances have fields.")?;
+                        self.bind_method(instance.get_class(), name)?;
                     }
+                }
+                OpCode::SetProperty => {
+                    self.peek_obj::<Instance>(1)
+                        .with_context(|| format!("Only instances have fields."))?
+                        .set_field(read_constant!().as_object().unwrap(), self.peek(0));
+                    let value = self.pop();
+                    self.pop();
+                    self.push(value);
                 }
                 OpCode::GetSuper => {
                     let name = read_string!();
                     let superclass = self.pop().as_object().unwrap();
-                    runtime_error!(self.bind_method(superclass, name))?;
+                    self.bind_method(superclass, name)?;
                 }
                 OpCode::Equal => {
                     let a = self.pop();
@@ -365,7 +400,7 @@ impl Vm {
                 }
                 OpCode::Greater => binary_op!(>),
                 OpCode::Less => binary_op!(<),
-                OpCode::Add => {
+                OpCode::Add => binary_op!({
                     if let (Some(a), Some(b)) = (self.peek(1).as_str(), self.peek(0).as_str()) {
                         let new = [a, b].join("");
                         let s: *const _ = self.heap.new_string(new);
@@ -373,9 +408,9 @@ impl Vm {
                         self.pop();
                         self.push(s);
                     } else {
-                        binary_op!("Operands must be two numbers or two strings.", +)
-                    }
-                }
+                        bail!("Operands must be two numbers or two strings.");
+                    }}, +),
+
                 OpCode::Subtract => binary_op!(-),
                 OpCode::Multiply => binary_op!(*),
                 OpCode::Divide => binary_op!(/),
@@ -384,11 +419,11 @@ impl Vm {
                     self.push(neg)
                 }
                 OpCode::Negate => {
-                    if let Ok(x) = self.peek(0).as_f64() {
+                    if let Some(x) = self.peek(0).as_f64() {
                         self.pop();
                         self.push(-x);
                     } else {
-                        runtime_error!("Operand must be a number.")?;
+                        bail!("Operand must be a number.");
                     }
                 }
                 OpCode::Print => {
@@ -418,25 +453,24 @@ impl Vm {
                     // Ch 24.5.1
                     let arg_count = read_byte!();
                     let callee = self.peek(arg_count);
-                    if let Some(new_frame) = runtime_error!(self.call_value(callee, arg_count))? {
-                        self.frames.push(std::mem::replace(&mut frame, new_frame));
+                    if let Some(new_frame) = self.call_value(callee, arg_count)? {
+                        push_callframe!(new_frame);
                     }
                 }
                 OpCode::Invoke => {
                     // Ch 28.5
                     let method = read_string!();
                     let arg_cnt = read_byte!();
-                    if let Some(new_frame) = runtime_error!(self.invoke(method, arg_cnt))? {
-                        self.frames.push(std::mem::replace(&mut frame, new_frame));
+                    if let Some(new_frame) = self.invoke(method, arg_cnt)? {
+                        push_callframe!(new_frame);
                     }
                 }
                 OpCode::SuperInvoke => {
                     let method = read_string!();
                     let arg_cnt = read_byte!();
                     let superclass = self.pop().as_object().unwrap();
-                    let new_frame =
-                        runtime_error!(self.invoke_from_class(superclass, method, arg_cnt))?;
-                    self.frames.push(std::mem::replace(&mut frame, new_frame));
+                    let new_frame = self.invoke_from_class(superclass, method, arg_cnt)?;
+                    push_callframe!(new_frame);
                 }
                 OpCode::Closure => {
                     let function = read_constant!().as_object::<Function>().unwrap();
@@ -460,12 +494,11 @@ impl Vm {
                     // Ch 24.5.4
                     let result = self.pop();
                     self.close_upvalues(frame.stack_offset);
-                    if let Some(outer_frame) = self.frames.pop() {
-                        self.stack.truncate(frame.stack_offset);
+                    self.stack.truncate(frame.stack_offset);
+                    if let Some(outer_frame) = call_stack.pop_frame() {
                         self.push(result);
                         frame = outer_frame;
                     } else {
-                        self.pop();
                         return Ok(());
                     }
                 }
@@ -475,9 +508,9 @@ impl Vm {
                     self.push(cls as *const _);
                 }
                 OpCode::Inherit => {
-                    let superclass = runtime_error!(self
+                    let superclass = self
                         .peek_obj::<Class>(1)
-                        .context("Superclass must be a class."))?;
+                        .context("Superclass must be a class.")?;
                     let subclass: &Obj<Class> = self.peek_obj(0).unwrap();
                     subclass.inherit(superclass);
                     self.pop(); // subclass
@@ -488,7 +521,6 @@ impl Vm {
 
                 OpCode::BadOpCode => {
                     frame.disassemble();
-                    // Can't use runtime_error!() since it expects a valid IP
                     Err(anyhow!("Encountered invalid OpCode {}", op as u8))?;
                 }
             }
@@ -618,9 +650,6 @@ impl Vm {
                 arg_count
             );
         }
-        if self.frames.len() >= FRAMES_MAX {
-            bail!("Stack overflow.")
-        }
 
         let frame = CallFrame {
             closure: closure.into(),
@@ -664,11 +693,6 @@ impl HasRoots for Vm {
             val.mark(mark_obj);
         }
         self.globals.mark_roots(mark_obj);
-        for frame in self.frames.iter() {
-            // the currently executing frame isn't in this array,
-            // but the current closure is always on the stack.
-            unsafe { frame.closure.as_ref() }.mark(mark_obj);
-        }
         let mut uv_ptr = self.open_upvalues;
         while let Some(uv) = uv_ptr.as_ref() {
             uv.mark(mark_obj);
