@@ -109,7 +109,6 @@ impl Debug for Stack {
 }
 
 pub struct Vm {
-    frames: Vec<CallFrame>,
     stack: Stack,
     heap: Heap,
     globals: LoxTable,
@@ -144,6 +143,44 @@ impl CallFrame {
     fn chunk(&self) -> &'static Chunk {
         &unsafe { self.closure.as_ref() }.function().chunk
     }
+
+    fn current_line(&self) -> isize {
+        let idx = unsafe { self.ip.offset_from(self.chunk().code.as_ptr()) } - 1;
+        self.chunk().lines[idx as usize] as _
+    }
+}
+
+struct CallStack(Vec<CallFrame>);
+
+impl CallStack {
+    fn new() -> Self {
+        Self(Vec::with_capacity(FRAMES_MAX))
+    }
+
+    fn current_frame(&mut self) -> &mut CallFrame {
+        self.0.last_mut().unwrap()
+    }
+
+    fn push_frame(&mut self, new_frame: CallFrame) -> Result<&mut CallFrame> {
+        if self.0.len() > FRAMES_MAX {
+            bail!("Stack overflow.");
+        }
+        self.0.push(new_frame);
+        Ok(self.0.last_mut().unwrap())
+    }
+
+    fn pop_frame(&mut self) -> Option<&mut CallFrame> {
+        self.0.pop().unwrap();
+        self.0.last_mut()
+    }
+}
+
+impl HasRoots for CallStack {
+    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        for frame in self.0.iter() {
+            unsafe { frame.closure.as_ref() }.mark(mark_obj);
+        }
+    }
 }
 
 pub struct Runnable<'vm> {
@@ -171,7 +208,6 @@ impl Vm {
         // println!("Created new VM.");
         // println!("Value size: {}", std::mem::size_of::<Value>());
         let mut new = Self {
-            frames: Vec::with_capacity(FRAMES_MAX),
             stack: Stack::new(),
             heap: Heap::new(),
             globals: LoxTable::new(),
@@ -210,7 +246,16 @@ impl Vm {
         let trace_span = span!(Level::TRACE, "Vm::run()");
         let _enter = trace_span.enter();
 
-        let mut frame = frame.clone();
+        let call_stack = &mut CallStack::new();
+        let root_handle = Rc::new(call_stack as *const _);
+        self.heap.register_roots(&root_handle);
+
+        call_stack.push_frame(frame.clone()).unwrap();
+        self.run_inner(call_stack)
+    }
+
+    fn run_inner(&mut self, call_stack: &mut CallStack) -> Result<(), VmError> {
+        let mut frame = call_stack.current_frame();
 
         macro_rules! ip_incr {
             ($inc:expr) => {
@@ -252,8 +297,7 @@ impl Vm {
         macro_rules! runtime_error {
             // FIXME: Ch 24.5.3 -> stack trace
             ($fmt:literal $(,)? $( $e:expr ),*) => {{
-                let idx = unsafe {frame.ip.offset_from(frame.chunk().code.as_ptr()) }- 1;
-                let line = frame.chunk().lines[idx as usize];
+                let line = frame.current_line();
                 // self.stack.iter().for_each(|s|println!("{:?}", s));
                 eprintln!($fmt, $($e),*);
                 // Err(anyhow!("[line {}] in script, op idx {}", line, idx))
@@ -267,6 +311,18 @@ impl Vm {
                     runtime_error!("{}", result.unwrap_err())
                 }
             }};
+        }
+
+        macro_rules! push_callframe {
+            ($new_frame:expr) => {
+                match call_stack.push_frame($new_frame) {
+                    Ok(new) => frame = new,
+                    Err(e) => {
+                        frame = call_stack.current_frame();
+                        runtime_error!(Err(e))?;
+                    }
+                }
+            };
         }
 
         macro_rules! binary_op {
@@ -346,8 +402,7 @@ impl Vm {
                     }
                 }
                 OpCode::SetProperty => {
-                    let instance_val = self.peek(1);
-                    if let Some(instance) = instance_val.as_object::<Instance>() {
+                    if let Some(instance) = self.peek(1).as_object::<Instance>() {
                         instance.set_field(read_constant!().as_object().unwrap(), self.peek(0));
                         let value = self.pop();
                         self.pop();
@@ -422,7 +477,7 @@ impl Vm {
                     let arg_count = read_byte!();
                     let callee = self.peek(arg_count);
                     if let Some(new_frame) = runtime_error!(self.call_value(callee, arg_count))? {
-                        self.frames.push(std::mem::replace(&mut frame, new_frame));
+                        push_callframe!(new_frame);
                     }
                 }
                 OpCode::Invoke => {
@@ -430,7 +485,7 @@ impl Vm {
                     let method = read_string!();
                     let arg_cnt = read_byte!();
                     if let Some(new_frame) = runtime_error!(self.invoke(method, arg_cnt))? {
-                        self.frames.push(std::mem::replace(&mut frame, new_frame));
+                        push_callframe!(new_frame);
                     }
                 }
                 OpCode::SuperInvoke => {
@@ -439,7 +494,7 @@ impl Vm {
                     let superclass = self.pop().as_object().unwrap();
                     let new_frame =
                         runtime_error!(self.invoke_from_class(superclass, method, arg_cnt))?;
-                    self.frames.push(std::mem::replace(&mut frame, new_frame));
+                    push_callframe!(new_frame);
                 }
                 OpCode::Closure => {
                     let function = read_constant!().as_object::<Function>().unwrap();
@@ -463,12 +518,11 @@ impl Vm {
                     // Ch 24.5.4
                     let result = self.pop();
                     self.close_upvalues(frame.stack_offset);
-                    if let Some(outer_frame) = self.frames.pop() {
-                        self.stack.truncate(frame.stack_offset);
+                    self.stack.truncate(frame.stack_offset);
+                    if let Some(outer_frame) = call_stack.pop_frame() {
                         self.push(result);
                         frame = outer_frame;
                     } else {
-                        self.pop();
                         return Ok(());
                     }
                 }
@@ -621,9 +675,6 @@ impl Vm {
                 arg_count
             );
         }
-        if self.frames.len() >= FRAMES_MAX {
-            bail!("Stack overflow.")
-        }
 
         let frame = CallFrame {
             closure: closure.into(),
@@ -667,11 +718,6 @@ impl HasRoots for Vm {
             val.mark(mark_obj);
         }
         self.globals.mark_roots(mark_obj);
-        for frame in self.frames.iter() {
-            // the currently executing frame isn't in this array,
-            // but the current closure is always on the stack.
-            unsafe { frame.closure.as_ref() }.mark(mark_obj);
-        }
         let mut uv_ptr = self.open_upvalues;
         while let Some(uv) = uv_ptr.as_ref() {
             uv.mark(mark_obj);
