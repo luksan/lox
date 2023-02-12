@@ -61,7 +61,8 @@ fn run_file(path: impl AsRef<Path>) -> StdResult<(), LoxError> {
     let source = std::fs::read_to_string(path)
         .context("Failed to read source file.")
         .map_err(LoxError::CompileError)?;
-    let mut vm = Vm::new();
+    let heap = clox::Heap::new();
+    let mut vm = Vm::new(&heap);
     match vm.interpret(source.as_ref()) {
         Ok(_) => Ok(()),
         Err(VmError::CompileError(e)) => Err(e),
@@ -70,7 +71,8 @@ fn run_file(path: impl AsRef<Path>) -> StdResult<(), LoxError> {
 }
 
 fn repl() -> Result<()> {
-    let mut vm = Vm::new();
+    let heap = clox::Heap::new();
+    let mut vm = Vm::new(&heap);
     let mut line = String::new();
     loop {
         print!("> ");

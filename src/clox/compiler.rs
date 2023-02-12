@@ -14,7 +14,7 @@ use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenType};
 use crate::LoxError;
 
-pub fn compile(source: &str, heap: &mut Heap) -> StdResult<NonNull<Obj<Function>>, LoxError> {
+pub fn compile(source: &str, heap: &Heap) -> StdResult<NonNull<Obj<Function>>, LoxError> {
     let span = trace_span!("compile()");
     let _e = span.enter();
     let mut scanner = Scanner::new(source);
@@ -42,7 +42,7 @@ struct Compiler<'a> {
     func_scope: Box<FunctionScope>,
     current_class: Option<ClassCompiler>,
 
-    heap: &'a mut Heap,
+    heap: &'a Heap,
 }
 
 struct ClassCompiler {
@@ -284,7 +284,7 @@ type ParseFn = fn(&mut Compiler<'_>, bool);
 type OptParseFn = Option<ParseFn>;
 
 impl<'pratt> Compiler<'pratt> {
-    fn new(tokens: &'pratt [Token], heap: &'pratt mut Heap) -> Self {
+    fn new(tokens: &'pratt [Token], heap: &'pratt Heap) -> Self {
         let tok0 = &tokens[0];
         let func_obj = heap.new_object(Function::new());
         Self {

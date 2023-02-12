@@ -108,15 +108,15 @@ impl Debug for Stack {
     }
 }
 
-pub struct Vm {
+pub struct Vm<'heap> {
     stack: Stack,
-    heap: Heap,
+    heap: &'heap Heap,
     globals: LoxTable,
     open_upvalues: Option<Pin<&'static Obj<Upvalue>>>,
     init_string: *const Obj<LoxStr>,
 }
 
-impl Debug for Vm {
+impl Debug for Vm<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "stack: {:?}", self.stack)?;
         write!(f, ", globals: {:?}", self.globals)?;
@@ -183,12 +183,12 @@ impl HasRoots for CallStack {
     }
 }
 
-pub struct Runnable<'vm> {
-    vm: &'vm mut Vm,
+pub struct Runnable<'vm, 'heap: 'vm> {
+    vm: &'vm mut Vm<'heap>,
     frame: CallFrame,
 }
 
-impl Runnable<'_> {
+impl Runnable<'_, '_> {
     pub fn run(&mut self) -> Result<(), VmError> {
         self.vm.run(&self.frame)?;
         self.vm.push(unsafe { self.frame.closure.as_ref() });
@@ -196,20 +196,20 @@ impl Runnable<'_> {
     }
 }
 
-impl Drop for Runnable<'_> {
+impl Drop for Runnable<'_, '_> {
     fn drop(&mut self) {
         // remove the pointer to out call frame from the stack
         self.vm.stack.pop();
     }
 }
 
-impl Vm {
-    pub fn new() -> Self {
+impl<'heap> Vm<'heap> {
+    pub fn new(heap: &'heap Heap) -> Self {
         // println!("Created new VM.");
         // println!("Value size: {}", std::mem::size_of::<Value>());
         let mut new = Self {
             stack: Stack::new(),
-            heap: Heap::new(),
+            heap,
             globals: LoxTable::new(),
             open_upvalues: None,
 
@@ -228,10 +228,10 @@ impl Vm {
         self.compile(source)?.run()
     }
 
-    pub fn compile(&mut self, source: &str) -> Result<Runnable, VmError> {
+    pub fn compile(&mut self, source: &str) -> Result<Runnable<'_, 'heap>, VmError> {
         let root_reg = Rc::new(self as *const dyn HasRoots);
         self.heap.register_roots(&root_reg);
-        let function = compile(source, &mut self.heap)?;
+        let function = compile(source, self.heap)?;
         self.push(ObjTypes::from(function));
         let closure = self.heap.new_object(Closure::new(function, &mut || {
             unreachable!("No upvalues in root.")
@@ -687,7 +687,7 @@ impl Vm {
     }
 }
 
-impl HasRoots for Vm {
+impl HasRoots for Vm<'_> {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         for val in self.stack.iter() {
             val.mark(mark_obj);
@@ -720,7 +720,8 @@ mod natives {
 
 #[test]
 fn test_interpret() {
-    let mut vm = Vm::new();
+    let heap = Heap::new();
+    let mut vm = Vm::new(&heap);
     for _ in 0..100 {
         vm.interpret("var x=0;").unwrap();
     }
@@ -728,7 +729,8 @@ fn test_interpret() {
 
 #[test]
 fn test_compile_run() {
-    let mut vm = Vm::new();
+    let heap = Heap::new();
+    let mut vm = Vm::new(&heap);
     let mut runner = vm.compile("var x=0;").unwrap();
     for _ in 0..1000 {
         runner.run().unwrap();

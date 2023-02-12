@@ -7,6 +7,7 @@ mod vm;
 use mm::ValueArray;
 use value::{Function, Value};
 pub use vm::{Vm, VmError};
+pub use mm::Heap;
 
 use num_enum::FromPrimitive;
 use once_cell::sync::OnceCell;

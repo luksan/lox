@@ -293,7 +293,7 @@ mod test {
     #[test]
     fn test_deletion() {
         let mut table = LoxMap::new();
-        let mut heap = Heap::new();
+        let heap = Heap::new();
 
         let roots = Rc::new(&table as *const _);
         heap.register_roots(&roots);

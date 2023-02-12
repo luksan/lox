@@ -5,7 +5,7 @@ use crate::clox::value::{LoxObject, Value, ValueEnum};
 use tracing::{trace, trace_span};
 
 use std::any::Any;
-use std::cell::{Cell, UnsafeCell};
+use std::cell::{Cell, RefCell, UnsafeCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt::{Debug, Display, Formatter};
@@ -197,7 +197,7 @@ impl HasRoots for HashMap<StrPtr, Value> {
 pub struct Heap {
     objs: Cell<Option<ObjTypes>>,
     strings: UnsafeCell<StringInterner>,
-    has_roots: Vec<Weak<*const dyn HasRoots>>,
+    has_roots: RefCell<Vec<Weak<*const dyn HasRoots>>>,
     obj_count: Cell<usize>,
     next_gc: Cell<usize>,
 }
@@ -207,19 +207,21 @@ impl Heap {
         Self {
             objs: None.into(),
             strings: StringInterner::new().into(),
-            has_roots: vec![],
+            has_roots: vec![].into(),
             obj_count: 0.into(),
             next_gc: 100.into(),
         }
     }
 
-    pub fn register_roots<'a>(&mut self, roots: &Rc<*const (dyn HasRoots + 'a)>) {
+    pub(crate) fn register_roots<'a>(&self, roots: &Rc<*const (dyn HasRoots + 'a)>) {
         trace!("Registered GC root {:?}", roots);
         let weak = Rc::downgrade(roots);
-        self.has_roots.push(unsafe { std::mem::transmute(weak) });
+        self.has_roots
+            .borrow_mut()
+            .push(unsafe { std::mem::transmute(weak) });
     }
 
-    pub fn new_object<O: LoxObject>(&self, inner: O) -> &'static Obj<O>
+    pub(crate) fn new_object<O: LoxObject>(&self, inner: O) -> &'static Obj<O>
     where
         *const Obj<O>: Into<ObjTypes>,
         ObjTypes: From<*const Obj<O>>,
@@ -236,7 +238,7 @@ impl Heap {
         o
     }
 
-    pub fn new_string(&self, s: String) -> &Obj<LoxStr> {
+    pub(crate) fn new_string(&self, s: String) -> &Obj<LoxStr> {
         // Safety: This is safe since Heap isn't Sync,
         // and self.strings is only accessed in this method, which
         // isn't recursive.
@@ -255,7 +257,7 @@ impl Heap {
         let span = trace_span!("GC");
         let _span_enter = span.enter();
         let mut gray_list = vec![];
-        for root in self.has_roots.iter() {
+        for root in self.has_roots.borrow().iter() {
             let r = root.upgrade().map(|ptr| unsafe { &**ptr });
             if r.is_none() {
                 continue;
@@ -294,14 +296,14 @@ impl Heap {
         }
     }
 
-    pub unsafe fn free_objects(&mut self) {
+    unsafe fn free_objects(&mut self) {
         while let Some(next) = self.objs.get() {
             self.objs.set(unsafe { next.free_object() });
         }
         self.obj_count.set(0);
     }
 
-    pub fn print_heap(&self) {
+    pub(crate) fn print_heap(&self) {
         println!("Heap objects");
         let mut next_obj = self.objs.get();
         while let Some(obj) = next_obj {
