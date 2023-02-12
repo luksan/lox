@@ -271,7 +271,6 @@ mod test {
     use crate::clox::mm::Heap;
     use crate::clox::table::{LoxMap, StringInterner, Table};
     use crate::clox::value::Value;
-    use std::rc::Rc;
 
     #[test]
     fn basic_test() {
@@ -295,8 +294,7 @@ mod test {
         let mut table = LoxMap::new();
         let heap = Heap::new();
 
-        let roots = Rc::new(&table as *const _);
-        heap.register_roots(&roots);
+        let _token = heap.register_gc_root(&table);
 
         macro_rules! str {
             ($s:expr) => {{

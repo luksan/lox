@@ -15,7 +15,6 @@ use std::fmt::{Debug, Formatter};
 use std::pin::Pin;
 use std::ptr;
 use std::ptr::NonNull;
-use std::rc::Rc;
 
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
@@ -215,22 +214,19 @@ impl<'heap> Vm<'heap> {
 
             init_string: ptr::null(),
         };
-        let new_ptr = Rc::new(&new as *const dyn HasRoots);
-        new.heap.register_roots(&new_ptr);
+        let _token = new.heap.register_gc_root(&new);
         new.init_string = new.heap.new_string("init".to_string());
         new.define_native("clock", natives::clock);
         new
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
-        let root_reg = Rc::new(self as *const dyn HasRoots);
-        self.heap.register_roots(&root_reg);
+        let _token = self.heap.register_gc_root(self);
         self.compile(source)?.run()
     }
 
     pub fn compile(&mut self, source: &str) -> Result<Runnable<'_, 'heap>, VmError> {
-        let root_reg = Rc::new(self as *const dyn HasRoots);
-        self.heap.register_roots(&root_reg);
+        let _token = self.heap.register_gc_root(self);
         let function = compile(source, self.heap)?;
         self.push(ObjTypes::from(function));
         let closure = self.heap.new_object(Closure::new(function, &mut || {
@@ -247,8 +243,7 @@ impl<'heap> Vm<'heap> {
         let _enter = trace_span.enter();
 
         let call_stack = &mut CallStack::new();
-        let root_handle = Rc::new(call_stack as *const _);
-        self.heap.register_roots(&root_handle);
+        let _token = self.heap.register_gc_root(call_stack);
 
         call_stack.push_frame(frame.clone()).unwrap();
         if let Err(e) = self.run_inner(call_stack) {

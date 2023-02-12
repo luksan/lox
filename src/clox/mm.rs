@@ -9,6 +9,7 @@ use std::cell::{Cell, RefCell, UnsafeCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt::{Debug, Display, Formatter};
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
@@ -202,6 +203,8 @@ pub struct Heap {
     next_gc: Cell<usize>,
 }
 
+pub struct GcToken<'heap, 'a>(Rc<*const (dyn HasRoots + 'a)>, PhantomData<&'heap Heap>);
+
 impl Heap {
     pub fn new() -> Self {
         Self {
@@ -213,12 +216,21 @@ impl Heap {
         }
     }
 
-    pub(crate) fn register_roots<'a>(&self, roots: &Rc<*const (dyn HasRoots + 'a)>) {
-        trace!("Registered GC root {:?}", roots);
-        let weak = Rc::downgrade(roots);
+    /// SAFETY: The returned token must be kept alive as long as the GC root is using
+    /// the heap, and it must be dropped before the heap is dropped.
+    #[must_use]
+    pub(crate) fn register_gc_root<'heap, 'a>(
+        &'heap self,
+        root: *const (dyn HasRoots + 'a),
+    ) -> GcToken<'heap, 'a> {
+        let token = Rc::new(root);
+        trace!("Registered GC root {:?}", root);
+        let weak = Rc::downgrade(&token);
         self.has_roots
             .borrow_mut()
+            // This transmute extends the lifetime 'a to 'heap
             .push(unsafe { std::mem::transmute(weak) });
+        GcToken(token, PhantomData::default())
     }
 
     pub(crate) fn new_object<O: LoxObject>(&self, inner: O) -> &'static Obj<O>

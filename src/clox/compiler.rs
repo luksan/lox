@@ -5,7 +5,6 @@ use anyhow::{bail, Result};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::mem;
 use std::ptr::NonNull;
-use std::rc::Rc;
 use tracing::trace_span;
 
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
@@ -21,8 +20,7 @@ pub fn compile(source: &str, heap: &Heap) -> StdResult<NonNull<Obj<Function>>, L
     scanner.scan_tokens()?;
     // The compiler has to be behind a mut ref, so it can't move in memory for the GC root ref
     let compiler = &mut Compiler::new(scanner.tokens(), heap);
-    let root = Rc::new(compiler as *const dyn HasRoots);
-    compiler.heap.register_roots(&root);
+    let _token = compiler.heap.register_gc_root(compiler as *const _);
     compiler
         .compile()
         .map(|func_ptr| NonNull::new(func_ptr as *mut _).unwrap())
