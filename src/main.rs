@@ -1,16 +1,17 @@
-use lox::{Lox, LoxError};
 use std::path::PathBuf;
-use structopt::StructOpt;
 
-#[derive(Debug, StructOpt)]
+use clap::Parser;
+
+use lox::{Lox, LoxError};
+
+#[derive(Debug, Parser)]
 struct CmdOpts {
     /// Lox script file
-    #[structopt(parse(from_os_str))]
     script: Option<PathBuf>,
 }
 
 fn main() {
-    let opts = CmdOpts::from_args();
+    let opts = CmdOpts::parse();
 
     if let Some(script) = opts.script {
         if let Err(e) = Lox::run_file(script) {

@@ -1,18 +1,16 @@
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::result::Result as StdResult;
+
+use anyhow::{bail, Context, Result};
+use clap::Parser;
 
 use lox::clox::{self, CloxSettings, Vm, VmError};
 use lox::LoxError;
-use std::io::Write;
 
-use std::path::{Path, PathBuf};
-
-use anyhow::{bail, Context, Result};
-use structopt::StructOpt;
-
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 struct CmdOpts {
     /// Lox script file
-    #[structopt(parse(from_os_str))]
     script: Option<PathBuf>,
 
     /// Indicates that we are running the craftinginterpreters testsuite,
@@ -20,7 +18,7 @@ struct CmdOpts {
     #[structopt(long)]
     ci_testsuite: bool,
 
-    /// Print disassembly of compiler output brefore it runs.
+    /// Print disassembly of compiler output before it runs.
     #[structopt(long, short)]
     print_comp_asm: bool,
 
@@ -31,7 +29,7 @@ struct CmdOpts {
 
 #[allow(unused)]
 fn main() {
-    let opts = CmdOpts::from_args();
+    let opts = CmdOpts::parse();
 
     tracing_subscriber::fmt::init();
 
