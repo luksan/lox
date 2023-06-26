@@ -320,7 +320,6 @@ dependencies = [
  "clap",
  "lazy-regex",
  "num_enum",
- "once_cell",
  "phf",
  "thiserror",
  "tracing",

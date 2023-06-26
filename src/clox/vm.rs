@@ -701,10 +701,10 @@ impl HasRoots for Vm<'_> {
 
 mod natives {
     use super::{Result, Value};
-    use once_cell::sync::OnceCell;
+    use std::sync::OnceLock;
 
     pub fn clock(_args: &[Value]) -> Result<Value> {
-        static START_TIME: OnceCell<std::time::Instant> = OnceCell::new();
+        static START_TIME: OnceLock<std::time::Instant> = OnceLock::new();
         Ok(START_TIME
             .get_or_init(std::time::Instant::now)
             .elapsed()

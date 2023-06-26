@@ -1,18 +1,18 @@
+use std::fmt::{Debug, Formatter};
+use std::sync::OnceLock;
+
+use num_enum::FromPrimitive;
+
+pub use mm::Heap;
+use mm::ValueArray;
+use value::{Function, Value};
+pub use vm::{Vm, VmError};
+
 mod compiler;
 mod mm;
 mod table;
 mod value;
 mod vm;
-
-use mm::ValueArray;
-use value::{Function, Value};
-pub use vm::{Vm, VmError};
-pub use mm::Heap;
-
-use num_enum::FromPrimitive;
-use once_cell::sync::OnceCell;
-
-use std::fmt::{Debug, Formatter};
 
 #[derive(Default, Debug, Copy, Clone)]
 pub struct CloxSettings {
@@ -22,7 +22,7 @@ pub struct CloxSettings {
     pub gc_stress_test: bool,
 }
 
-static SETTINGS: OnceCell<CloxSettings> = OnceCell::new();
+static SETTINGS: OnceLock<CloxSettings> = OnceLock::new();
 
 pub fn set_settings(settings: CloxSettings) {
     SETTINGS
