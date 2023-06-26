@@ -100,8 +100,8 @@ macro_rules! objtypes_impl {
                 #[allow(unused_unsafe)]
                 match unsafe {*$self.0.as_ref()} {
                     $( ObjKind::$typ => {
-                        let mut obj_ptr = unsafe {$self.0.cast::<Obj<$typ>>()};
-                        $mac!(obj_ptr)
+                        let obj_ptr = ObjPtr(unsafe {$self.0.cast::<Obj<$typ>>()});
+                        $mac!($typ, obj_ptr)
                     }, )+
                 }
             }}
@@ -145,8 +145,8 @@ impl ObjTypes {
 
     pub(crate) unsafe fn free_object(self) -> Option<Self> {
         macro_rules! free_next {
-            ($ptr:expr) => {{
-                unsafe { $ptr.as_mut().free() }
+            ($typ:tt, $ptr:expr) => {{
+                unsafe { Obj::free($ptr) }
             }};
         }
         for_all_objtypes_nonnull!(self, free_next)
@@ -470,9 +470,9 @@ where
         }))
     }
 
-    unsafe fn free(&mut self) -> Option<ObjTypes> {
-        trace!("Freeing {:?} @ {:?}", self, self as *const _);
-        unsafe { Box::from_raw(self as *mut Self) }.next.get()
+    unsafe fn free(s: ObjPtr<T>) -> Option<ObjTypes> {
+        trace!("Freeing {:?} @ {:?}", s, s.0.as_ptr());
+        unsafe { Box::from_raw(s.0.as_ptr()) }.next.get()
     }
 
     pub(crate) fn mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
