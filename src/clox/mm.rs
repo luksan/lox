@@ -23,6 +23,14 @@ impl<T: LoxObject> From<&Obj<T>> for ObjTypes {
     }
 }
 
+impl<T: LoxObject> From<&mut Obj<T>> for ObjTypes {
+    fn from(o: &mut Obj<T>) -> Self {
+        // The first field of the Obj struct is the type enum,
+        // so this cast is ok.
+        Self(NonNull::from(o).cast())
+    }
+}
+
 impl<T: LoxObject> From<*const Obj<T>> for ObjTypes {
     fn from(o: *const Obj<T>) -> Self {
         unsafe { Self(NonNull::new_unchecked(o as *mut ObjKind)) }
@@ -255,11 +263,16 @@ impl Heap {
             self.next_gc.set(self.obj_count.get() * 2);
         }
         self.obj_count.set(self.obj_count.get() + 1);
-        let o = Obj::new(inner);
-        o.next
-            .set(self.objs.replace((o as *const Obj<O>).into().into()));
-        trace!("new {:?}", o);
-        o
+
+        let new_obj = Obj::new(inner);
+        let prev_head = self.objs.get();
+        new_obj.next.set(prev_head);
+        trace!("new {:?}", new_obj);
+
+        let obj_type: ObjTypes = new_obj.into();
+        self.objs.set(Some(obj_type));
+
+        new_obj
     }
 
     pub(crate) fn new_string(&self, s: String) -> &Obj<LoxStr> {
