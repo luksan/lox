@@ -51,6 +51,18 @@ macro_rules! objtypes_impl {
             }}
         }
 
+        macro_rules! for_all_objtypes_nonnull {
+            ($self:ident, $mac:ident) => {{
+                #[allow(unused_unsafe)]
+                match unsafe {*$self.0.as_ref()} {
+                    $( ObjKind::$typ => {
+                        let mut obj_ptr = unsafe {$self.0.cast::<Obj<$typ>>()};
+                        $mac!(obj_ptr)
+                    }, )+
+                }
+            }}
+        }
+
         #[derive(Copy, Clone, Debug, PartialEq)]
         #[repr(u8)]
         enum ObjKind {
@@ -90,10 +102,10 @@ impl ObjTypes {
     pub(crate) unsafe fn free_object(self) -> Option<Self> {
         macro_rules! free_next {
             ($ptr:expr) => {{
-                unsafe { $ptr.free() }
+                unsafe { $ptr.as_mut().free() }
             }};
         }
-        for_all_objtypes!(self, free_next)
+        for_all_objtypes_nonnull!(self, free_next)
     }
 
     pub(crate) fn cast<'a, T: LoxObject + 'static>(self) -> Option<&'a Obj<T>> {
@@ -402,11 +414,9 @@ where
         }))
     }
 
-    unsafe fn free(&self) -> Option<ObjTypes> {
+    unsafe fn free(&mut self) -> Option<ObjTypes> {
         trace!("Freeing {:?} @ {:?}", self, self as *const _);
-        unsafe { Box::from_raw(self as *const Self as *mut Self) }
-            .next
-            .get()
+        unsafe { Box::from_raw(self as *mut Self) }.next.get()
     }
 
     pub(crate) fn mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
