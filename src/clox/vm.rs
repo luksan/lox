@@ -1,5 +1,5 @@
 use crate::clox::compiler::compile;
-use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
+use crate::clox::mm::{HasRoots, Heap, Obj, ObjPtr, ObjTypes};
 use crate::clox::table::{LoxTable, Table};
 use crate::clox::value::{
     BoundMethod, Class, Closure, Function, Instance, LoxObject, LoxStr, NativeFn, NativeFnRef,
@@ -12,7 +12,6 @@ use anyhow::{anyhow, bail, Context, Result};
 use tracing::{span, Level};
 
 use std::fmt::{Debug, Formatter};
-use std::pin::Pin;
 use std::ptr;
 use std::ptr::NonNull;
 
@@ -111,7 +110,7 @@ pub struct Vm<'heap> {
     stack: Stack,
     heap: &'heap Heap,
     globals: LoxTable,
-    open_upvalues: Option<Pin<&'static Obj<Upvalue>>>,
+    open_upvalues: Option<ObjPtr<Upvalue>>,
     init_string: *const Obj<LoxStr>,
 }
 
@@ -526,7 +525,7 @@ impl<'heap> Vm<'heap> {
         println!("Stack dump: {}\n{:?}", hdr, self.stack);
     }
 
-    fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> Pin<&'static Obj<Upvalue>> {
+    fn capture_upvalue(&mut self, stack_ptr: *mut Value) -> ObjPtr<Upvalue> {
         let mut uv_ptr = self.open_upvalues;
         let mut prev_ptr = None;
         // check if we already have an open upvalue for this stack slot
@@ -542,14 +541,14 @@ impl<'heap> Vm<'heap> {
         }
         let upvalue = Upvalue::new(stack_ptr);
         upvalue.set_next_open(uv_ptr);
-        let upvalue = self.heap.new_object(upvalue);
+        let upvalue: ObjPtr<Upvalue> = self.heap.new_object(upvalue).into();
 
         if let Some(prev_ptr) = prev_ptr {
-            prev_ptr.set_next_open(Some(Pin::static_ref(upvalue)));
+            prev_ptr.set_next_open(Some(upvalue));
         } else {
-            self.open_upvalues = Some(Pin::static_ref(upvalue));
+            self.open_upvalues = Some(upvalue);
         }
-        Pin::static_ref(upvalue)
+        upvalue
     }
 
     fn close_upvalues(&mut self, last: *mut Value) {
@@ -558,7 +557,7 @@ impl<'heap> Vm<'heap> {
             if uv.get_val_ptr() < last {
                 break;
             }
-            Upvalue::close(*uv);
+            Upvalue::close(uv.as_ref());
             self.open_upvalues = uv.get_next_open();
         }
     }
@@ -689,7 +688,7 @@ impl HasRoots for Vm<'_> {
         }
         self.globals.mark_roots(mark_obj);
         let mut uv_ptr = self.open_upvalues;
-        while let Some(uv) = uv_ptr.as_ref() {
+        while let Some(uv) = uv_ptr.as_ref().map(|x| x.as_ref()) {
             uv.mark(mark_obj);
             uv_ptr = uv.get_next_open();
         }

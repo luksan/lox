@@ -1,13 +1,12 @@
 use anyhow::Result;
 use std::cell::{Cell, UnsafeCell};
 
-use crate::clox::mm::{HasRoots, Obj, ObjTypes};
+use crate::clox::mm::{HasRoots, Obj, ObjPtr, ObjTypes};
 use crate::clox::table::{LoxTable, Table};
 use crate::clox::Chunk;
 
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomPinned;
-use std::pin::Pin;
 use std::ptr;
 use std::ptr::NonNull;
 
@@ -324,7 +323,7 @@ impl Display for LoxStr {
 #[derive(Debug)]
 pub struct Upvalue {
     location: Cell<*mut Value>,
-    next_open_upvalue: Cell<Option<Pin<&'static Obj<Upvalue>>>>,
+    next_open_upvalue: Cell<Option<ObjPtr<Upvalue>>>,
     closed: Cell<Value>,
     _pinned: PhantomPinned,
 }
@@ -345,15 +344,15 @@ impl Upvalue {
         self.location.get()
     }
 
-    pub fn get_next_open(&self) -> Option<Pin<&'static Obj<Upvalue>>> {
+    pub fn get_next_open(&self) -> Option<ObjPtr<Upvalue>> {
         self.next_open_upvalue.get()
     }
 
-    pub fn set_next_open(&self, next: Option<Pin<&'static Obj<Upvalue>>>) {
+    pub fn set_next_open(&self, next: Option<ObjPtr<Upvalue>>) {
         self.next_open_upvalue.set(next);
     }
 
-    pub fn close(this: Pin<&Obj<Self>>) {
+    pub fn close(this: &Obj<Self>) {
         this.closed.set(unsafe { *this.location.get() });
         this.location.set(this.closed.as_ptr());
     }
@@ -384,16 +383,13 @@ impl Display for Upvalue {
 #[derive(Debug)]
 pub struct Closure {
     pub function: NonNull<Obj<Function>>,
-    pub upvalues: Box<[Pin<&'static Obj<Upvalue>>]>,
+    pub upvalues: Box<[ObjPtr<Upvalue>]>,
 }
 
 impl LoxObject for Closure {}
 
 impl Closure {
-    pub fn new(
-        function: NonNull<Obj<Function>>,
-        uvg: &mut dyn FnMut() -> Pin<&'static Obj<Upvalue>>,
-    ) -> Self {
+    pub fn new(function: NonNull<Obj<Function>>, uvg: &mut dyn FnMut() -> ObjPtr<Upvalue>) -> Self {
         let mut upvalues = vec![];
         upvalues.resize_with(unsafe { function.as_ref().upvalue_count }, uvg);
         Self {

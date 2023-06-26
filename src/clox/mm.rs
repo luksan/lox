@@ -14,6 +14,42 @@ use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
 use std::rc::{Rc, Weak};
 
+pub struct ObjPtr<O: LoxObject>(NonNull<Obj<O>>);
+
+impl<O: LoxObject> From<&Obj<O>> for ObjPtr<O> {
+    fn from(value: &Obj<O>) -> Self {
+        Self(NonNull::from(value))
+    }
+}
+
+impl<O: LoxObject> Clone for ObjPtr<O> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<O: LoxObject> Copy for ObjPtr<O> {}
+
+impl<O: LoxObject> ObjPtr<O> {
+    pub fn as_ref(&self) -> &Obj<O> {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<O: LoxObject> Deref for ObjPtr<O> {
+    type Target = O;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl<O: LoxObject> Debug for ObjPtr<O> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", unsafe { self.0.as_ref() })
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq)]
 pub struct ObjTypes(NonNull<ObjKind>);
 
@@ -253,7 +289,7 @@ impl Heap {
         GcToken(token, PhantomData::default())
     }
 
-    pub(crate) fn new_object<O: LoxObject>(&self, inner: O) -> &'static Obj<O>
+    pub(crate) fn new_object<O: LoxObject + 'static>(&self, inner: O) -> &Obj<O>
     where
         *const Obj<O>: Into<ObjTypes>,
         ObjTypes: From<*const Obj<O>>,
@@ -365,6 +401,13 @@ impl Drop for Heap {
 #[cfg(test)]
 mod heap_test {
     use super::Heap;
+    use crate::clox::value::Function;
+
+    #[test]
+    fn miri_heap_test() {
+        let heap = Heap::new();
+        let _x1 = heap.new_object(Function::new());
+    }
 
     #[test]
     fn string_interning() {
@@ -413,12 +456,12 @@ pub struct Obj<T: ?Sized + LoxObject> {
     inner: T,
 }
 
-impl<T: LoxObject> Obj<T>
+impl<T: LoxObject + 'static> Obj<T>
 where
     *const Obj<T>: Into<ObjTypes>,
     ObjTypes: From<*const Self>,
 {
-    fn new<S: Into<T>>(from: S) -> &'static mut Self {
+    fn new<'a, S: Into<T>>(from: S) -> &'a mut Self {
         Box::leak(Box::new(Obj {
             kind: ObjKind::new::<T>(),
             next: None.into(),
