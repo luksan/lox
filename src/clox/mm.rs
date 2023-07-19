@@ -254,12 +254,19 @@ impl HasRoots for HashMap<StrPtr, Value> {
 pub struct Heap {
     objs: Cell<Option<ObjTypes>>,
     strings: UnsafeCell<StringInterner>,
-    has_roots: RefCell<Vec<Weak<*const dyn HasRoots>>>,
+    has_roots: RefCell<Vec<WeakRoot>>,
     obj_count: Cell<usize>,
     next_gc: Cell<usize>,
 }
 
 pub struct GcToken<'heap, 'a>(Rc<*const (dyn HasRoots + 'a)>, PhantomData<&'heap Heap>);
+struct WeakRoot(Weak<*const dyn HasRoots>);
+
+impl WeakRoot {
+    fn upgrade(&self) -> Option<&dyn HasRoots> {
+        self.0.upgrade().map(|rc| unsafe { &**rc })
+    }
+}
 
 impl Heap {
     pub fn new() -> Self {
@@ -322,6 +329,7 @@ impl Heap {
         }
         trace!("new_string() interning '{}'", s);
         let o = self.new_object(LoxStr::from_string(s));
+        let str_int = unsafe { &mut *self.strings.get() };
         str_int.set(o, Value::Nil);
         o
     }
@@ -331,11 +339,7 @@ impl Heap {
         let _span_enter = span.enter();
         let mut gray_list = vec![];
         for root in self.has_roots.borrow().iter() {
-            let r = root.upgrade().map(|ptr| unsafe { &**ptr });
-            if r.is_none() {
-                continue;
-            };
-            let r = r.unwrap();
+            let Some(r) = root.upgrade() else { continue };
             r.mark_roots(&mut |gray| {
                 gray_list.push(gray);
             });
