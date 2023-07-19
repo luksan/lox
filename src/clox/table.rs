@@ -1,11 +1,10 @@
-use crate::clox::mm::{HasRoots, Obj, ObjTypes};
-use crate::clox::value::{LoxStr, Value};
-
-use std::cell::Cell;
-use std::collections::HashMap;
+use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
+
+use crate::clox::mm::{HasRoots, Obj, ObjTypes};
+use crate::clox::value::{LoxStr, Value};
 
 pub type StrPtr = *const Obj<LoxStr>;
 
@@ -13,13 +12,15 @@ pub trait Table {
     fn get_value(&self, key: &Obj<LoxStr>) -> Option<Value>;
     /// Inserts a value in the table, returns false if the key already
     /// was in the table.
-    fn set(&mut self, key: &Obj<LoxStr>, value: Value) -> bool;
+    fn set(&self, key: &Obj<LoxStr>, value: Value) -> bool;
 
     /// Remove the entry from the table, returns true if the entry was present.
-    fn delete(&mut self, key: &Obj<LoxStr>) -> bool;
-    fn add_all(&mut self, other: &Self);
+    fn delete(&self, key: &Obj<LoxStr>) -> bool;
+    fn add_all(&self, other: &Self);
 }
 
+/*
+use std::collections::HashMap;
 impl Table for HashMap<StrPtr, Value> {
     fn get_value(&self, key: &Obj<LoxStr>) -> Option<Value> {
         self.get(&(key as StrPtr)).copied()
@@ -37,13 +38,14 @@ impl Table for HashMap<StrPtr, Value> {
         <Self as Extend<_>>::extend(self, other);
     }
 }
+*/
 
 // pub type LoxTable = HashMap<StrPtr, Value>;
 pub type LoxTable = LoxMap;
 
 pub struct LoxMap {
-    count: usize,
-    entries: Box<[Entry]>,
+    pop_count: Cell<usize>,
+    entries: UnsafeCell<Box<[Entry]>>,
 }
 
 impl Debug for LoxMap {
@@ -105,28 +107,29 @@ impl Default for Entry {
 
 impl Table for LoxMap {
     fn get_value(&self, key: &Obj<LoxStr>) -> Option<Value> {
-        if self.count == 0 {
+        if self.count() == 0 {
             return None;
         }
         self.find_entry(key).value()
     }
 
-    fn set(&mut self, key: &Obj<LoxStr>, value: Value) -> bool {
-        if self.count + 1 > self.entries.len() / 4 * 3 {
-            self.adjust_capacity(8.max(self.entries.len() * 2));
+    fn set(&self, key: &Obj<LoxStr>, value: Value) -> bool {
+        let curr_cap = self.capacity();
+        if self.count() + 1 > curr_cap / 4 * 3 {
+            self.adjust_capacity(8.max(curr_cap * 2));
         }
         let entry = self.find_entry(key);
         let is_new = entry.key().is_none();
         let tombstone = entry.is_tombstone();
         entry.set(key, value);
         if is_new && !tombstone {
-            self.count += 1;
+            self.pop_count.set(self.pop_count.get() + 1);
         }
         is_new
     }
 
-    fn delete(&mut self, key: &Obj<LoxStr>) -> bool {
-        if self.count == 0 {
+    fn delete(&self, key: &Obj<LoxStr>) -> bool {
+        if self.count() == 0 {
             return false;
         }
         let entry = self.find_entry(key);
@@ -138,7 +141,7 @@ impl Table for LoxMap {
         }
     }
 
-    fn add_all(&mut self, other: &Self) {
+    fn add_all(&self, other: &Self) {
         for (k, v) in other.iter() {
             self.set(k, v);
         }
@@ -148,24 +151,34 @@ impl Table for LoxMap {
 impl LoxMap {
     pub fn new() -> Self {
         Self {
-            count: 0,
-            entries: Box::new([]),
+            pop_count: 0.into(),
+            entries: UnsafeCell::new(Box::new([])),
         }
     }
 
+    fn entries_ref(&self) -> &[Entry] {
+        unsafe { &**self.entries.get() }
+    }
+
+    /// Returns the sum of live entries and tombstones
+    fn count(&self) -> usize {
+        self.pop_count.get()
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (&Obj<LoxStr>, Value)> + '_ {
-        self.entries
+        self.entries_ref()
             .iter()
             .filter_map(|e| e.key().map(|key| (key, e.value.get())))
     }
 
     fn find_entry(&self, key: &Obj<LoxStr>) -> &Entry {
         let mask = self.capacity() - 1;
+        let entries = self.entries_ref();
         let mut index = key.hash as usize & mask;
         let mut tombstone = None;
         loop {
             // SAFETY: the index is always in bounds since capacity is a power of 2
-            let entry = unsafe { self.entries.get_unchecked(index) };
+            let entry = unsafe { entries.get_unchecked(index) };
 
             match entry.key() {
                 Some(entry_key) if &**entry_key == &**key => return entry,
@@ -183,12 +196,14 @@ impl LoxMap {
         // unreachable!("The table is never at 100% capacity, or completely full of tombstones.")
     }
 
-    fn adjust_capacity(&mut self, cap: usize) {
+    fn adjust_capacity(&self, cap: usize) {
+        // TODO: mark this function as unsafe
         assert!(cap.is_power_of_two());
         let mut new = Vec::with_capacity(cap);
         new.resize_with(cap, Entry::default);
-        let old = std::mem::replace(&mut self.entries, new.into_boxed_slice());
-        self.count = 0;
+        // SAFETY: this is fine as long as we don't hold any references to the entries slice across a adjust_capacity call
+        let old = std::mem::replace(unsafe { &mut *self.entries.get() }, new.into_boxed_slice());
+        self.pop_count.set(0);
         for e in old.iter() {
             if let Some(key) = e.key() {
                 self.set(key, e.value.get());
@@ -197,7 +212,7 @@ impl LoxMap {
     }
 
     fn capacity(&self) -> usize {
-        self.entries.len()
+        self.entries_ref().len()
     }
 }
 
@@ -218,7 +233,7 @@ impl StringInterner {
     }
 
     pub(crate) fn remove_white(&self) {
-        for e in self.0.entries.iter() {
+        for e in self.0.entries_ref().iter() {
             if let Some(k) = e.key() {
                 if !k.is_marked() {
                     e.delete();
@@ -228,14 +243,15 @@ impl StringInterner {
     }
 
     pub fn find_key(&self, k: &str) -> Option<StrPtr> {
-        if self.0.count == 0 {
+        if self.0.count() == 0 {
             return None;
         }
         let cap = self.capacity() as u32;
         let hash = LoxStr::hash(k);
+        let entries = self.0.entries_ref();
         let mut index = hash & (cap - 1);
         loop {
-            let entry = &self.entries[index as usize];
+            let entry = &entries[index as usize];
             if entry.value().is_none() && !entry.is_tombstone() {
                 return None;
             }
@@ -274,7 +290,7 @@ mod test {
 
     #[test]
     fn basic_test() {
-        let mut table = LoxMap::new();
+        let table = LoxMap::new();
         let heap = Heap::new();
         let s1 = heap.new_string("asd".to_string());
         assert!(table.get_value(s1).is_none());
@@ -291,7 +307,7 @@ mod test {
     // #[traced_test]
     #[test]
     fn test_deletion() {
-        let mut table = LoxMap::new();
+        let table = LoxMap::new();
         let heap = Heap::new();
 
         let _token = heap.register_gc_root(&table);
@@ -324,7 +340,7 @@ mod test {
             assert!(table.set(s, v));
             entries.push((s, v));
         }
-        assert_eq!(table.count, 101);
+        assert_eq!(table.count(), 101);
         for (k, v) in &entries {
             get!(k, *v);
         }
@@ -332,7 +348,7 @@ mod test {
             assert!(table.delete(k.0));
             assert!(!table.delete(k.0));
         }
-        assert_eq!(table.count, 101);
+        assert_eq!(table.count(), 101);
         for (k, v) in &entries {
             assert!(table.set(*k, *v));
             assert!(table.delete(*k));
@@ -344,14 +360,14 @@ mod test {
             assert!(table.set(s, v), "{n}", n = n);
             entries.push((s, v));
         }
-        assert_eq!(table.count, 109);
+        assert_eq!(table.count(), 109);
         table.adjust_capacity(2);
-        assert_eq!(table.count, 30);
+        assert_eq!(table.count(), 30);
     }
 
     #[test]
     fn find_key() {
-        let mut table = StringInterner::new();
+        let table = StringInterner::new();
         let heap = Heap::new();
         let s1 = heap.new_string("asd".to_string());
         table.set(s1, Value::Bool(false));

@@ -59,14 +59,6 @@ impl<T: LoxObject> From<&Obj<T>> for ObjTypes {
     }
 }
 
-impl<T: LoxObject> From<&mut Obj<T>> for ObjTypes {
-    fn from(o: &mut Obj<T>) -> Self {
-        // The first field of the Obj struct is the type enum,
-        // so this cast is ok.
-        Self(NonNull::from(o).cast())
-    }
-}
-
 impl<T: LoxObject> From<*const Obj<T>> for ObjTypes {
     fn from(o: *const Obj<T>) -> Self {
         unsafe { Self(NonNull::new_unchecked(o as *mut ObjKind)) }
@@ -307,15 +299,13 @@ impl Heap {
         }
         self.obj_count.set(self.obj_count.get() + 1);
 
-        let new_obj = Obj::new(inner);
-        let prev_head = self.objs.get();
-        new_obj.next.set(prev_head);
+        let new_obj = Obj::new(inner, self.objs.get());
         trace!("new {:?}", new_obj);
 
-        let obj_type: ObjTypes = new_obj.into();
+        let obj_type: ObjTypes = unsafe { NonNull::new_unchecked(new_obj) }.into();
         self.objs.set(Some(obj_type));
 
-        new_obj
+        unsafe { &*new_obj }
     }
 
     pub(crate) fn new_string(&self, s: String) -> &Obj<LoxStr> {
@@ -465,10 +455,10 @@ where
     *const Obj<T>: Into<ObjTypes>,
     ObjTypes: From<*const Self>,
 {
-    fn new<'a, S: Into<T>>(from: S) -> &'a mut Self {
+    fn new<'a, S: Into<T>>(from: S, next: Option<ObjTypes>) -> *mut Self {
         Box::leak(Box::new(Obj {
             kind: ObjKind::new::<T>(),
-            next: None.into(),
+            next: next.into(),
             inner: from.into(),
             is_marked: false.into(),
         }))
