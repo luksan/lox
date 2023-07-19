@@ -2,15 +2,16 @@ use crate::clox::value::Value;
 use std::fmt::{Debug, Formatter};
 
 pub const FRAMES_MAX: usize = 64;
+const STACK_SLOTS: usize = FRAMES_MAX * 256;
 
 pub struct Stack {
-    inner: Box<[Value; FRAMES_MAX * 256]>,
+    inner: *mut [Value; STACK_SLOTS],
     top: *mut Value,
 }
 
 impl Stack {
     pub(crate) fn new() -> Self {
-        let mut inner = Box::new([Value::Nil; FRAMES_MAX * 256]);
+        let inner = Box::leak(Box::new([Value::Nil; STACK_SLOTS]));
         let top = inner.as_mut_ptr();
         Self { inner, top }
     }
@@ -66,7 +67,11 @@ impl Stack {
 
     /// Number of active stack entries.
     fn len(&self) -> usize {
-        unsafe { self.top.offset_from(self.inner.as_ptr()) as usize }
+        unsafe { self.top.offset_from(self.inner as *const _) as usize }
+    }
+
+    fn as_slice(&self) -> &[Value] {
+        &unsafe { &*self.inner }.as_slice()[0..self.len()]
     }
 
     pub(crate) fn truncate(&mut self, to_slot: *mut Value) {
@@ -74,12 +79,26 @@ impl Stack {
     }
 
     pub(crate) fn iter(&self) -> impl DoubleEndedIterator<Item = &Value> {
-        self.inner[0..self.len()].iter()
+        self.as_slice().iter()
     }
 }
 
 impl Debug for Stack {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", &self.inner[0..self.len()])
+        write!(f, "{:?}", self.as_slice())
     }
+}
+
+impl Drop for Stack {
+    fn drop(&mut self) {
+        unsafe {
+            let _ = Box::from_raw(self.inner);
+        }
+    }
+}
+
+#[test]
+fn test_stack() {
+    let mut stack = Stack::new();
+    stack.push(Value::Nil)
 }
