@@ -1,5 +1,13 @@
+use std::fmt::{Debug, Formatter};
+use std::ptr;
+use std::ptr::NonNull;
+
+use anyhow::{anyhow, bail, Context, Result};
+use tracing::{span, Level};
+
 use crate::clox::compiler::compile;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjPtr, ObjTypes};
+use crate::clox::stack::{Stack, FRAMES_MAX};
 use crate::clox::table::{LoxTable, Table};
 use crate::clox::value::{
     BoundMethod, Class, Closure, Function, Instance, LoxObject, LoxStr, NativeFn, NativeFnRef,
@@ -8,102 +16,12 @@ use crate::clox::value::{
 use crate::clox::{Chunk, OpCode};
 use crate::LoxError;
 
-use anyhow::{anyhow, bail, Context, Result};
-use tracing::{span, Level};
-
-use std::fmt::{Debug, Formatter};
-use std::ptr;
-use std::ptr::NonNull;
-
 #[derive(Debug, thiserror::Error)]
 pub enum VmError {
     #[error("Compilation error")]
     CompileError(#[from] LoxError),
     #[error("VM runtime error")]
     RuntimeError(#[from] anyhow::Error),
-}
-
-const FRAMES_MAX: usize = 64;
-
-struct Stack {
-    inner: Box<[Value; FRAMES_MAX * 256]>,
-    top: *mut Value,
-}
-
-impl Stack {
-    fn new() -> Self {
-        let mut inner = Box::new([Value::Nil; FRAMES_MAX * 256]);
-        let top = inner.as_mut_ptr();
-        Self { inner, top }
-    }
-
-    fn push(&mut self, value: Value) {
-        unsafe {
-            self.top.write(value);
-            self.top = self.top.add(1);
-        }
-    }
-
-    fn peek(&self, from_top: u8) -> Value {
-        unsafe { *self.top.sub(from_top as usize + 1) }
-    }
-
-    fn pop(&mut self) -> Value {
-        unsafe {
-            self.top = self.top.sub(1);
-            *self.top
-        }
-    }
-
-    fn remove_cnt(&mut self, cnt: u8) {
-        self.top = unsafe { self.top.sub(cnt as usize) };
-    }
-
-    fn set_slot(&mut self, from_top: u8, value: Value) {
-        unsafe {
-            *self.top.sub(from_top as usize + 1) = value;
-        }
-    }
-
-    /// Pushes the local at base + slot to the top of the stack.
-    fn get_local(&mut self, base: *const Value, slot: u8) {
-        let val = unsafe { *base.add(slot as usize) };
-        self.push(val);
-    }
-
-    /// Writes the top value on the stack to the local variable at base + slot.
-    fn set_local(&mut self, base: *mut Value, slot: u8) {
-        unsafe { *base.add(slot as usize) = self.peek(0) };
-    }
-
-    fn slice_top(&self, from_top: u8) -> &[Value] {
-        unsafe {
-            std::slice::from_raw_parts(self.top.sub(from_top as usize + 1), from_top as usize + 1)
-        }
-    }
-
-    fn slot_ptr(&self, from_top: u8) -> *mut Value {
-        unsafe { self.top.sub(from_top as usize + 1) }
-    }
-
-    /// Number of active stack entries.
-    fn len(&self) -> usize {
-        unsafe { self.top.offset_from(self.inner.as_ptr()) as usize }
-    }
-
-    fn truncate(&mut self, to_slot: *mut Value) {
-        self.top = to_slot;
-    }
-
-    fn iter(&self) -> impl DoubleEndedIterator<Item = &Value> {
-        self.inner[0..self.len()].iter()
-    }
-}
-
-impl Debug for Stack {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", &self.inner[0..self.len()])
-    }
 }
 
 pub struct Vm<'heap> {
@@ -699,8 +617,9 @@ impl HasRoots for Vm<'_> {
 }
 
 mod natives {
-    use super::{Result, Value};
     use std::sync::OnceLock;
+
+    use super::{Result, Value};
 
     pub fn clock(_args: &[Value]) -> Result<Value> {
         static START_TIME: OnceLock<std::time::Instant> = OnceLock::new();

@@ -10,6 +10,7 @@ pub use vm::{Vm, VmError};
 
 mod compiler;
 mod mm;
+mod stack;
 mod table;
 mod value;
 mod vm;
