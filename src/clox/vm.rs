@@ -138,7 +138,6 @@ impl<'heap> Vm<'heap> {
     }
 
     pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
-        let _token = self.heap.register_gc_root(self);
         self.compile(source)?.run()
     }
 
@@ -146,6 +145,8 @@ impl<'heap> Vm<'heap> {
         let _token = self.heap.register_gc_root(self);
         let function = compile(source, self.heap)?;
         self.push(ObjTypes::from(function));
+        drop(_token);
+        let _token = self.heap.register_gc_root(self);
         let closure = self.heap.new_object(Closure::new(function, &mut || {
             unreachable!("No upvalues in root.")
         }));
@@ -158,6 +159,8 @@ impl<'heap> Vm<'heap> {
     fn run(&mut self, frame: &CallFrame) -> Result<(), VmError> {
         let trace_span = span!(Level::TRACE, "Vm::run()");
         let _enter = trace_span.enter();
+
+        let _token = self.heap.register_gc_root(self);
 
         let call_stack = &mut CallStack::new();
         let _token = self.heap.register_gc_root(call_stack);
