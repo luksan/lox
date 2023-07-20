@@ -329,12 +329,19 @@ impl Heap {
         let span = trace_span!("GC");
         let _span_enter = span.enter();
         let mut gray_list = vec![];
+        let mut dead_gc_root_found = false;
         for root in self.has_roots.borrow().iter() {
-            let Some(r) = root.upgrade() else { continue };
+            let Some(r) = root.upgrade() else { dead_gc_root_found = true; continue };
             r.mark_roots(&mut |gray| {
                 gray_list.push(gray);
             });
         }
+        if dead_gc_root_found {
+            self.has_roots
+                .borrow_mut()
+                .retain(|root| root.upgrade().is_some());
+        }
+
         // Trace the not-yet-allocated object as well
         new_obj.mark_roots(&mut |gray| {
             gray_list.push(gray);
