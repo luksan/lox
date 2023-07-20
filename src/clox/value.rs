@@ -1,18 +1,22 @@
-use anyhow::Result;
+// this is needed for sptr
+#![allow(unstable_name_collisions)]
+use sptr::Strict;
+
 use std::cell::{Cell, UnsafeCell};
-
-use crate::clox::mm::{HasRoots, Obj, ObjPtr, ObjTypes};
-use crate::clox::table::{LoxTable, Table};
-use crate::clox::Chunk;
-
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomPinned;
 use std::ptr;
 use std::ptr::NonNull;
 
+use anyhow::Result;
+
+use crate::clox::mm::{HasRoots, Obj, ObjPtr, ObjTypes};
+use crate::clox::table::{LoxTable, Table};
+use crate::clox::Chunk;
+
 #[derive(Copy, Clone)]
 #[repr(transparent)]
-pub struct ValuePacked(u64);
+pub struct ValuePacked(*const u64);
 
 impl ValuePacked {
     const NAN_EXPONENT: u64 = 0b111_1111_1111 << 52;
@@ -25,7 +29,9 @@ impl ValuePacked {
 
     #[allow(non_snake_case)]
     pub const fn Bool(val: bool) -> Self {
-        Self((if val { Self::TRUE } else { Self::FALSE }) | Self::NOT_FLOAT)
+        Self(sptr::invalid(
+            ((if val { Self::TRUE } else { Self::FALSE }) | Self::NOT_FLOAT) as usize,
+        ))
     }
     #[allow(non_snake_case)]
     pub fn Number(n: f64) -> Self {
@@ -33,17 +39,17 @@ impl ValuePacked {
     }
 
     #[allow(non_upper_case_globals)]
-    pub const False: Self = Self(Self::FALSE | Self::NOT_FLOAT);
+    pub const False: Self = Self((Self::FALSE | Self::NOT_FLOAT) as *const _);
     #[allow(non_upper_case_globals)]
-    pub const Nil: Self = Self(Self::NIL | Self::NOT_FLOAT);
+    pub const Nil: Self = Self((Self::NIL | Self::NOT_FLOAT) as *const _);
 
-    const fn is_float(self) -> bool {
-        self.0 & Self::NOT_FLOAT != Self::NOT_FLOAT
+    fn is_float(self) -> bool {
+        self.0 as u64 & Self::NOT_FLOAT != Self::NOT_FLOAT
     }
 
     fn as_objtypes(self) -> Option<ObjTypes> {
-        if !self.is_float() && f64::from_bits(self.0).is_sign_negative() {
-            let ptr = (self.0 & Self::PTR_MASK) as *const Obj<Function>;
+        if !self.is_float() && f64::from_bits(self.0 as u64).is_sign_negative() {
+            let ptr = self.0.map_addr(|int| int & Self::PTR_MASK as usize) as *const Obj<Function>;
             Some(ObjTypes::from(ptr))
         } else {
             None
@@ -51,7 +57,7 @@ impl ValuePacked {
     }
     pub fn as_f64(self) -> Option<f64> {
         if self.is_float() {
-            Some(f64::from_bits(self.0))
+            Some(f64::from_bits(self.0 as u64))
         } else {
             None
         }
@@ -62,8 +68,8 @@ impl ValuePacked {
     }
 
     pub fn as_object<'a, O: LoxObject + 'static>(self) -> Option<&'a Obj<O>> {
-        if !self.is_float() && f64::from_bits(self.0).is_sign_negative() {
-            let ptr = (self.0 & Self::PTR_MASK) as *const Obj<O>;
+        if !self.is_float() && f64::from_bits(self.0 as u64).is_sign_negative() {
+            let ptr = self.0.map_addr(|int| int & Self::PTR_MASK as usize) as *const Obj<O>;
             ObjTypes::from(ptr).cast()
         } else {
             None
@@ -96,7 +102,7 @@ impl From<bool> for ValuePacked {
 
 impl From<f64> for ValuePacked {
     fn from(float: f64) -> Self {
-        let x = Self(float.to_bits());
+        let x = Self(sptr::invalid(float.to_bits() as usize));
         // assert!(x.is_float());
         x
     }
@@ -105,7 +111,13 @@ impl From<f64> for ValuePacked {
 impl<O: Into<ObjTypes>> From<O> for ValuePacked {
     fn from(ptr: O) -> Self {
         let ptr = ptr.into();
-        let x = Self((-0.0f64).to_bits() | Self::NOT_FLOAT | ptr.as_ptr() as u64);
+        // let x = Self(((-0.0f64).to_bits() | Self::NOT_FLOAT | ptr.as_ptr() as u64) as *const _);
+        let neg_zero = (-0.0f64).to_bits();
+        let x = Self(
+            ptr.as_ptr()
+                .map_addr(|int| int | (neg_zero | Self::NOT_FLOAT) as usize)
+                as *const _,
+        );
         // assert!(x.as_objtypes().is_some());
         // assert_eq!(x.as_objtypes(), Some(ptr));
         x
@@ -114,25 +126,25 @@ impl<O: Into<ObjTypes>> From<O> for ValuePacked {
 
 impl From<ValueEnum> for ValuePacked {
     fn from(v: ValueEnum) -> Self {
-        Self(match v {
+        Self(sptr::invalid(match v {
             ValueEnum::Bool(b) if b => Self::NOT_FLOAT | Self::TRUE,
             ValueEnum::Bool(_) => Self::NOT_FLOAT | Self::FALSE,
             ValueEnum::Nil => Self::NOT_FLOAT | Self::NIL,
             ValueEnum::Number(f) => f.to_bits(),
             ValueEnum::Obj(o) => (-0.0f64).to_bits() | Self::NOT_FLOAT | o.as_ptr() as u64,
-        })
+        } as usize))
     }
 }
 
 impl From<ValuePacked> for ValueEnum {
     fn from(v: ValuePacked) -> Self {
         if v.is_float() {
-            return Self::Number(f64::from_bits(v.0));
+            return Self::Number(f64::from_bits(v.0 as u64));
         }
-        if f64::from_bits(v.0).is_sign_negative() {
+        if f64::from_bits(v.0 as u64).is_sign_negative() {
             return Self::Obj(v.as_objtypes().unwrap());
         }
-        let bits = v.0 & 3;
+        let bits = v.0 as u64 & 3;
         match bits {
             ValuePacked::NIL => Self::Nil,
             ValuePacked::TRUE => Self::Bool(true),
@@ -156,8 +168,8 @@ impl Debug for ValuePacked {
 
 #[test]
 fn test_nanpack() {
-    assert!(ValuePacked(1.0f64.to_bits()).is_float());
-    assert!(ValuePacked((1.0f64 / 0.0).to_bits()).is_float());
+    assert!(ValuePacked(sptr::invalid(1.0f64.to_bits() as usize)).is_float());
+    assert!(ValuePacked(sptr::invalid((1.0f64 / 0.0).to_bits() as usize)).is_float());
     let nan_bits = (1.0f64 / 0.0).to_bits();
     assert_eq!(
         nan_bits & ValuePacked::NAN_EXPONENT,
