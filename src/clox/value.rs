@@ -302,6 +302,12 @@ impl PartialEq for LoxStr {
     }
 }
 
+impl PartialEq<*const Obj<LoxStr>> for Obj<LoxStr> {
+    fn eq(&self, other: &*const Obj<LoxStr>) -> bool {
+        ptr::eq(self, *other) // Assume string interning
+    }
+}
+
 impl PartialEq<(&str, u32)> for &LoxStr {
     fn eq(&self, other: &(&str, u32)) -> bool {
         self.hash == other.1 && &*self.s == other.0

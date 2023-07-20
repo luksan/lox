@@ -73,6 +73,10 @@ impl Entry {
         self.key.get().map(|ptr| unsafe { ptr.as_ref() })
     }
 
+    fn key_matches(&self, other: &Obj<LoxStr>) -> Option<bool> {
+        self.key.get().map(|str_ptr| *other == str_ptr.as_ptr())
+    }
+
     fn value(&self) -> Option<Value> {
         if self.key.get().is_some() {
             Some(self.value.get())
@@ -175,20 +179,17 @@ impl LoxMap {
         let mask = self.capacity() - 1;
         let entries = self.entries_ref();
         let mut index = key.hash as usize & mask;
-        let mut tombstone = None;
+        let mut first_tombstone = None;
         loop {
             // SAFETY: the index is always in bounds since capacity is a power of 2
             let entry = unsafe { entries.get_unchecked(index) };
 
-            match entry.key() {
-                Some(entry_key) if &**entry_key == &**key => return entry,
-                Some(_) => {}
+            match entry.key_matches(key) {
+                Some(true) => return entry,
+                Some(false) => {}
+                None if !entry.is_tombstone() => return first_tombstone.unwrap_or(entry),
                 None => {
-                    if !entry.is_tombstone() {
-                        return tombstone.unwrap_or(entry);
-                    } else if tombstone.is_none() {
-                        tombstone = Some(entry)
-                    }
+                    first_tombstone.get_or_insert(entry);
                 }
             }
             index = (index + 1) & mask;
