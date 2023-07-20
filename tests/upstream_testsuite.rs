@@ -53,16 +53,18 @@ fn run_tests_recursive(
 fn run_single<P: AsRef<Path>>(p: P) -> Result<()> {
     let case = TestCase::from_path(p)?;
 
-    assert_cmd::Command::cargo_bin("clox")?
-        .arg("--ci-testsuite")
-        .arg("--gc-stress-test")
-        .arg(case.file)
-        .assert()
-        .try_stdout(case.expect_stdout)?
-        .try_stderr(case.expect_stderr)?
-        .try_code(case.expect_exit_code)?;
-
-    Ok(())
+    (|| -> Result<()> {
+        assert_cmd::Command::cargo_bin("clox")?
+            .arg("--ci-testsuite")
+            .arg("--gc-stress-test")
+            .arg(&case.file)
+            .assert()
+            .try_stdout(case.expect_stdout.clone())?
+            .try_stderr(case.expect_stderr.clone())?
+            .try_code(case.expect_exit_code)?;
+        Ok(())
+    })()
+    .with_context(|| case.read_source())
 }
 
 struct TestCase {
@@ -114,5 +116,9 @@ impl TestCase {
             expect_stderr,
             expect_exit_code,
         })
+    }
+
+    pub fn read_source(&self) -> String {
+        std::fs::read_to_string(&self.file).unwrap()
     }
 }
