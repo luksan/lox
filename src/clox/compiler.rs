@@ -57,7 +57,7 @@ impl ClassCompiler {
 
 // This is struct Compiler in the book, Ch 22.
 struct FunctionScope {
-    func_obj: *const Obj<Function>,
+    func_obj: Function,
     func_type: FunctionType,
     scope_depth: usize,
     locals: Vec<Local>,
@@ -103,7 +103,7 @@ impl Into<u8> for LocalIdx {
 }
 
 impl<'compiler> FunctionScope {
-    pub fn new(func_type: FunctionType, func_obj: *const Obj<Function>) -> Box<Self> {
+    pub fn new(func_type: FunctionType) -> Box<Self> {
         let slot0_name = if func_type != FunctionType::Function {
             "this"
         } else {
@@ -112,7 +112,7 @@ impl<'compiler> FunctionScope {
         .to_string();
         let this_slot = Local::new(slot0_name);
         let mut scope = Self {
-            func_obj,
+            func_obj: Function::new(),
             func_type,
             scope_depth: 0,
             locals: vec![this_slot],
@@ -124,18 +124,11 @@ impl<'compiler> FunctionScope {
         scope.into()
     }
     pub fn function(&mut self) -> &mut Function {
-        unsafe { &mut **(self.func_obj as *mut Obj<Function>) }
-    }
-    pub fn function_obj(&self) -> &Obj<Function> {
-        unsafe { &*self.func_obj }
+        &mut self.func_obj
     }
 
-    pub fn create_inner_scope(
-        self: &mut Box<Self>,
-        func_type: FunctionType,
-        func_obj: *const Obj<Function>,
-    ) {
-        self.enclosing = Some(mem::replace(self, FunctionScope::new(func_type, func_obj)));
+    pub fn create_inner_scope(self: &mut Box<Self>, func_type: FunctionType) {
+        self.enclosing = Some(mem::replace(self, FunctionScope::new(func_type)));
     }
 
     pub fn release_enclosing(self: &mut Box<Self>) -> Option<Box<Self>> {
@@ -284,7 +277,6 @@ type OptParseFn = Option<ParseFn>;
 impl<'pratt> Compiler<'pratt> {
     fn new(tokens: &'pratt [Token], heap: &'pratt Heap) -> Self {
         let tok0 = &tokens[0];
-        let func_obj = heap.new_object(Function::new());
         Self {
             tokens,
             tok_pos: 0,
@@ -293,7 +285,7 @@ impl<'pratt> Compiler<'pratt> {
             had_error: false,
             panic_mode: false,
 
-            func_scope: FunctionScope::new(FunctionType::Script, func_obj).into(),
+            func_scope: FunctionScope::new(FunctionType::Script).into(),
             current_class: None,
 
             heap,
@@ -318,7 +310,9 @@ impl<'pratt> Compiler<'pratt> {
         if self.had_error {
             bail!("Compilation failed.")
         }
-        Ok(self.func_scope.func_obj)
+        Ok(self
+            .heap
+            .new_object(mem::take(&mut self.func_scope.func_obj)))
     }
 
     fn begin_scope(&mut self) {
@@ -903,10 +897,9 @@ impl<'helpers> Compiler<'helpers> {
     }
 
     fn function(&mut self, func_type: FunctionType) {
-        let span = trace_span!("function", name = self.previous().lexeme());
+        let span = trace_span!("func", n = self.previous().lexeme());
         let _e = span.enter();
-        let func_obj = self.heap.new_object(Function::new());
-        self.func_scope.create_inner_scope(func_type, func_obj);
+        self.func_scope.create_inner_scope(func_type);
         self.func_scope.function().name =
             self.heap.new_string(self.previous().lexeme().to_string());
         self.begin_scope();
@@ -936,8 +929,8 @@ impl<'helpers> Compiler<'helpers> {
 
         // The compiler scope for the current function ends here
         let new = self.func_scope.release_enclosing().unwrap();
-
-        let val = self.make_constant(new.func_obj);
+        let func_obj = self.heap.new_object(new.func_obj);
+        let val = self.make_constant(func_obj);
         self.emit_bytes(OpCode::Closure, val);
         for uv in new.upvalues {
             self.emit_bytes(uv.is_local(), uv.index());
@@ -1106,7 +1099,7 @@ impl HasRoots for Compiler<'_> {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         let mut scope = Some(&self.func_scope);
         while let Some(s) = scope {
-            s.function_obj().mark(mark_obj);
+            s.func_obj.mark_roots(mark_obj);
             scope = s.enclosing.as_ref();
         }
     }

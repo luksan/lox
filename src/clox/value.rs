@@ -593,6 +593,12 @@ impl Function {
     }
 }
 
+impl Default for Function {
+    fn default() -> Self {
+        Function::new()
+    }
+}
+
 impl Display for Function {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(

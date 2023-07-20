@@ -293,8 +293,9 @@ impl Heap {
         *const Obj<O>: Into<ObjTypes>,
         ObjTypes: From<*const Obj<O>>,
     {
+        trace!("new_object({:?})", &inner);
         if self.obj_count > self.next_gc || get_settings().gc_stress_test {
-            self.collect_garbage();
+            self.collect_garbage(&inner);
             self.next_gc.set(self.obj_count.get() * 2);
         }
         self.obj_count.set(self.obj_count.get() + 1);
@@ -324,7 +325,7 @@ impl Heap {
         o
     }
 
-    fn collect_garbage(&self) {
+    fn collect_garbage(&self, new_obj: &dyn HasRoots) {
         let span = trace_span!("GC");
         let _span_enter = span.enter();
         let mut gray_list = vec![];
@@ -334,6 +335,11 @@ impl Heap {
                 gray_list.push(gray);
             });
         }
+        // Trace the not-yet-allocated object as well
+        new_obj.mark_roots(&mut |gray| {
+            gray_list.push(gray);
+        });
+
         while let Some(obj) = gray_list.pop() {
             obj.blacken(&mut |gray| {
                 gray_list.push(gray);
