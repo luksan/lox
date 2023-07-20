@@ -55,7 +55,7 @@ pub struct ObjTypes(NonNull<ObjKind>);
 
 impl<T: LoxObject> From<&Obj<T>> for ObjTypes {
     fn from(o: &Obj<T>) -> Self {
-        Self((&o.kind).into())
+        Self::from(o as *const _)
     }
 }
 

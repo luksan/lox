@@ -111,15 +111,12 @@ impl From<f64> for ValuePacked {
 impl<O: Into<ObjTypes>> From<O> for ValuePacked {
     fn from(ptr: O) -> Self {
         let ptr = ptr.into();
-        // let x = Self(((-0.0f64).to_bits() | Self::NOT_FLOAT | ptr.as_ptr() as u64) as *const _);
         let neg_zero = (-0.0f64).to_bits();
         let x = Self(
             ptr.as_ptr()
                 .map_addr(|int| int | (neg_zero | Self::NOT_FLOAT) as usize)
                 as *const _,
         );
-        // assert!(x.as_objtypes().is_some());
-        // assert_eq!(x.as_objtypes(), Some(ptr));
         x
     }
 }
@@ -131,7 +128,7 @@ impl From<ValueEnum> for ValuePacked {
             ValueEnum::Bool(_) => Self::NOT_FLOAT | Self::FALSE,
             ValueEnum::Nil => Self::NOT_FLOAT | Self::NIL,
             ValueEnum::Number(f) => f.to_bits(),
-            ValueEnum::Obj(o) => (-0.0f64).to_bits() | Self::NOT_FLOAT | o.as_ptr() as u64,
+            ValueEnum::Obj(o) => return Self::from(o),
         } as usize))
     }
 }
@@ -180,6 +177,20 @@ fn test_nanpack() {
     assert!(ValuePacked::Bool(false).is_falsey());
     assert!(ValuePacked::False.is_falsey());
     assert!(!ValuePacked::Bool(true).is_falsey());
+}
+
+#[test]
+fn test_miri_value_packed() {
+    let heap = crate::clox::Heap::new();
+    let mut func = Function::new();
+    func.name = heap.new_string("func_name".to_string());
+    let obj_ref: &_ = heap.new_object(func);
+    let val: ValuePacked = obj_ref.into();
+    let obj2 = val.as_object::<Function>().unwrap();
+    let val: ValueEnum = obj2.into();
+    let val: ValuePacked = val.into();
+    let obj3 = val.as_object::<Function>().unwrap();
+    assert_eq!(obj3.name(), "func_name");
 }
 
 pub type Value = ValuePacked;
