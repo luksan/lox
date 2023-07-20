@@ -50,6 +50,7 @@ fn run_tests_recursive(
     Ok(test_cnt)
 }
 
+#[cfg(not(miri))]
 fn run_single<P: AsRef<Path>>(p: P) -> Result<()> {
     let case = TestCase::from_path(p)?;
 
@@ -65,6 +66,15 @@ fn run_single<P: AsRef<Path>>(p: P) -> Result<()> {
         Ok(())
     })()
     .with_context(|| case.read_source())
+}
+
+#[cfg(miri)]
+fn run_single<P: AsRef<Path>>(p: P) -> Result<()> {
+    let source = std::fs::read_to_string(p).unwrap();
+    let heap = lox::clox::Heap::new();
+    let mut vm = lox::clox::Vm::new(&heap);
+    let _ = vm.interpret(source.as_ref()); // some tests are written to cause interpreter errors
+    Ok(())
 }
 
 struct TestCase {
