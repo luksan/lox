@@ -2,7 +2,7 @@
 #![allow(unstable_name_collisions)]
 use sptr::Strict;
 
-use std::cell::{Cell, UnsafeCell};
+use std::cell::Cell;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomPinned;
 use std::ptr;
@@ -11,7 +11,7 @@ use std::ptr::NonNull;
 use anyhow::Result;
 
 use crate::clox::mm::{HasRoots, Obj, ObjPtr, ObjTypes};
-use crate::clox::table::{LoxTable, Table};
+use crate::clox::table::{LoxTable, Table, TypedMap};
 use crate::clox::Chunk;
 
 #[derive(Copy, Clone)]
@@ -461,7 +461,7 @@ impl Display for Closure {
 #[derive(Debug)]
 pub struct Class {
     name: *const Obj<LoxStr>,
-    methods: LoxTable,
+    methods: TypedMap<Closure>,
 }
 
 impl LoxObject for Class {}
@@ -470,7 +470,7 @@ impl Class {
     pub(crate) fn new(name: &Obj<LoxStr>) -> Self {
         Self {
             name,
-            methods: LoxTable::new().into(),
+            methods: TypedMap::new(),
         }
     }
 
@@ -479,12 +479,11 @@ impl Class {
     }
 
     pub(crate) fn add_method(&self, name: &Obj<LoxStr>, method: Value) {
-        self.methods.set(name, method);
+        self.methods.set_value(name, method);
     }
 
     pub(crate) fn get_method(&self, name: &Obj<LoxStr>) -> Option<&Obj<Closure>> {
-        let method = self.methods.get_value(name)?;
-        Some(method.as_object().unwrap())
+        self.methods.get(name)
     }
 }
 

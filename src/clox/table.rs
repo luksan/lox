@@ -1,10 +1,11 @@
 use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Debug, Formatter};
+use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
 use crate::clox::mm::{HasRoots, Obj, ObjTypes};
-use crate::clox::value::{LoxStr, Value};
+use crate::clox::value::{LoxObject, LoxStr, Value};
 
 pub type StrPtr = *const Obj<LoxStr>;
 
@@ -223,6 +224,42 @@ impl HasRoots for LoxMap {
             k.mark(mark_obj);
             v.mark(mark_obj);
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct TypedMap<T: LoxObject>(LoxMap, PhantomData<Obj<T>>);
+
+impl<T: LoxObject + 'static> TypedMap<T> {
+    pub fn new() -> Self {
+        Self(LoxMap::new(), PhantomData)
+    }
+
+    pub fn get(&self, key: &Obj<LoxStr>) -> Option<&Obj<T>> {
+        self.0
+            .get_value(key)
+            // SAFETY: this unwrap is ok since all values in the map are of the correct type
+            .map(|val| unsafe { val.as_object().unwrap_unchecked() })
+    }
+
+    pub fn set(&self, key: &Obj<LoxStr>, val: *const Obj<T>) -> bool {
+        self.0.set(key, val.into())
+    }
+
+    pub fn set_value(&self, key: &Obj<LoxStr>, val: Value) -> bool {
+        self.set(
+            key,
+            val.as_object()
+                .expect("Attempted to insert incorrect value in TypedMap."),
+        )
+    }
+
+    pub fn add_all(&self, other: &Self) {
+        self.0.add_all(&other.0);
+    }
+
+    pub fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+        self.0.mark_roots(mark_obj)
     }
 }
 
