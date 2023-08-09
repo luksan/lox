@@ -382,7 +382,7 @@ impl Upvalue {
     }
 
     pub fn close(this: &Obj<Self>) {
-        this.closed.set(unsafe { *this.location.get() });
+        this.closed.set(this.read());
         this.location.set(this.closed.as_ptr());
     }
 
@@ -392,7 +392,7 @@ impl Upvalue {
 
     pub fn write(&self, value: Value) {
         unsafe {
-            *self.location.get().as_mut().unwrap() = value;
+            self.location.get().write(value);
         }
     }
 }
@@ -461,7 +461,7 @@ impl Display for Closure {
 #[derive(Debug)]
 pub struct Class {
     name: *const Obj<LoxStr>,
-    methods: UnsafeCell<LoxTable>,
+    methods: LoxTable,
 }
 
 impl LoxObject for Class {}
@@ -475,19 +475,16 @@ impl Class {
     }
 
     pub(crate) fn inherit(&self, superclass: &Obj<Class>) {
-        let (sub, sup) = (self.methods.get(), superclass.methods.get());
-        assert!(!ptr::eq(sub, sup));
-        // This is safe as long as we don't inherit from ourselves.
-        unsafe { &mut *sub }.add_all(unsafe { &*sup });
+        self.methods.add_all(&superclass.methods);
     }
 
     pub(crate) fn add_method(&self, name: &Obj<LoxStr>, method: Value) {
-        unsafe { &mut *self.methods.get() }.set(name, method);
+        self.methods.set(name, method);
     }
 
     pub(crate) fn get_method(&self, name: &Obj<LoxStr>) -> Option<&Obj<Closure>> {
-        let method = unsafe { &*self.methods.get() }.get_value(name)?;
-        Some(unsafe { &*(method.as_object().unwrap() as *const _) })
+        let method = self.methods.get_value(name)?;
+        Some(method.as_object().unwrap())
     }
 }
 
@@ -500,14 +497,14 @@ impl Display for Class {
 impl HasRoots for Class {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         mark_obj(self.name.into());
-        unsafe { &*self.methods.get() }.mark_roots(mark_obj);
+        self.methods.mark_roots(mark_obj);
     }
 }
 
 #[derive(Debug)]
 pub struct Instance {
     class: NonNull<Obj<Class>>,
-    fields: UnsafeCell<LoxTable>,
+    fields: LoxTable,
 }
 
 impl LoxObject for Instance {}
@@ -516,7 +513,7 @@ impl Instance {
     pub(crate) fn new(class: &Obj<Class>) -> Self {
         Self {
             class: class.into(),
-            fields: LoxTable::new().into(),
+            fields: LoxTable::new(),
         }
     }
 
@@ -525,11 +522,11 @@ impl Instance {
     }
 
     pub(crate) fn get_field(&self, field: &Obj<LoxStr>) -> Option<Value> {
-        unsafe { &*self.fields.get() }.get_value(field)
+        self.fields.get_value(field)
     }
 
     pub(crate) fn set_field(&self, field: &Obj<LoxStr>, value: Value) {
-        unsafe { &mut *self.fields.get() }.set(field, value);
+        self.fields.set(field, value);
     }
 }
 
@@ -542,7 +539,7 @@ impl Display for Instance {
 impl HasRoots for Instance {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         mark_obj(self.class.into());
-        unsafe { &*self.fields.get() }.mark_roots(mark_obj);
+        self.fields.mark_roots(mark_obj);
     }
 }
 
