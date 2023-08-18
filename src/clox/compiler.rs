@@ -1,4 +1,5 @@
-use std::fmt::Display;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 use std::result::Result as StdResult;
 
 use anyhow::{bail, Result};
@@ -29,12 +30,37 @@ pub fn compile(source: &str, heap: &Heap) -> StdResult<NonNull<Obj<Function>>, L
 
 const U8_MAX_LEN: usize = 256;
 
+#[derive(Debug, Clone)]
+pub struct CompileError {
+    token: Token,
+    msg: String,
+}
+
+impl Error for CompileError {}
+
+impl Display for CompileError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let token = &self.token;
+        if token.tok_type() == TokenType::Eof {
+            write!(f, "[line {}] Error at end: {}", token.line(), &self.msg)
+        } else {
+            write!(
+                f,
+                "[line {}] Error at '{}': {}",
+                token.line(),
+                token.lexeme(),
+                &self.msg
+            )
+        }
+    }
+}
+
 struct Compiler<'a> {
     tokens: &'a [Token],
     tok_pos: usize,
     prev_tok: &'a Token,
     curr_tok: &'a Token,
-    had_error: bool,
+    had_error: Vec<CompileError>,
     panic_mode: bool,
 
     func_scope: Box<FunctionScope>,
@@ -282,7 +308,7 @@ impl<'pratt> Compiler<'pratt> {
             tok_pos: 0,
             prev_tok: tok0,
             curr_tok: tok0,
-            had_error: false,
+            had_error: Vec::new(),
             panic_mode: false,
 
             func_scope: FunctionScope::new(FunctionType::Script).into(),
@@ -307,7 +333,10 @@ impl<'pratt> Compiler<'pratt> {
             self.func_scope.function().disassemble();
         }
 
-        if self.had_error {
+        if !self.had_error.is_empty() {
+            for e in self.had_error.iter() {
+                eprintln!("{}", e);
+            }
             bail!("Compilation failed.")
         }
         Ok(self
@@ -992,17 +1021,10 @@ impl<'tok_iter> Compiler<'tok_iter> {
         if self.panic_mode {
             return;
         }
-        if token.tok_type() == TokenType::Eof {
-            eprintln!("[line {}] Error at end: {}", token.line(), msg);
-        } else {
-            eprintln!(
-                "[line {}] Error at '{}': {}",
-                token.line(),
-                token.lexeme(),
-                msg
-            );
-        }
-        self.had_error = true;
+        self.had_error.push(CompileError {
+            token,
+            msg: msg.to_string(),
+        });
         self.panic_mode = true;
     }
 }
