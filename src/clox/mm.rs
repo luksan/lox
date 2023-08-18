@@ -5,14 +5,13 @@ use crate::clox::value::{LoxObject, Value, ValueEnum};
 use tracing::{trace, trace_span};
 
 use std::any::Any;
-use std::cell::{Cell, RefCell, UnsafeCell};
+use std::cell::{Cell, UnsafeCell};
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
-use std::rc::{Rc, Weak};
 
 pub struct ObjPtr<O: LoxObject>(NonNull<Obj<O>>);
 
@@ -246,17 +245,38 @@ impl HasRoots for HashMap<StrPtr, Value> {
 pub struct Heap {
     objs: Cell<Option<ObjTypes>>,
     strings: UnsafeCell<StringInterner>,
-    has_roots: RefCell<Vec<WeakRoot>>,
+    has_roots: Box<[WeakRoot; 2]>,
     obj_count: Cell<usize>,
     next_gc: Cell<usize>,
 }
 
-pub struct GcToken<'heap, 'a>(Rc<*const (dyn HasRoots + 'a)>, PhantomData<&'heap Heap>);
-struct WeakRoot(Weak<*const dyn HasRoots>);
+pub struct GcToken<'heap, 'root>(&'heap WeakRoot, PhantomData<&'root dyn HasRoots>);
+
+impl Drop for GcToken<'_, '_> {
+    fn drop(&mut self) {
+        self.0.dropped();
+    }
+}
+
+#[derive(Debug, Default)]
+struct WeakRoot(Cell<Option<NonNull<dyn HasRoots>>>);
 
 impl WeakRoot {
+    fn register<'root>(&self, root: *const (dyn HasRoots + 'root)) -> Option<GcToken<'_, 'root>> {
+        if self.0.get().is_some() {
+            // Slot is already taken
+            return None;
+        }
+        self.0.set(NonNull::new(root as *mut _));
+        Some(GcToken(self, PhantomData))
+    }
+
     fn upgrade(&self) -> Option<&dyn HasRoots> {
-        self.0.upgrade().map(|rc| unsafe { &**rc })
+        self.0.get().map(|ptr| unsafe { ptr.as_ref() })
+    }
+
+    fn dropped(&self) {
+        self.0.set(Default::default())
     }
 }
 
@@ -265,7 +285,7 @@ impl Heap {
         Self {
             objs: None.into(),
             strings: StringInterner::new().into(),
-            has_roots: vec![].into(),
+            has_roots: Box::new(Default::default()),
             obj_count: 0.into(),
             next_gc: 100.into(),
         }
@@ -274,18 +294,15 @@ impl Heap {
     /// SAFETY: The returned token must be kept alive as long as the GC root is using
     /// the heap, and it must be dropped before the heap is dropped.
     #[must_use]
-    pub(crate) fn register_gc_root<'heap, 'a>(
+    pub(crate) fn register_gc_root<'heap, 'root>(
         &'heap self,
-        root: *const (dyn HasRoots + 'a),
-    ) -> GcToken<'heap, 'a> {
-        let token = Rc::new(root);
-        trace!("Registered GC root {:?}", root);
-        let weak = Rc::downgrade(&token);
+        root: *const (dyn HasRoots + 'root),
+    ) -> GcToken<'heap, 'root> {
+        trace!("Registering GC root {:?}", root);
         self.has_roots
-            .borrow_mut()
-            // This transmute extends the lifetime 'a to 'heap
-            .push(unsafe { std::mem::transmute(weak) });
-        GcToken(token, PhantomData::default())
+            .iter()
+            .find_map(|slot| slot.register(root))
+            .expect("No empty GC root slot found.")
     }
 
     pub(crate) fn new_object<O: LoxObject + 'static>(&self, inner: O) -> &Obj<O>
@@ -329,17 +346,11 @@ impl Heap {
         let span = trace_span!("GC");
         let _span_enter = span.enter();
         let mut gray_list = vec![];
-        let mut dead_gc_root_found = false;
-        for root in self.has_roots.borrow().iter() {
-            let Some(r) = root.upgrade() else { dead_gc_root_found = true; continue };
+        for root in self.has_roots.iter() {
+            let Some(r) = root.upgrade() else {continue};
             r.mark_roots(&mut |gray| {
                 gray_list.push(gray);
             });
-        }
-        if dead_gc_root_found {
-            self.has_roots
-                .borrow_mut()
-                .retain(|root| root.upgrade().is_some());
         }
 
         // Trace the not-yet-allocated object as well
