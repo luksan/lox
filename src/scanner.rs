@@ -230,30 +230,28 @@ pub struct Scanner<'src> {
 }
 
 impl Iterator for Scanner<'_> {
-    type Item = Token;
+    type Item = Result<Token, TokenizationError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.at_eof {
             return None;
         }
-        loop {
-            if !self.is_at_end() {
-                self.cursor.set_start();
-                match self.scan_token() {
-                    Ok(None) => {}
-                    Ok(tok) => break tok,
-                    Err(err) => {
-                        self.errors.push(TokenizationError {
-                            line: self.cursor.curr_line,
-                            msg: err.to_string(),
-                        });
-                    }
-                }
-            } else {
+        Some(loop {
+            if self.is_at_end() {
                 self.at_eof = true;
-                break Some(Token::new(TokenType::Eof, "", self.cursor.curr_line));
+                break Ok(Token::new(TokenType::Eof, "", self.cursor.curr_line));
+            } else {
+                self.cursor.set_start();
+                break match self.scan_token() {
+                    Ok(None) => continue,
+                    Ok(Some(tok)) => Ok(tok),
+                    Err(err) => Err(TokenizationError {
+                        line: self.cursor.curr_line,
+                        msg: err.to_string(),
+                    }),
+                };
             }
-        }
+        })
     }
 }
 
@@ -273,11 +271,9 @@ impl<'src> Scanner<'src> {
     }
 
     pub fn scan_tokens(&mut self) -> StdResult<(), LoxError> {
-        self.tokens = self.collect();
-        self.scanning_errors()
-    }
-
-    pub fn scanning_errors(&self) -> Result<(), LoxError> {
+        let (tokens, errors): (Vec<_>, Vec<_>) = self.partition(|r| r.is_ok());
+        self.tokens = tokens.into_iter().map(|t| t.unwrap()).collect();
+        self.errors = errors.into_iter().map(|e| e.unwrap_err()).collect();
         if !self.errors.is_empty() {
             self.errors.iter().for_each(|e| eprintln!("{e}"));
             Err(LoxError::compile(anyhow!("Errors during scanning.")))

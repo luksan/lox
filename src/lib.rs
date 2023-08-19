@@ -121,7 +121,6 @@ impl Lox {
             self.had_error = true;
             LoxError::compile(e)
         })?;
-        scanner.scanning_errors()?; // abort if there were scanning errors, but not before trying to parse
 
         let errors = Resolver::resolve(&mut self.interpreter, &ast);
         if !errors.is_empty() {

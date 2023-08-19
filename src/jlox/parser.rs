@@ -5,20 +5,22 @@ use crate::jlox::ast::{
     stmt::{self, ListStmt, Stmt},
 };
 use crate::scanner::TokenType::*;
-use crate::scanner::{Token, TokenType};
+use crate::scanner::{Token, TokenType, TokenizationError};
 use crate::LoxType;
 
 use std::iter::Peekable;
 
+pub type TokenIter<'s> = dyn Iterator<Item = Result<Token, TokenizationError>> + 's;
+
 pub struct Parser<'s> {
-    tokens: Peekable<&'s mut dyn Iterator<Item = Token>>,
+    tokens: Peekable<&'s mut TokenIter<'s>>,
     had_error: bool,
 }
 
 pub type ParseResult = Result<Expr>;
 
 impl<'s> Parser<'s> {
-    pub fn parse(scanner: &'s mut dyn Iterator<Item = Token>) -> Result<Vec<Stmt>> {
+    pub fn parse(scanner: &'s mut TokenIter<'s>) -> Result<Vec<Stmt>> {
         Self {
             tokens: scanner.peekable(),
             had_error: false,
@@ -201,7 +203,7 @@ impl<'s> Parser<'s> {
         if !self.check(RightParen) {
             loop {
                 if parameters.len() >= 255 {
-                    let tok = self.peek().clone();
+                    let tok = self.peek()?.clone();
                     self.error(tok, "Can't have more than 255 parameters.");
                 }
                 parameters.push(self.consume(Identifier, "Expect parameter name.")?);
@@ -315,7 +317,7 @@ impl<'s> Parser<'s> {
         if !self.check(RightParen) {
             loop {
                 if args.len() >= 255 {
-                    let tok = self.peek().clone();
+                    let tok = self.peek()?.clone();
                     self.error(tok, "Can't have more than 255 arguments.");
                 }
                 args.push(self.expression()?);
@@ -344,7 +346,7 @@ impl<'s> Parser<'s> {
     }
 
     fn primary(&mut self) -> ParseResult {
-        let token = self.tokens.next().unwrap();
+        let token = self.tokens.next().unwrap()?;
         Ok(expr::Literal::new(match token.tok_type() {
             TokenType::False => LoxType::Bool(false),
             TokenType::True => LoxType::Bool(true),
@@ -369,33 +371,67 @@ impl<'s> Parser<'s> {
     }
 
     fn at_end(&mut self) -> bool {
-        self.peek().tok_type() == TokenType::Eof
+        match self.peek().map(|t| t.tok_type()) {
+            Err(_) | Ok(TokenType::Eof) => true,
+            _ => false,
+        }
     }
 
     fn advance(&mut self) -> Option<Token> {
-        self.tokens.next()
+        loop {
+            match self.tokens.next()? {
+                Ok(t) => return Some(t),
+                Err(e) => {
+                    self.had_error = true;
+                    eprintln!("{e}");
+                }
+            }
+        }
     }
 
     fn check(&mut self, tok: TokenType) -> bool {
-        self.peek().tok_type() == tok
+        match self.peek_type() {
+            Ok(t) => t == tok,
+            _ => false,
+        }
     }
 
     fn consume(&mut self, tok: TokenType, error: &str) -> Result<Token> {
-        self.match_advance(&[tok])
-            .ok_or_else(|| anyhow!("{:?} {}", self.peek(), error))
+        let opt_tok = self.match_advance(&[tok]);
+        match opt_tok {
+            Some(t) => Ok(t),
+            None => {
+                let next_tok = self.peek()?;
+                bail!("{:?} {}", next_tok, error);
+            }
+        }
     }
 
-    fn peek(&mut self) -> &Token {
-        self.tokens.peek().unwrap()
+    /// Look at the next token without advancing the cursor. Advances past error tokens,
+    /// but will return an error if the cursor is at the end of the stream.
+    fn peek(&mut self) -> Result<&Token> {
+        loop {
+            let Some(peeked) = self.tokens.peek().map(|r|r.as_ref()) else { bail!("Unexpected end of token stream.") };
+            if peeked.is_ok() {
+                // This is needed because of the borrow checker
+                return Ok(self.tokens.peek().unwrap().as_ref().unwrap());
+            }
+            eprintln!("{}", peeked.unwrap_err());
+            self.had_error = true;
+            self.tokens.next();
+        }
+    }
+
+    fn peek_type(&mut self) -> Result<TokenType> {
+        self.peek().map(|t| t.tok_type())
     }
 
     fn match_advance(&mut self, types: &[TokenType]) -> Option<Token> {
-        for t in types {
-            if self.check(*t) {
-                return Some(self.advance().unwrap());
-            }
-        }
-        None
+        let next_type = self.peek_type().ok()?;
+        types
+            .iter()
+            .any(|t| t == &next_type)
+            .then(|| self.advance().unwrap())
     }
 
     fn synchronize(&mut self) {
@@ -406,15 +442,17 @@ impl<'s> Parser<'s> {
                 break;
             }
 
-            match self.peek().tok_type() {
-                TokenType::Class
-                | TokenType::Fun
-                | TokenType::Var
-                | TokenType::For
-                | TokenType::If
-                | TokenType::While
-                | TokenType::Print
-                | TokenType::Return => break,
+            match self.peek_type() {
+                Ok(
+                    TokenType::Class
+                    | TokenType::Fun
+                    | TokenType::Var
+                    | TokenType::For
+                    | TokenType::If
+                    | TokenType::While
+                    | TokenType::Print
+                    | TokenType::Return,
+                ) => break,
 
                 _ => {}
             }
