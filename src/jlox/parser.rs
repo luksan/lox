@@ -1,16 +1,14 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, Context, Result};
 
 use crate::jlox::ast::{
     expr::{self, Expr},
     stmt::{self, ListStmt, Stmt},
 };
 use crate::scanner::TokenType::*;
-use crate::scanner::{Token, TokenType, TokenizationError};
+use crate::scanner::{Token, TokenIter, TokenType};
 use crate::LoxType;
 
 use std::iter::Peekable;
-
-pub type TokenIter<'s> = dyn Iterator<Item = Result<Token, TokenizationError>> + 's;
 
 pub struct Parser<'s> {
     tokens: Peekable<&'s mut TokenIter<'s>>,
@@ -378,15 +376,8 @@ impl<'s> Parser<'s> {
     }
 
     fn advance(&mut self) -> Option<Token> {
-        loop {
-            match self.tokens.next()? {
-                Ok(t) => return Some(t),
-                Err(e) => {
-                    self.had_error = true;
-                    eprintln!("{e}");
-                }
-            }
-        }
+        self.consume_token_errors();
+        self.tokens.next().map(|t| t.unwrap())
     }
 
     fn check(&mut self, tok: TokenType) -> bool {
@@ -407,19 +398,21 @@ impl<'s> Parser<'s> {
         }
     }
 
+    fn consume_token_errors(&mut self) {
+        while let Some(Err(e)) = self.tokens.next_if(|t| t.is_err()) {
+            eprintln!("{e}");
+            self.had_error = true;
+        }
+    }
+
     /// Look at the next token without advancing the cursor. Advances past error tokens,
     /// but will return an error if the cursor is at the end of the stream.
     fn peek(&mut self) -> Result<&Token> {
-        loop {
-            let Some(peeked) = self.tokens.peek().map(|r|r.as_ref()) else { bail!("Unexpected end of token stream.") };
-            if peeked.is_ok() {
-                // This is needed because of the borrow checker
-                return Ok(self.tokens.peek().unwrap().as_ref().unwrap());
-            }
-            eprintln!("{}", peeked.unwrap_err());
-            self.had_error = true;
-            self.tokens.next();
-        }
+        self.consume_token_errors();
+        self.tokens
+            .peek()
+            .map(|r| r.as_ref().unwrap())
+            .context("Unexpected end of token stream.")
     }
 
     fn peek_type(&mut self) -> Result<TokenType> {

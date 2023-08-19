@@ -1,5 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
+use std::iter::Peekable;
 use std::result::Result as StdResult;
 
 use anyhow::{bail, Result};
@@ -11,16 +12,15 @@ use tracing::trace_span;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::value::{Function, ValueEnum as Value};
 use crate::clox::{get_settings, Chunk, OpCode};
-use crate::scanner::{Scanner, Token, TokenType};
+use crate::scanner::{Scanner, Token, TokenIter, TokenType, TokenizationError};
 use crate::LoxError;
 
 pub fn compile(source: &str, heap: &Heap) -> StdResult<NonNull<Obj<Function>>, LoxError> {
     let span = trace_span!("compile()");
     let _e = span.enter();
     let mut scanner = Scanner::new(source);
-    scanner.scan_tokens()?;
     // The compiler has to be behind a mut ref, so it can't move in memory for the GC root ref
-    let compiler = &mut Compiler::new(scanner.tokens(), heap);
+    let compiler = &mut Compiler::new(&mut scanner, heap);
     let _token = compiler.heap.register_gc_root(compiler as *const _);
     compiler
         .compile()
@@ -29,6 +29,33 @@ pub fn compile(source: &str, heap: &Heap) -> StdResult<NonNull<Obj<Function>>, L
 }
 
 const U8_MAX_LEN: usize = 256;
+
+#[derive(Debug, Clone)]
+pub enum CompilerError {
+    Token(TokenizationError),
+    Compile(CompileError),
+}
+impl Display for CompilerError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let e = match self {
+            CompilerError::Token(e) => e as &dyn Display,
+            CompilerError::Compile(e) => e as &dyn Display,
+        };
+        write!(f, "{e}")
+    }
+}
+
+impl From<CompileError> for CompilerError {
+    fn from(value: CompileError) -> Self {
+        Self::Compile(value)
+    }
+}
+
+impl From<TokenizationError> for CompilerError {
+    fn from(value: TokenizationError) -> Self {
+        Self::Token(value)
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct CompileError {
@@ -56,11 +83,9 @@ impl Display for CompileError {
 }
 
 struct Compiler<'a> {
-    tokens: &'a [Token],
-    tok_pos: usize,
-    prev_tok: &'a Token,
-    curr_tok: &'a Token,
-    had_error: Vec<CompileError>,
+    tokens: Peekable<&'a mut TokenIter<'a>>,
+    prev_tok: Option<Token>,
+    had_error: Vec<CompilerError>,
     panic_mode: bool,
 
     func_scope: Box<FunctionScope>,
@@ -301,13 +326,10 @@ type ParseFn = fn(&mut Compiler<'_>, bool);
 type OptParseFn = Option<ParseFn>;
 
 impl<'pratt> Compiler<'pratt> {
-    fn new(tokens: &'pratt [Token], heap: &'pratt Heap) -> Self {
-        let tok0 = &tokens[0];
+    fn new(tokens: &'pratt mut TokenIter<'pratt>, heap: &'pratt Heap) -> Self {
         Self {
-            tokens,
-            tok_pos: 0,
-            prev_tok: tok0,
-            curr_tok: tok0,
+            tokens: tokens.peekable(),
+            prev_tok: None,
             had_error: Vec::new(),
             panic_mode: false,
 
@@ -319,10 +341,6 @@ impl<'pratt> Compiler<'pratt> {
     }
 
     fn compile(&mut self) -> Result<*const Obj<Function>> {
-        /*for t in &self.tokens {
-            println!("{:?}", t.tok_type());
-        }*/
-        self.advance();
         while !self.match_token(TokenType::Eof) {
             self.declaration()
         }
@@ -720,7 +738,7 @@ impl<'pratt> Compiler<'pratt> {
 
     fn synchronize(&mut self) {
         self.panic_mode = false;
-        while self.current().tok_type() != TokenType::Eof
+        while self.current_tok_type() != TokenType::Eof
             && self.previous().tok_type() != TokenType::Semicolon
         {
             use TokenType::*;
@@ -815,7 +833,11 @@ impl<'pratt> Compiler<'pratt> {
         };
         let can_assign = precedence <= Precedence::Assignment;
         prefix_rule(self, can_assign);
-        while precedence <= self.get_rule(self.current().tok_type()).precedence {
+        loop {
+            let token_type = self.current_tok_type();
+            if precedence > self.get_rule(token_type).precedence {
+                break;
+            }
             self.advance();
             let infix_rule = self.get_rule(self.previous().tok_type()).infix;
             infix_rule.unwrap()(self, can_assign);
@@ -969,26 +991,37 @@ impl<'helpers> Compiler<'helpers> {
 
 // Token iteration
 impl<'tok_iter> Compiler<'tok_iter> {
-    fn current(&self) -> &Token {
-        self.curr_tok
+    fn current(&mut self) -> &Token {
+        while let Some(Err(tok)) = self.tokens.next_if(|t| t.is_err()) {
+            self.had_error.push(CompilerError::Token(tok));
+            self.panic_mode = true;
+        }
+        self.tokens.peek().unwrap().as_ref().unwrap()
+    }
+
+    fn current_tok_type(&mut self) -> TokenType {
+        self.current().tok_type()
     }
 
     fn previous(&self) -> Token {
-        self.prev_tok.clone()
+        self.prev_tok.clone().unwrap()
     }
 
     fn advance(&mut self) {
-        if self.tok_pos >= self.tokens.len() {
-            self.tok_pos = self.tokens.len() - 1;
-            //            self.error_current("Unexpected end of token stream.");
-            //          return;
+        match self.tokens.next() {
+            Some(Ok(tok)) => {
+                self.prev_tok = Some(tok);
+            }
+            Some(Err(e)) => {
+                self.had_error.push(e.into());
+                self.panic_mode = true;
+            }
+            _ => {}
         }
-        self.prev_tok = mem::replace(&mut self.curr_tok, &self.tokens[self.tok_pos]);
-        self.tok_pos += 1;
     }
 
     fn consume(&mut self, typ: TokenType, err_msg: &str) {
-        if self.current().tok_type() == typ {
+        if self.current_tok_type() == typ {
             self.advance()
         } else {
             self.error_at_current(err_msg)
@@ -1005,8 +1038,8 @@ impl<'tok_iter> Compiler<'tok_iter> {
         true
     }
 
-    fn check(&self, token: TokenType) -> bool {
-        self.current().tok_type() == token
+    fn check(&mut self, token: TokenType) -> bool {
+        self.current_tok_type() == token
     }
 
     fn error(&mut self, msg: impl Display) {
@@ -1014,17 +1047,21 @@ impl<'tok_iter> Compiler<'tok_iter> {
     }
 
     fn error_at_current(&mut self, msg: &str) {
-        self.error_at(self.current().clone(), msg);
+        let token = self.current().clone();
+        self.error_at(token, msg);
     }
 
     fn error_at(&mut self, token: Token, msg: &str) {
         if self.panic_mode {
             return;
         }
-        self.had_error.push(CompileError {
-            token,
-            msg: msg.to_string(),
-        });
+        self.had_error.push(
+            CompileError {
+                token,
+                msg: msg.to_string(),
+            }
+            .into(),
+        );
         self.panic_mode = true;
     }
 }

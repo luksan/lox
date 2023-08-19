@@ -1,12 +1,9 @@
-use anyhow::{anyhow, bail, Context, Result};
-use phf::phf_map;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-
-use crate::LoxError;
-
-use std::result::Result as StdResult;
 use std::str::Chars;
+
+use anyhow::{bail, Context, Result};
+use phf::phf_map;
 
 #[derive(Clone, Copy, Debug)]
 pub enum TokenType {
@@ -221,13 +218,13 @@ impl Display for TokenizationError {
 }
 
 pub struct Scanner<'src> {
-    tokens: Vec<Token>,
-    errors: Vec<TokenizationError>,
     at_eof: bool,
 
     cursor: SourceCursor<'src>,
     curr_literal: Option<Literal>,
 }
+
+pub type TokenIter<'s> = dyn Iterator<Item = Result<Token, TokenizationError>> + 's;
 
 impl Iterator for Scanner<'_> {
     type Item = Result<Token, TokenizationError>;
@@ -258,27 +255,9 @@ impl Iterator for Scanner<'_> {
 impl<'src> Scanner<'src> {
     pub fn new(source: &'src str) -> Self {
         Self {
-            tokens: vec![],
             at_eof: false,
-            errors: vec![],
             cursor: SourceCursor::new(source),
             curr_literal: None,
-        }
-    }
-
-    pub fn tokens(&self) -> &[Token] {
-        self.tokens.as_slice()
-    }
-
-    pub fn scan_tokens(&mut self) -> StdResult<(), LoxError> {
-        let (tokens, errors): (Vec<_>, Vec<_>) = self.partition(|r| r.is_ok());
-        self.tokens = tokens.into_iter().map(|t| t.unwrap()).collect();
-        self.errors = errors.into_iter().map(|e| e.unwrap_err()).collect();
-        if !self.errors.is_empty() {
-            self.errors.iter().for_each(|e| eprintln!("{e}"));
-            Err(LoxError::compile(anyhow!("Errors during scanning.")))
-        } else {
-            Ok(())
         }
     }
 
