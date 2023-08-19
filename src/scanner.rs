@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 use phf::phf_map;
-use std::fmt::{Debug, Formatter};
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 
 use crate::LoxError;
 
@@ -206,9 +207,22 @@ impl<'a> Iterator for SourceCursor<'a> {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TokenizationError {
+    msg: String,
+    line: usize,
+}
+
+impl Error for TokenizationError {}
+impl Display for TokenizationError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "[line {}] Error: {}", self.line, self.msg)
+    }
+}
+
 pub struct Scanner<'src> {
     tokens: Vec<Token>,
-    had_error: bool,
+    errors: Vec<TokenizationError>,
     at_eof: bool,
 
     cursor: SourceCursor<'src>,
@@ -229,8 +243,10 @@ impl Iterator for Scanner<'_> {
                     Ok(None) => {}
                     Ok(tok) => break tok,
                     Err(err) => {
-                        self.had_error = true;
-                        eprintln!("[line {}] Error: {}", self.cursor.curr_line, err);
+                        self.errors.push(TokenizationError {
+                            line: self.cursor.curr_line,
+                            msg: err.to_string(),
+                        });
                     }
                 }
             } else {
@@ -246,7 +262,7 @@ impl<'src> Scanner<'src> {
         Self {
             tokens: vec![],
             at_eof: false,
-            had_error: false,
+            errors: vec![],
             cursor: SourceCursor::new(source),
             curr_literal: None,
         }
@@ -261,24 +277,13 @@ impl<'src> Scanner<'src> {
     }
 
     pub fn scan_tokens(&mut self) -> StdResult<(), LoxError> {
-        while !self.is_at_end() {
-            self.cursor.set_start();
-            match self.scan_token() {
-                Ok(None) => {}
-                Ok(Some(tok)) => self.tokens.push(tok),
-                Err(err) => {
-                    self.had_error = true;
-                    eprintln!("[line {}] Error: {}", self.cursor.curr_line, err);
-                }
-            }
-        }
-        self.tokens
-            .push(Token::new(TokenType::Eof, "", self.cursor.curr_line));
+        self.tokens = self.collect();
         self.scanning_errors()
     }
 
     pub fn scanning_errors(&self) -> Result<(), LoxError> {
-        if self.had_error {
+        if !self.errors.is_empty() {
+            self.errors.iter().for_each(|e| eprintln!("{e}"));
             Err(LoxError::CompileError(anyhow!("Errors during scanning.")))
         } else {
             Ok(())
