@@ -6,7 +6,7 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 
 use lox::clox::{self, CloxSettings, Vm, VmError};
-use lox::LoxError;
+use lox::{ErrorKind, LoxError};
 
 #[derive(Debug, Parser)]
 struct CmdOpts {
@@ -44,9 +44,9 @@ fn main() {
 
     let Some(ref script) = opts.script else { repl(); return; };
     if let Err(e) = run_file(script) {
-        let exit_code = match e {
-            LoxError::CompileError(_) => 65,
-            LoxError::RuntimeError(e) => {
+        let exit_code = match e.kind() {
+            ErrorKind::CompilationError => 65,
+            ErrorKind::RuntimeError => {
                 eprintln!("{}", e);
                 70
             }
@@ -58,13 +58,13 @@ fn main() {
 fn run_file(path: impl AsRef<Path>) -> StdResult<(), LoxError> {
     let source = std::fs::read_to_string(path)
         .context("Failed to read source file.")
-        .map_err(LoxError::CompileError)?;
+        .map_err(LoxError::compile)?;
     let heap = clox::Heap::new();
     let mut vm = Vm::new(&heap);
     match vm.interpret(source.as_ref()) {
         Ok(_) => Ok(()),
         Err(VmError::CompileError(e)) => Err(e),
-        Err(VmError::RuntimeError(e)) => Err(LoxError::RuntimeError(e)),
+        Err(VmError::RuntimeError(e)) => Err(LoxError::runtime(e)),
     }
 }
 

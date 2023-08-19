@@ -272,10 +272,6 @@ impl<'src> Scanner<'src> {
         self.tokens.as_slice()
     }
 
-    pub fn take_tokens(self) -> Vec<Token> {
-        self.tokens
-    }
-
     pub fn scan_tokens(&mut self) -> StdResult<(), LoxError> {
         self.tokens = self.collect();
         self.scanning_errors()
@@ -284,7 +280,7 @@ impl<'src> Scanner<'src> {
     pub fn scanning_errors(&self) -> Result<(), LoxError> {
         if !self.errors.is_empty() {
             self.errors.iter().for_each(|e| eprintln!("{e}"));
-            Err(LoxError::CompileError(anyhow!("Errors during scanning.")))
+            Err(LoxError::compile(anyhow!("Errors during scanning.")))
         } else {
             Ok(())
         }

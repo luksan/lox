@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use lox::{Lox, LoxError};
+use lox::{ErrorKind, Lox};
 
 #[derive(Debug, Parser)]
 struct CmdOpts {
@@ -15,9 +15,9 @@ fn main() {
 
     if let Some(script) = opts.script {
         if let Err(e) = Lox::run_file(script) {
-            let exit_code = match e {
-                LoxError::CompileError(_) => 65,
-                LoxError::RuntimeError(e) => {
+            let exit_code = match e.kind() {
+                ErrorKind::CompilationError => 65,
+                ErrorKind::RuntimeError => {
                     eprintln!("{}", e);
                     70
                 }

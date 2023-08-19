@@ -25,7 +25,7 @@ pub fn compile(source: &str, heap: &Heap) -> StdResult<NonNull<Obj<Function>>, L
     compiler
         .compile()
         .map(|func_ptr| NonNull::new(func_ptr as *mut _).unwrap())
-        .map_err(LoxError::CompileError)
+        .map_err(LoxError::compile)
 }
 
 const U8_MAX_LEN: usize = 256;
