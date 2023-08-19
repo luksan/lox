@@ -20,22 +20,18 @@ use crate::ErrorKind;
 #[derive(Debug)]
 pub enum VmError {
     CompileError(Vec<CompilerError>),
-    RuntimeError(anyhow::Error),
+    RuntimeError { line: isize, err: anyhow::Error },
 }
+
 impl VmError {
     pub fn kind(&self) -> ErrorKind {
         match self {
             VmError::CompileError(_) => ErrorKind::CompilationError,
-            VmError::RuntimeError(_) => ErrorKind::RuntimeError,
+            VmError::RuntimeError { .. } => ErrorKind::RuntimeError,
         }
     }
 }
 
-impl From<anyhow::Error> for VmError {
-    fn from(value: anyhow::Error) -> Self {
-        Self::RuntimeError(value)
-    }
-}
 impl From<Vec<CompilerError>> for VmError {
     fn from(value: Vec<CompilerError>) -> Self {
         Self::CompileError(value)
@@ -52,7 +48,7 @@ impl Display for VmError {
                 }
                 write!(f, "{}", errors.last().unwrap())
             }
-            VmError::RuntimeError(e) => write!(f, "{e}"),
+            VmError::RuntimeError { line, err } => write!(f, "{err}\n[line {line}] in script"),
         }
     }
 }
@@ -185,7 +181,7 @@ impl<'heap> Vm<'heap> {
         }));
         self.pop();
         self.push(closure as *const _);
-        let frame = self.call(closure, 0)?;
+        let frame = self.call(closure, 0).unwrap(); // this can't fail since the only failure mode of call() is argument count mismatch
         Ok(Runnable { vm: self, frame })
     }
 
@@ -199,15 +195,11 @@ impl<'heap> Vm<'heap> {
         let _token = self.heap.register_gc_root(call_stack);
 
         call_stack.push_frame(frame.clone()).unwrap();
-        if let Err(e) = self.run_inner(call_stack) {
-            eprintln!("{e}");
-            Err(anyhow!(
-                "[line {}] in script",
-                call_stack.current_frame().current_line()
-            ))?
-        } else {
-            Ok(())
-        }
+        self.run_inner(call_stack)
+            .map_err(|err| VmError::RuntimeError {
+                line: call_stack.current_frame().current_line(),
+                err,
+            })
     }
 
     fn run_inner(&mut self, call_stack: &mut CallStack) -> Result<()> {
