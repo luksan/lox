@@ -1,12 +1,11 @@
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::result::Result as StdResult;
 
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 
 use lox::clox::{self, CloxSettings, Vm, VmError};
-use lox::{ErrorKind, LoxError};
+use lox::ErrorKind;
 
 #[derive(Debug, Parser)]
 struct CmdOpts {
@@ -44,28 +43,25 @@ fn main() {
 
     let Some(ref script) = opts.script else { repl(); return; };
     if let Err(e) = run_file(script) {
-        let exit_code = match e.kind() {
-            ErrorKind::CompilationError => 65,
-            ErrorKind::RuntimeError => {
-                eprintln!("{}", e);
-                70
+        let exit_code = if let Some(vm_err) = e.downcast_ref::<VmError>() {
+            eprintln!("{vm_err}");
+            match vm_err.kind() {
+                ErrorKind::CompilationError => 65,
+                ErrorKind::RuntimeError => 70,
             }
+        } else {
+            eprintln!("{e:?}");
+            65
         };
         std::process::exit(exit_code);
     }
 }
 
-fn run_file(path: impl AsRef<Path>) -> StdResult<(), LoxError> {
-    let source = std::fs::read_to_string(path)
-        .context("Failed to read source file.")
-        .map_err(LoxError::compile)?;
+fn run_file(path: impl AsRef<Path>) -> Result<()> {
+    let source = std::fs::read_to_string(path).context("Failed to read source file.")?;
     let heap = clox::Heap::new();
     let mut vm = Vm::new(&heap);
-    match vm.interpret(source.as_ref()) {
-        Ok(_) => Ok(()),
-        Err(VmError::CompileError(e)) => Err(e),
-        Err(VmError::RuntimeError(e)) => Err(LoxError::runtime(e)),
-    }
+    vm.interpret(source.as_ref()).context("Interpreter error.")
 }
 
 fn repl() -> Result<()> {

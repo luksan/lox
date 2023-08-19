@@ -1,11 +1,12 @@
-use std::fmt::{Debug, Formatter};
+use std::error::Error;
+use std::fmt::{Debug, Display, Formatter};
 use std::ptr;
 use std::ptr::NonNull;
 
 use anyhow::{anyhow, bail, Context, Result};
 use tracing::{span, Level};
 
-use crate::clox::compiler::compile;
+use crate::clox::compiler::{compile, CompilerError};
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjPtr, ObjTypes};
 use crate::clox::stack::{Stack, FRAMES_MAX};
 use crate::clox::table::{LoxTable, Table};
@@ -14,14 +15,46 @@ use crate::clox::value::{
     Upvalue, Value,
 };
 use crate::clox::{Chunk, OpCode};
-use crate::LoxError;
+use crate::ErrorKind;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub enum VmError {
-    #[error("Compilation error")]
-    CompileError(#[from] LoxError),
-    #[error("VM runtime error")]
-    RuntimeError(#[from] anyhow::Error),
+    CompileError(Vec<CompilerError>),
+    RuntimeError(anyhow::Error),
+}
+impl VmError {
+    pub fn kind(&self) -> ErrorKind {
+        match self {
+            VmError::CompileError(_) => ErrorKind::CompilationError,
+            VmError::RuntimeError(_) => ErrorKind::RuntimeError,
+        }
+    }
+}
+
+impl From<anyhow::Error> for VmError {
+    fn from(value: anyhow::Error) -> Self {
+        Self::RuntimeError(value)
+    }
+}
+impl From<Vec<CompilerError>> for VmError {
+    fn from(value: Vec<CompilerError>) -> Self {
+        Self::CompileError(value)
+    }
+}
+
+impl Error for VmError {}
+impl Display for VmError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VmError::CompileError(errors) => {
+                for e in &errors[0..errors.len() - 1] {
+                    writeln!(f, "{e}")?;
+                }
+                write!(f, "{}", errors.last().unwrap())
+            }
+            VmError::RuntimeError(e) => write!(f, "{e}"),
+        }
+    }
 }
 
 pub struct Vm<'heap> {

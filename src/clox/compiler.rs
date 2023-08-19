@@ -1,7 +1,6 @@
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
-use std::result::Result as StdResult;
 
 use anyhow::{bail, Result};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -13,9 +12,8 @@ use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::value::{Function, ValueEnum as Value};
 use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, Token, TokenIter, TokenType, TokenizationError};
-use crate::LoxError;
 
-pub fn compile(source: &str, heap: &Heap) -> StdResult<NonNull<Obj<Function>>, LoxError> {
+pub fn compile(source: &str, heap: &Heap) -> Result<NonNull<Obj<Function>>, Vec<CompilerError>> {
     let span = trace_span!("compile()");
     let _e = span.enter();
     let mut scanner = Scanner::new(source);
@@ -25,7 +23,6 @@ pub fn compile(source: &str, heap: &Heap) -> StdResult<NonNull<Obj<Function>>, L
     compiler
         .compile()
         .map(|func_ptr| NonNull::new(func_ptr as *mut _).unwrap())
-        .map_err(LoxError::compile)
 }
 
 const U8_MAX_LEN: usize = 256;
@@ -85,7 +82,7 @@ impl Display for CompileError {
 struct Compiler<'a> {
     tokens: Peekable<&'a mut TokenIter<'a>>,
     prev_tok: Option<Token>,
-    had_error: Vec<CompilerError>,
+    errors: Vec<CompilerError>,
     panic_mode: bool,
 
     func_scope: Box<FunctionScope>,
@@ -330,7 +327,7 @@ impl<'pratt> Compiler<'pratt> {
         Self {
             tokens: tokens.peekable(),
             prev_tok: None,
-            had_error: Vec::new(),
+            errors: Vec::new(),
             panic_mode: false,
 
             func_scope: FunctionScope::new(FunctionType::Script).into(),
@@ -340,7 +337,7 @@ impl<'pratt> Compiler<'pratt> {
         }
     }
 
-    fn compile(&mut self) -> Result<*const Obj<Function>> {
+    fn compile(&mut self) -> Result<*const Obj<Function>, Vec<CompilerError>> {
         while !self.match_token(TokenType::Eof) {
             self.declaration()
         }
@@ -351,11 +348,8 @@ impl<'pratt> Compiler<'pratt> {
             self.func_scope.function().disassemble();
         }
 
-        if !self.had_error.is_empty() {
-            for e in self.had_error.iter() {
-                eprintln!("{}", e);
-            }
-            bail!("Compilation failed.")
+        if !self.errors.is_empty() {
+            return Err(mem::take(&mut self.errors));
         }
         Ok(self
             .heap
@@ -993,7 +987,7 @@ impl<'helpers> Compiler<'helpers> {
 impl<'tok_iter> Compiler<'tok_iter> {
     fn current(&mut self) -> &Token {
         while let Some(Err(tok)) = self.tokens.next_if(|t| t.is_err()) {
-            self.had_error.push(CompilerError::Token(tok));
+            self.errors.push(CompilerError::Token(tok));
             self.panic_mode = true;
         }
         self.tokens.peek().unwrap().as_ref().unwrap()
@@ -1013,7 +1007,7 @@ impl<'tok_iter> Compiler<'tok_iter> {
                 self.prev_tok = Some(tok);
             }
             Some(Err(e)) => {
-                self.had_error.push(e.into());
+                self.errors.push(e.into());
                 self.panic_mode = true;
             }
             _ => {}
@@ -1055,7 +1049,7 @@ impl<'tok_iter> Compiler<'tok_iter> {
         if self.panic_mode {
             return;
         }
-        self.had_error.push(
+        self.errors.push(
             CompileError {
                 token,
                 msg: msg.to_string(),
