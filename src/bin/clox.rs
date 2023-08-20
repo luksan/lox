@@ -2,7 +2,6 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{bail, Result};
 use clap::Parser;
 use miette::{Context, IntoDiagnostic};
 
@@ -65,22 +64,23 @@ fn main() -> miette::Result<()> {
     std::process::exit(exit_code);
 }
 
-fn repl() -> Result<()> {
+fn repl() {
     let heap = clox::Heap::new();
     let mut vm = Vm::new(&heap);
     let mut line = String::new();
     loop {
         print!("> ");
-        std::io::stdout().flush()?;
-        if std::io::stdin().read_line(&mut line)? == 0 {
+        std::io::stdout().flush().unwrap();
+        if std::io::stdin().read_line(&mut line).unwrap() == 0 {
             println!();
             break;
         }
         if let Err(e) = vm.interpret(&line) {
-            println!("{:?}", e);
-            bail!("Error.");
+            println!(
+                "{:?}",
+                miette::Report::new(e).with_source_code(line.clone())
+            );
         }
         line.clear();
     }
-    Ok(())
 }
