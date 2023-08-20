@@ -143,6 +143,10 @@ impl Token {
             panic!("Not a string literal.")
         }
     }
+
+    pub fn span(&self) -> SourceSpan {
+        self.span.clone()
+    }
 }
 
 impl Debug for Token {

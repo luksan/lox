@@ -3,10 +3,10 @@ use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 
 use anyhow::{bail, Result};
-use miette::LabeledSpan;
+use miette::{LabeledSpan, SourceSpan};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
-use std::mem;
 use std::ptr::NonNull;
+use std::{iter, mem};
 use tracing::trace_span;
 
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
@@ -49,7 +49,7 @@ impl miette::Diagnostic for CompilerError {
     fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
         match self {
             CompilerError::Token(e) => e.labels(),
-            CompilerError::Compile(_) => None,
+            CompilerError::Compile(e) => e.labels(),
         }
     }
 }
@@ -70,6 +70,7 @@ impl From<TokenizationError> for CompilerError {
 pub struct CompileError {
     token: Token,
     msg: String,
+    span: SourceSpan,
 }
 
 impl Error for CompileError {}
@@ -88,6 +89,15 @@ impl Display for CompileError {
                 &self.msg
             )
         }
+    }
+}
+
+impl miette::Diagnostic for CompileError {
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        Some(Box::new(iter::once(LabeledSpan::new_with_span(
+            Some(self.msg.clone()),
+            self.span.clone(),
+        ))))
     }
 }
 
@@ -718,15 +728,23 @@ impl<'pratt> Compiler<'pratt> {
             self.error("Can't return from top-level code.");
         }
         if self.match_token(TokenType::Semicolon) {
-            self.emit_return()
-        } else {
-            if self.func_scope.func_type == FunctionType::Initializer {
-                self.error("Can't return a value from an initializer.")
-            }
-            self.expression();
-            self.consume(TokenType::Semicolon, "Expect ';' after return value.");
-            self.emit_byte(OpCode::Return)
+            self.emit_return();
+            return;
         }
+        let return_token = self.previous();
+        self.expression();
+        if self.func_scope.func_type == FunctionType::Initializer {
+            let curr_span = self.previous().span();
+            let len = curr_span.offset() + curr_span.len() - return_token.span().offset();
+            let err_span = SourceSpan::new(return_token.span().offset().into(), len.into());
+            self.error_at(
+                return_token,
+                "Can't return a value from an initializer.".to_string(),
+                err_span,
+            );
+        }
+        self.consume(TokenType::Semicolon, "Expect ';' after return value.");
+        self.emit_byte(OpCode::Return)
     }
 
     fn while_statement(&mut self) {
@@ -838,6 +856,7 @@ impl<'pratt> Compiler<'pratt> {
             }
         };
         let can_assign = precedence <= Precedence::Assignment;
+        let err_span = self.previous().span();
         prefix_rule(self, can_assign);
         loop {
             let token_type = self.current_tok_type();
@@ -848,8 +867,15 @@ impl<'pratt> Compiler<'pratt> {
             let infix_rule = self.get_rule(self.previous().tok_type()).infix;
             infix_rule.unwrap()(self, can_assign);
         }
+        let curr_span = self.previous().span();
         if can_assign && self.match_token(TokenType::Equal) {
-            self.error("Invalid assignment target.")
+            let len = curr_span.offset() - err_span.offset() + curr_span.len();
+            let err_span = SourceSpan::new(err_span.offset().into(), len.into());
+            self.error_at(
+                self.previous(),
+                "Invalid assignment target.".to_string(),
+                err_span,
+            );
         }
     }
 }
@@ -1049,15 +1075,16 @@ impl<'tok_iter> Compiler<'tok_iter> {
     }
 
     fn error(&mut self, msg: impl Display) {
-        self.error_at(self.previous(), msg.to_string().as_str());
+        self.error_at(self.previous(), msg, self.previous().span().clone());
     }
 
     fn error_at_current(&mut self, msg: &str) {
         let token = self.current().clone();
-        self.error_at(token, msg);
+        let span = token.span().clone();
+        self.error_at(token, msg, span);
     }
 
-    fn error_at(&mut self, token: Token, msg: &str) {
+    fn error_at(&mut self, token: Token, msg: impl Display, span: miette::SourceSpan) {
         if self.panic_mode {
             return;
         }
@@ -1065,6 +1092,7 @@ impl<'tok_iter> Compiler<'tok_iter> {
             CompileError {
                 token,
                 msg: msg.to_string(),
+                span,
             }
             .into(),
         );
@@ -1166,6 +1194,35 @@ impl HasRoots for Compiler<'_> {
         while let Some(s) = scope {
             s.func_obj.mark_roots(mark_obj);
             scope = s.enclosing.as_ref();
+        }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_miette_err() {
+        let heap = Heap::new();
+        let source = "
+        var a=1;
+        var b=2;
+        !a = 3;
+        a + b = 3;
+
+        class Foo {
+         init() {
+           return \"result\";
+         }
+        }
+        fun abc(){
+            var x = Foo(x);
+        }
+        ";
+        let r = compile(source, &heap);
+        for _e in r.unwrap_err() {
+            // eprintln!("{:?}", miette::Report::new(_e).with_source_code(source))
         }
     }
 }
