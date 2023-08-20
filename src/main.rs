@@ -15,12 +15,10 @@ fn main() {
 
     if let Some(script) = opts.script {
         if let Err(e) = Lox::run_file(script) {
+            eprintln!("{e}");
             let exit_code = match e.kind() {
                 ErrorKind::CompilationError => 65,
-                ErrorKind::RuntimeError => {
-                    eprintln!("{}", e);
-                    70
-                }
+                ErrorKind::RuntimeError => 70,
             };
             std::process::exit(exit_code);
         }

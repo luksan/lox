@@ -12,29 +12,19 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::Path;
 
-use anyhow::{anyhow, Context};
+use anyhow::Context;
 
 use jlox::interpreter::Interpreter;
 pub use jlox::lox_types::LoxType;
 use jlox::parser::Parser;
 use jlox::resolver::Resolver;
 
+use crate::jlox::parser::ParseError;
+use crate::jlox::resolver::ResolverError;
+
 pub mod clox;
 mod jlox;
 mod scanner;
-
-fn error(line: usize, message: impl AsRef<str>) {
-    report(line, "", message)
-}
-
-fn report(line: usize, pos: impl AsRef<str>, message: impl AsRef<str>) {
-    eprintln!(
-        "[line {}] Error {}: {}",
-        line,
-        pos.as_ref(),
-        message.as_ref()
-    );
-}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ErrorKind {
@@ -43,36 +33,64 @@ pub enum ErrorKind {
 }
 
 #[derive(Debug)]
-pub struct LoxError {
-    kind: ErrorKind,
-    source: anyhow::Error,
+pub enum JloxError {
+    CompilationError(Vec<ParseError>),
+    ResolverErrors(Vec<ResolverError>),
+    RuntimeError(anyhow::Error),
+    Other(anyhow::Error),
 }
 
-impl LoxError {
-    pub fn compile(source: anyhow::Error) -> Self {
-        Self {
-            kind: ErrorKind::CompilationError,
-            source,
-        }
+impl JloxError {
+    pub fn compile(source: Vec<ParseError>) -> Self {
+        Self::CompilationError(source)
     }
 
     pub fn runtime(source: anyhow::Error) -> Self {
-        Self {
-            kind: ErrorKind::RuntimeError,
-            source,
-        }
+        Self::RuntimeError(source)
     }
 
     pub fn kind(&self) -> ErrorKind {
-        self.kind
+        match self {
+            JloxError::CompilationError(_) => ErrorKind::CompilationError,
+            JloxError::ResolverErrors(_) => ErrorKind::CompilationError,
+            JloxError::RuntimeError(_) => ErrorKind::RuntimeError,
+            Self::Other(_) => ErrorKind::CompilationError,
+        }
     }
 }
 
-impl Error for LoxError {}
+impl From<anyhow::Error> for JloxError {
+    fn from(value: anyhow::Error) -> Self {
+        Self::Other(value)
+    }
+}
 
-impl Display for LoxError {
+impl Error for JloxError {}
+
+impl Display for JloxError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.source)
+        match self {
+            Self::CompilationError(errors) => {
+                for err in &errors[0..errors.len() - 1] {
+                    writeln!(f, "{err}")?;
+                }
+                write!(f, "{}", errors.last().unwrap())
+            }
+            Self::ResolverErrors(errors) => {
+                for err in &errors[0..errors.len() - 1] {
+                    writeln!(f, "{err}")?;
+                }
+                write!(f, "{}", errors.last().unwrap())
+            }
+            Self::RuntimeError(err) => write!(f, "{err}"),
+            Self::Other(err) => write!(f, "{err}"),
+        }
+    }
+}
+
+impl From<Vec<ResolverError>> for JloxError {
+    fn from(value: Vec<ResolverError>) -> Self {
+        Self::ResolverErrors(value)
     }
 }
 
@@ -89,12 +107,11 @@ impl Lox {
         }
     }
 
-    pub fn run_file(script: impl AsRef<Path>) -> Result<(), LoxError> {
+    pub fn run_file(script: impl AsRef<Path>) -> Result<(), JloxError> {
         let mut data = String::new(); // FIXME: preallocate correct len
         File::open(script)
             .and_then(|mut file| file.read_to_string(&mut data))
-            .context("Failed to read lox script file.")
-            .map_err(LoxError::compile)?;
+            .context("Failed to read lox script file.")?;
 
         Self::new().run(data)
     }
@@ -115,19 +132,14 @@ impl Lox {
         }
     }
 
-    fn run(&mut self, source: impl AsRef<str>) -> Result<(), LoxError> {
+    fn run(&mut self, source: impl AsRef<str>) -> Result<(), JloxError> {
         let mut scanner = scanner::Scanner::new(source.as_ref());
         let ast = Parser::parse(&mut scanner).map_err(|e| {
             self.had_error = true;
-            LoxError::compile(e)
+            JloxError::compile(e)
         })?;
 
-        let errors = Resolver::resolve(&mut self.interpreter, &ast);
-        if !errors.is_empty() {
-            return Err(LoxError::compile(anyhow!(
-                "Aborting due to resolver errors."
-            )));
-        }
-        self.interpreter.interpret(&ast).map_err(LoxError::runtime)
+        Resolver::resolve(&mut self.interpreter, &ast)?;
+        self.interpreter.interpret(&ast).map_err(JloxError::runtime)
     }
 }

@@ -1,52 +1,85 @@
-use anyhow::{anyhow, bail, Context, Result};
+use std::error::Error;
+use std::fmt::{Display, Formatter};
+use std::iter::Peekable;
 
 use crate::jlox::ast::{
     expr::{self, Expr},
     stmt::{self, ListStmt, Stmt},
 };
 use crate::scanner::TokenType::*;
-use crate::scanner::{Token, TokenIter, TokenType};
+use crate::scanner::{Token, TokenIter, TokenType, TokenizationError};
 use crate::LoxType;
 
-use std::iter::Peekable;
+type Result<T, E = ParseError> = core::result::Result<T, E>;
+
+#[derive(Debug)]
+pub enum ParseError {
+    Token(TokenizationError),
+    Parsing {
+        token: Token,
+        msg: std::string::String,
+    },
+    UnexpectedEndOfStream,
+}
+
+impl ParseError {
+    fn parsing(token: Token, msg: impl ToString) -> Self {
+        Self::Parsing {
+            token,
+            msg: msg.to_string(),
+        }
+    }
+}
+
+impl Error for ParseError {}
+impl Display for ParseError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ParseError::Token(err) => write!(f, "{err}"),
+            ParseError::Parsing { token, msg } => write!(f, "{token:?} {msg}"),
+            ParseError::UnexpectedEndOfStream => write!(f, "Unexpected end of file."),
+        }
+    }
+}
+impl From<TokenizationError> for ParseError {
+    fn from(value: TokenizationError) -> Self {
+        Self::Token(value)
+    }
+}
 
 pub struct Parser<'s> {
     tokens: Peekable<&'s mut TokenIter<'s>>,
-    had_error: bool,
+    errors: Vec<ParseError>,
 }
 
 pub type ParseResult = Result<Expr>;
 
 impl<'s> Parser<'s> {
-    pub fn parse(scanner: &'s mut TokenIter<'s>) -> Result<Vec<Stmt>> {
+    pub fn parse(scanner: &'s mut TokenIter<'s>) -> Result<Vec<Stmt>, Vec<ParseError>> {
         Self {
             tokens: scanner.peekable(),
-            had_error: false,
+            errors: Vec::new(),
         }
         .parse_self()
     }
 
-    fn parse_self(&mut self) -> Result<Vec<Stmt>> {
+    fn parse_self(&mut self) -> Result<Vec<Stmt>, Vec<ParseError>> {
         let mut statements = Vec::new();
         while !self.at_end() {
             match self.declaration() {
                 Ok(stmt) => statements.push(stmt),
-                Err(err) => {
-                    self.had_error = true;
-                    eprintln!("{}", err);
-                }
+                Err(err) => self.errors.push(err),
             }
         }
-        if !self.had_error {
+        if self.errors.is_empty() {
             Ok(statements)
         } else {
-            bail!("Aborting due to parse errors.")
+            Err(core::mem::take(&mut self.errors))
         }
     }
 
     fn error(&mut self, token: Token, msg: &str) {
-        eprintln!("{:?} {}", token, msg);
-        self.had_error = true;
+        self.errors.push(ParseError::parsing(token, msg));
     }
 
     fn declaration(&mut self) -> Result<Stmt> {
@@ -78,10 +111,12 @@ impl<'s> Parser<'s> {
         self.consume(LeftBrace, "Expect '{' before class body.")?;
         let mut methods: Vec<stmt::Function> = vec![];
         while !self.check(RightBrace) && !self.at_end() {
-            methods.push(
-                stmt::Function::try_from(self.function("method")?)
-                    .map_err(|_| anyhow!("Error: Expected function as method."))?,
-            );
+            let func = stmt::Function::try_from(self.function("method")?);
+            let method = func.map_err(|_| ParseError::Parsing {
+                token: self.peek().unwrap().clone(),
+                msg: "Error: Expected function as method.".to_string(),
+            })?;
+            methods.push(method);
         }
         self.consume(RightBrace, "Expect '}' after class body.")?;
         Ok(stmt::Class::new(name, superclass, methods))
@@ -194,6 +229,7 @@ impl<'s> Parser<'s> {
     }
 
     fn function(&mut self, kind: &str) -> Result<Stmt> {
+        // TODO: return stmt::Function instead of enum variant
         let name = self.consume(Identifier, format!("Expect {} name.", kind).as_str())?;
         self.consume(LeftParen, "Expect '(' after name.")?;
 
@@ -248,7 +284,7 @@ impl<'s> Parser<'s> {
             try_type!(expr::Variable, var, expr::Assign::new(var.name, value));
             try_type!(expr::Get, get, expr::Set::new(get.object, get.name, value));
 
-            bail!("{:?} Invalid assignment target.", eq)
+            Err(ParseError::parsing(eq, "Invalid assignment target."))
         } else {
             Ok(expr)
         }
@@ -364,12 +400,12 @@ impl<'s> Parser<'s> {
                 self.consume(TokenType::RightParen, "Expected ')' after expression")?;
                 return Ok(expr::Grouping::new(expr));
             }
-            _bad => bail!("{:?} Expect expression.", token),
+            _bad => return Err(ParseError::parsing(token, "Expect expression.")),
         }))
     }
 
     fn at_end(&mut self) -> bool {
-        match self.peek().map(|t| t.tok_type()) {
+        match self.peek_type() {
             Err(_) | Ok(TokenType::Eof) => true,
             _ => false,
         }
@@ -388,20 +424,15 @@ impl<'s> Parser<'s> {
     }
 
     fn consume(&mut self, tok: TokenType, error: &str) -> Result<Token> {
-        let opt_tok = self.match_advance(&[tok]);
-        match opt_tok {
+        match self.match_advance(&[tok]) {
             Some(t) => Ok(t),
-            None => {
-                let next_tok = self.peek()?;
-                bail!("{:?} {}", next_tok, error);
-            }
+            None => Err(ParseError::parsing(self.peek()?.clone(), error)),
         }
     }
 
     fn consume_token_errors(&mut self) {
         while let Some(Err(e)) = self.tokens.next_if(|t| t.is_err()) {
-            eprintln!("{e}");
-            self.had_error = true;
+            self.errors.push(ParseError::Token(e));
         }
     }
 
@@ -412,7 +443,7 @@ impl<'s> Parser<'s> {
         self.tokens
             .peek()
             .map(|r| r.as_ref().unwrap())
-            .context("Unexpected end of token stream.")
+            .ok_or(ParseError::UnexpectedEndOfStream)
     }
 
     fn peek_type(&mut self) -> Result<TokenType> {

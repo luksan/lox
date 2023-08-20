@@ -1,7 +1,8 @@
 #![allow(clippy::ptr_arg)]
 
-use anyhow::anyhow;
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt::{Display, Formatter};
 
 use crate::jlox::ast::expr::{
     Binary, Call, Get, Grouping, Literal, Logical, Super, This, Unary, Variable,
@@ -12,16 +13,27 @@ use crate::jlox::ast::{
     stmt::{self, ListStmt, Stmt},
     Accepts, NodeId, Visitor,
 };
-
 use crate::scanner::Token;
 use crate::Interpreter;
+
+#[derive(Debug)]
+pub struct ResolverError {
+    token: Token,
+    msg: String,
+}
+impl Error for ResolverError {}
+impl Display for ResolverError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?} {}", self.token, self.msg)
+    }
+}
 
 pub struct Resolver<'i> {
     interpreter: &'i mut Interpreter,
     curr_func_type: FunctionType,
     curr_class: ClassType,
     scopes: Vec<HashMap<String, bool>>,
-    errors: Vec<anyhow::Error>,
+    errors: Vec<ResolverError>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -40,7 +52,10 @@ enum ClassType {
 }
 
 impl<'i> Resolver<'i> {
-    pub fn resolve(interpreter: &'i mut Interpreter, statements: &ListStmt) -> Vec<anyhow::Error> {
+    pub fn resolve(
+        interpreter: &'i mut Interpreter,
+        statements: &ListStmt,
+    ) -> Result<(), Vec<ResolverError>> {
         let mut me = Self {
             interpreter,
             curr_func_type: FunctionType::None,
@@ -51,13 +66,18 @@ impl<'i> Resolver<'i> {
 
         me.resolve_stmt_list(statements);
 
-        me.errors
+        if me.errors.is_empty() {
+            Ok(())
+        } else {
+            Err(me.errors)
+        }
     }
 
     fn error(&mut self, token: &Token, desc: &str) {
-        let err = anyhow!("{:?} {}", token, desc);
-        eprintln!("{}", err);
-        self.errors.push(err);
+        self.errors.push(ResolverError {
+            token: token.clone(),
+            msg: desc.to_string(),
+        });
     }
 
     fn peek(&mut self) -> Option<&mut HashMap<String, bool>> {
