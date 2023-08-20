@@ -2,8 +2,8 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::jlox::LoxType;
 use crate::scanner::Token;
-use crate::LoxType;
 
 pub trait Visitor<NodeType, R> {
     fn visit(&mut self, node: &NodeType) -> R;

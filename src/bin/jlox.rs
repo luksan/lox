@@ -2,7 +2,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use lox::{ErrorKind, Lox};
+use lox::jlox::Lox;
+use lox::ErrorKind;
 
 #[derive(Debug, Parser)]
 struct CmdOpts {

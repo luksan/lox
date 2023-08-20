@@ -3,8 +3,8 @@ use anyhow::{bail, Context, Result};
 use crate::jlox::ast::stmt;
 use crate::jlox::environment::{Env, Environment};
 use crate::jlox::interpreter::ExprVisitResult;
+use crate::jlox::Interpreter;
 use crate::scanner::Token;
-use crate::Interpreter;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

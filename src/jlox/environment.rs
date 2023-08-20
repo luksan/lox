@@ -1,7 +1,7 @@
 use anyhow::{anyhow, bail, Context, Result};
 
+use crate::jlox::LoxType;
 use crate::scanner::Token;
-use crate::LoxType;
 
 use std::cell::RefCell;
 use std::collections::HashMap;

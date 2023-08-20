@@ -13,8 +13,8 @@ use crate::jlox::ast::{
     stmt::{self, ListStmt, Stmt},
     Accepts, NodeId, Visitor,
 };
+use crate::jlox::Interpreter;
 use crate::scanner::Token;
-use crate::Interpreter;
 
 #[derive(Debug)]
 pub struct ResolverError {

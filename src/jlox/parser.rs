@@ -6,9 +6,9 @@ use crate::jlox::ast::{
     expr::{self, Expr},
     stmt::{self, ListStmt, Stmt},
 };
+use crate::jlox::LoxType;
 use crate::scanner::TokenType::*;
 use crate::scanner::{Token, TokenIter, TokenType, TokenizationError};
-use crate::LoxType;
 
 type Result<T, E = ParseError> = core::result::Result<T, E>;
 
