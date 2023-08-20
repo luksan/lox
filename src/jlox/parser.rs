@@ -85,8 +85,8 @@ impl<'s> Parser<'s> {
     fn declaration(&mut self) -> Result<Stmt> {
         let stmt = if let Some(tok) = self.match_advance(&[Class, Fun, Var]) {
             match tok.tok_type() {
-                Class => self.class_declaration(),
-                Fun => self.function("function"),
+                Class => self.class_declaration().map(|c| c.into()),
+                Fun => self.function("function").map(|f| f.into()),
                 Var => self.var_decl(),
                 _ => unreachable!(),
             }
@@ -99,27 +99,22 @@ impl<'s> Parser<'s> {
         stmt
     }
 
-    fn class_declaration(&mut self) -> Result<Stmt> {
+    fn class_declaration(&mut self) -> Result<stmt::Class> {
         let name = self.consume(Identifier, "Expect class name.")?;
-        let superclass = if let Some(_less) = self.match_advance(&[Less]) {
-            // FIXME: make consume generic over type?
-            let ident = self.consume(Identifier, "Expect superclass name.")?;
-            Some(expr::Variable::new(ident).try_into().unwrap())
-        } else {
-            None
-        };
+        let superclass = self
+            .match_advance(&[Less])
+            .map(|_| {
+                let token = self.consume(Identifier, "Expect superclass name.")?;
+                Ok::<_, ParseError>(expr::Variable::new_bare(token))
+            })
+            .transpose()?;
         self.consume(LeftBrace, "Expect '{' before class body.")?;
         let mut methods: Vec<stmt::Function> = vec![];
         while !self.check(RightBrace) && !self.at_end() {
-            let func = stmt::Function::try_from(self.function("method")?);
-            let method = func.map_err(|_| ParseError::Parsing {
-                token: self.peek().unwrap().clone(),
-                msg: "Error: Expected function as method.".to_string(),
-            })?;
-            methods.push(method);
+            methods.push(self.function("method")?);
         }
         self.consume(RightBrace, "Expect '}' after class body.")?;
-        Ok(stmt::Class::new(name, superclass, methods))
+        Ok(stmt::Class::new_bare(name, superclass, methods))
     }
 
     fn var_decl(&mut self) -> Result<Stmt> {
@@ -228,8 +223,7 @@ impl<'s> Parser<'s> {
         Ok(stmt::Expression::new(expr))
     }
 
-    fn function(&mut self, kind: &str) -> Result<Stmt> {
-        // TODO: return stmt::Function instead of enum variant
+    fn function(&mut self, kind: &str) -> Result<stmt::Function> {
         let name = self.consume(Identifier, format!("Expect {} name.", kind).as_str())?;
         self.consume(LeftParen, "Expect '(' after name.")?;
 
@@ -249,7 +243,7 @@ impl<'s> Parser<'s> {
         self.consume(RightParen, "Expect ')' after parameters.")?;
         self.consume(LeftBrace, "Expect '{' before function body.")?;
         let body = self.block()?;
-        Ok(stmt::Function::new(name, parameters, body))
+        Ok(stmt::Function::new_bare(name, parameters, body))
     }
 
     fn block(&mut self) -> Result<ListStmt> {
@@ -266,25 +260,15 @@ impl<'s> Parser<'s> {
     }
 
     fn assignment(&mut self) -> ParseResult {
-        let mut expr = self.or()?;
-
-        macro_rules! try_type {
-            ($typ:ty, $val:ident, $cls:expr) => {
-                #[allow(unused_assignments)]
-                match TryInto::<$typ>::try_into(expr) {
-                    Ok($val) => return Ok($cls),
-                    Err(e) => expr = e,
-                }
-            };
-        }
+        let expr = self.or()?;
 
         if let Some(eq) = self.match_advance(&[Equal]) {
             let value = self.assignment()?;
-
-            try_type!(expr::Variable, var, expr::Assign::new(var.name, value));
-            try_type!(expr::Get, get, expr::Set::new(get.object, get.name, value));
-
-            Err(ParseError::parsing(eq, "Invalid assignment target."))
+            match *expr {
+                expr::ExprTypes::Variable(var) => Ok(expr::Assign::new(var.name, value)),
+                expr::ExprTypes::Get(get) => Ok(expr::Set::new(get.object, get.name, value)),
+                _ => Err(ParseError::parsing(eq, "Invalid assignment target.")),
+            }
         } else {
             Ok(expr)
         }
@@ -346,7 +330,7 @@ impl<'s> Parser<'s> {
         }
     }
 
-    fn finish_call(&mut self, callee: Expr) -> ParseResult {
+    fn finish_call(&mut self, callee: Expr) -> Result<expr::Call> {
         let mut args = Vec::new();
         if !self.check(RightParen) {
             loop {
@@ -361,7 +345,7 @@ impl<'s> Parser<'s> {
             }
         }
         let paren = self.consume(RightParen, "Expect ')' after arguments.")?;
-        Ok(expr::Call::new(callee, paren, args))
+        Ok(expr::Call::new_bare(callee, paren, args))
     }
 
     fn call(&mut self) -> ParseResult {
@@ -372,7 +356,7 @@ impl<'s> Parser<'s> {
                     let name = self.consume(Identifier, "Expect property name after '.'.")?;
                     expr = expr::Get::new(expr, name);
                 }
-                LeftParen => expr = self.finish_call(expr)?,
+                LeftParen => expr = self.finish_call(expr)?.into(),
                 _ => unreachable!(),
             }
         }

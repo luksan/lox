@@ -1,6 +1,5 @@
 #![allow(non_snake_case)]
 
-use anyhow::Result;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::scanner::Token;
@@ -72,31 +71,19 @@ macro_rules! ast_nodes {
                     id: NodeId::new(),
                     $($member_name),*}))
             }
+
+            /// Create a new AST node without wrapping it in the enum
+            pub fn new_bare( $($member_name: $member_type),* ) -> Self {
+                $node_type {
+                    id: NodeId::new(),
+                    $($member_name),*
+                }
+            }
         }
 
         impl From<$node_type> for Box<$enum_name> {
             fn from(val: $node_type) -> Self {
                 Box::new($enum_name::$node_type(val))
-            }
-        }
-
-        impl TryFrom<$enum_name> for $node_type {
-            type Error = $enum_name;
-            fn try_from(value: $enum_name) -> Result<Self, Self::Error> {
-                match value {
-                    $enum_name::$node_type(me) => Ok(me),
-                    _ => Err(value),
-                }
-            }
-        }
-
-        impl TryFrom<Box<$enum_name>> for $node_type {
-            type Error = Box<$enum_name>;
-            fn try_from(value: Box<$enum_name>) -> Result<Self, Self::Error> {
-                match *value {
-                    $enum_name::$node_type(me) => Ok(me),
-                    _ => Err(value),
-                }
             }
         }
         )+
