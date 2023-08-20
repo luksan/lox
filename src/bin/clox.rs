@@ -1,10 +1,12 @@
+use std::fmt::Debug;
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use clap::Parser;
+use miette::{Context, IntoDiagnostic};
 
-use lox::clox::{self, CloxSettings, Vm, VmError};
+use lox::clox::{self, CloxSettings, Vm};
 use lox::ErrorKind;
 
 #[derive(Debug, Parser)]
@@ -27,7 +29,7 @@ struct CmdOpts {
 }
 
 #[allow(unused)]
-fn main() {
+fn main() -> miette::Result<()> {
     let opts = CmdOpts::parse();
 
     tracing_subscriber::fmt::init();
@@ -41,27 +43,26 @@ fn main() {
 
     clox::set_settings(clox_settings);
 
-    let Some(ref script) = opts.script else { repl(); return; };
-    if let Err(e) = run_file(script) {
-        let exit_code = if let Some(vm_err) = e.downcast_ref::<VmError>() {
-            eprintln!("{vm_err}");
-            match vm_err.kind() {
-                ErrorKind::CompilationError => 65,
-                ErrorKind::RuntimeError => 70,
-            }
-        } else {
-            eprintln!("{e:?}");
-            65
-        };
-        std::process::exit(exit_code);
-    }
-}
+    let Some(ref path) = opts.script else { repl(); return Ok(()); };
 
-fn run_file(path: impl AsRef<Path>) -> Result<()> {
-    let source = std::fs::read_to_string(path).context("Failed to read source file.")?;
+    let source = std::fs::read_to_string(path)
+        .into_diagnostic()
+        .with_context(|| format!("Failed to read source file {}", path.to_string_lossy()))?;
+
     let heap = clox::Heap::new();
     let mut vm = Vm::new(&heap);
-    vm.interpret(source.as_ref()).context("Interpreter error.")
+    let Err(vm_err) = vm.interpret(source.as_ref()) else { return Ok(()) };
+
+    let exit_code = match vm_err.kind() {
+        ErrorKind::CompilationError => 65,
+        ErrorKind::RuntimeError => 70,
+    };
+    if opts.ci_testsuite {
+        eprintln!("{vm_err}");
+    } else {
+        eprintln!("{:?}", miette::Report::new(vm_err).with_source_code(source));
+    }
+    std::process::exit(exit_code);
 }
 
 fn repl() -> Result<()> {

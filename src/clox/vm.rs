@@ -4,6 +4,7 @@ use std::ptr;
 use std::ptr::NonNull;
 
 use anyhow::{anyhow, bail, Context, Result};
+use miette::LabeledSpan;
 use tracing::{span, Level};
 
 use crate::clox::compiler::{compile, CompilerError};
@@ -35,6 +36,21 @@ impl VmError {
 impl From<Vec<CompilerError>> for VmError {
     fn from(value: Vec<CompilerError>) -> Self {
         Self::CompileError(value)
+    }
+}
+impl miette::Diagnostic for VmError {
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        match self {
+            VmError::CompileError(err) => {
+                let labels = err
+                    .iter()
+                    .map(|e| e.labels())
+                    .filter_map(|lab_iter| lab_iter)
+                    .flatten();
+                Some(Box::new(labels))
+            }
+            VmError::RuntimeError { .. } => None,
+        }
     }
 }
 
@@ -166,7 +182,7 @@ impl<'heap> Vm<'heap> {
         new
     }
 
-    pub fn interpret(&mut self, source: &str) -> Result<(), VmError> {
+    pub fn interpret(&mut self, source: &str) -> miette::Result<(), VmError> {
         self.compile(source)?.run()
     }
 

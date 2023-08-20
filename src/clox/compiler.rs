@@ -3,6 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 
 use anyhow::{bail, Result};
+use miette::LabeledSpan;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::mem;
 use std::ptr::NonNull;
@@ -32,6 +33,8 @@ pub enum CompilerError {
     Token(TokenizationError),
     Compile(CompileError),
 }
+impl Error for CompilerError {}
+
 impl Display for CompilerError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let e = match self {
@@ -39,6 +42,15 @@ impl Display for CompilerError {
             CompilerError::Compile(e) => e as &dyn Display,
         };
         write!(f, "{e}")
+    }
+}
+
+impl miette::Diagnostic for CompilerError {
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        match self {
+            CompilerError::Token(e) => e.labels(),
+            CompilerError::Compile(_) => None,
+        }
     }
 }
 

@@ -1,8 +1,10 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
+use std::iter;
 use std::str::Chars;
 
 use anyhow::{bail, Context, Result};
+use miette::{Diagnostic, LabeledSpan, SourceSpan};
 use phf::phf_map;
 
 #[derive(Clone, Copy, Debug)]
@@ -94,15 +96,23 @@ pub struct Token {
     lexeme: String,
     line: usize,
     literal: Option<Literal>,
+    span: SourceSpan,
 }
 
 impl Token {
-    pub fn new(typ: TokenType, literal: impl AsRef<str>, line: usize) -> Self {
+    fn new(
+        typ: TokenType,
+        lexeme: &str,
+        literal: Option<Literal>,
+        line: usize,
+        span: SourceSpan,
+    ) -> Self {
         Self {
             typ,
-            lexeme: literal.as_ref().to_owned(),
+            lexeme: lexeme.to_owned(),
             line,
-            literal: None,
+            literal,
+            span,
         }
     }
 
@@ -147,21 +157,35 @@ impl Debug for Token {
 
 struct SourceCursor<'src> {
     start: &'src str,
+    start_byte_pos: usize,
     current: Chars<'src>,
     curr_line: usize,
+    tot_len: usize,
 }
 
 impl<'src> SourceCursor<'src> {
     pub fn new(source: &'src str) -> Self {
         Self {
             start: source,
+            start_byte_pos: 0,
             current: source.chars(),
             curr_line: 1, // current line for error reports
+            tot_len: source.len(),
         }
     }
 
+    /// Mark the beginning of a new token
     pub fn set_start(&mut self) {
         self.start = self.current.as_str();
+        self.start_byte_pos = self.tot_len - self.start.len();
+    }
+
+    pub fn curr_len(&self) -> usize {
+        (self.tot_len - self.current.as_str().len()) - self.start_byte_pos
+    }
+
+    pub fn curr_span(&self) -> SourceSpan {
+        SourceSpan::new(self.start_byte_pos.into(), self.curr_len().into())
     }
 
     pub fn advance(&mut self) -> Option<char> {
@@ -208,6 +232,20 @@ impl<'a> Iterator for SourceCursor<'a> {
 pub struct TokenizationError {
     msg: String,
     line: usize,
+    span: SourceSpan,
+}
+
+impl miette::Diagnostic for TokenizationError {
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        Some(Box::new(iter::once(LabeledSpan::new(
+            Some(self.msg.clone()),
+            self.span.offset().into(),
+            self.span.len(),
+        ))))
+    }
+    fn diagnostic_source(&self) -> Option<&dyn Diagnostic> {
+        Some(self) // hack to work around downcasting with with_source_code() wrapper
+    }
 }
 
 impl Error for TokenizationError {}
@@ -236,7 +274,13 @@ impl Iterator for Scanner<'_> {
         Some(loop {
             if self.is_at_end() {
                 self.at_eof = true;
-                break Ok(Token::new(TokenType::Eof, "", self.cursor.curr_line));
+                break Ok(Token::new(
+                    TokenType::Eof,
+                    "",
+                    None,
+                    self.cursor.curr_line,
+                    self.cursor.curr_span(),
+                ));
             } else {
                 self.cursor.set_start();
                 break match self.scan_token() {
@@ -245,6 +289,7 @@ impl Iterator for Scanner<'_> {
                     Err(err) => Err(TokenizationError {
                         line: self.cursor.curr_line,
                         msg: err.to_string(),
+                        span: self.cursor.curr_span(),
                     }),
                 };
             }
@@ -300,12 +345,13 @@ impl<'src> Scanner<'src> {
         };
 
         let lexeme = self.cursor.substring(0, 0);
-        Ok(Some(Token {
-            typ: tok,
-            lexeme: lexeme.to_owned(),
-            line: self.cursor.curr_line,
-            literal: self.curr_literal.take(),
-        }))
+        Ok(Some(Token::new(
+            tok,
+            lexeme,
+            self.curr_literal.take(),
+            self.cursor.curr_line,
+            self.cursor.curr_span(),
+        )))
     }
 
     fn identifier(&mut self) -> Result<TokenType> {
@@ -364,5 +410,33 @@ impl<'src> Scanner<'src> {
 
     fn is_at_end(&self) -> bool {
         self.cursor.peek().is_none()
+    }
+}
+
+#[cfg(test)]
+mod test_scanner {
+    use super::*;
+    use miette::NamedSource;
+
+    // #[test]
+    fn test_miette_error() -> Result<(), TokenizationError> {
+        let source = "hej
+        flupp
+        var x| = 1;
+        asd
+        asd";
+        let scanner = Scanner::new(source);
+        let err: Result<Vec<_>, _> = scanner.collect();
+        let report = miette::Report::new(err.unwrap_err())
+            .with_source_code(NamedSource::new("test.lox", source));
+        println!("{:?}", DebugDebug(report));
+        Ok(())
+    }
+
+    struct DebugDebug<T: Debug>(T);
+    impl<T: Debug> Debug for DebugDebug<T> {
+        fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+            Debug::fmt(&self.0, f)
+        }
     }
 }
