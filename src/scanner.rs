@@ -105,8 +105,15 @@ impl TokSpan {
         self.length
     }
 
-    pub fn end(&self) -> usize {
+    fn end(&self) -> usize {
         self.start + self.len()
+    }
+
+    pub fn point_end(&self) -> Self {
+        Self {
+            start: self.end(),
+            length: 0,
+        }
     }
 
     pub fn extend(&self, inclusive: &Self) -> Self {

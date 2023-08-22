@@ -1052,7 +1052,9 @@ impl<'tok_iter> Compiler<'tok_iter> {
         if self.current_tok_type() == typ {
             self.advance()
         } else {
-            self.error_at_current(err_msg)
+            let span = self.previous().span().point_end();
+            let token = self.current().clone();
+            self.error_at(token, err_msg, span)
         }
     }
 
