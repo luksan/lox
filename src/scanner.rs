@@ -90,13 +90,54 @@ enum Literal {
     String(String),
 }
 
+#[derive(Debug, Copy, Clone)]
+pub struct TokSpan {
+    start: usize,
+    length: usize,
+}
+
+impl TokSpan {
+    pub fn offset(&self) -> usize {
+        self.start
+    }
+
+    pub fn len(&self) -> usize {
+        self.length
+    }
+
+    pub fn end(&self) -> usize {
+        self.start + self.len()
+    }
+
+    pub fn extend(&self, inclusive: &Self) -> Self {
+        Self {
+            start: self.start,
+            length: inclusive.end() - self.start,
+        }
+    }
+}
+
+impl From<miette::SourceSpan> for TokSpan {
+    fn from(value: SourceSpan) -> Self {
+        Self {
+            start: value.offset(),
+            length: value.len(),
+        }
+    }
+}
+impl Into<miette::SourceSpan> for TokSpan {
+    fn into(self) -> SourceSpan {
+        SourceSpan::new(self.start.into(), self.length.into())
+    }
+}
+
 #[derive(Clone)]
 pub struct Token {
     typ: TokenType,
     lexeme: String,
     line: usize,
     literal: Option<Literal>,
-    span: SourceSpan,
+    span: TokSpan,
 }
 
 impl Token {
@@ -105,7 +146,7 @@ impl Token {
         lexeme: &str,
         literal: Option<Literal>,
         line: usize,
-        span: SourceSpan,
+        span: TokSpan,
     ) -> Self {
         Self {
             typ,
@@ -144,17 +185,17 @@ impl Token {
         }
     }
 
-    pub fn span(&self) -> SourceSpan {
-        self.span.clone()
+    pub fn span(&self) -> &TokSpan {
+        &self.span
     }
 }
 
 impl Debug for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         if self.typ == TokenType::Eof {
-            write!(f, "[line {}] Error at end:", self.line)
+            write!(f, "[line {}] Error at end:", self.line())
         } else {
-            write!(f, "[line {}] Error at '{}':", self.line, self.lexeme)
+            write!(f, "[line {}] Error at '{}':", self.line(), self.lexeme)
         }
     }
 }
@@ -188,8 +229,11 @@ impl<'src> SourceCursor<'src> {
         (self.tot_len - self.current.as_str().len()) - self.start_byte_pos
     }
 
-    pub fn curr_span(&self) -> SourceSpan {
-        SourceSpan::new(self.start_byte_pos.into(), self.curr_len().into())
+    pub fn curr_span(&self) -> TokSpan {
+        TokSpan {
+            start: self.start_byte_pos,
+            length: self.curr_len(),
+        }
     }
 
     pub fn advance(&mut self) -> Option<char> {
@@ -293,7 +337,7 @@ impl Iterator for Scanner<'_> {
                     Err(err) => Err(TokenizationError {
                         line: self.cursor.curr_line,
                         msg: err.to_string(),
-                        span: self.cursor.curr_span(),
+                        span: self.cursor.curr_span().into(),
                     }),
                 };
             }

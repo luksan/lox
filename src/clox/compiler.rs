@@ -3,7 +3,7 @@ use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 
 use anyhow::{bail, Result};
-use miette::{LabeledSpan, SourceSpan};
+use miette::LabeledSpan;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use std::ptr::NonNull;
 use std::{iter, mem};
@@ -12,7 +12,7 @@ use tracing::trace_span;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::value::{Function, ValueEnum as Value};
 use crate::clox::{get_settings, Chunk, OpCode};
-use crate::scanner::{Scanner, Token, TokenIter, TokenType, TokenizationError};
+use crate::scanner::{Scanner, TokSpan, Token, TokenIter, TokenType, TokenizationError};
 
 pub fn compile(source: &str, heap: &Heap) -> Result<NonNull<Obj<Function>>, Vec<CompilerError>> {
     let span = trace_span!("compile()");
@@ -70,7 +70,7 @@ impl From<TokenizationError> for CompilerError {
 pub struct CompileError {
     token: Token,
     msg: String,
-    span: SourceSpan,
+    span: miette::SourceSpan,
 }
 
 impl Error for CompileError {}
@@ -734,9 +734,7 @@ impl<'pratt> Compiler<'pratt> {
         let return_token = self.previous();
         self.expression();
         if self.func_scope.func_type == FunctionType::Initializer {
-            let curr_span = self.previous().span();
-            let len = curr_span.offset() + curr_span.len() - return_token.span().offset();
-            let err_span = SourceSpan::new(return_token.span().offset().into(), len.into());
+            let err_span = return_token.span().extend(self.previous().span());
             self.error_at(
                 return_token,
                 "Can't return a value from an initializer.".to_string(),
@@ -856,7 +854,7 @@ impl<'pratt> Compiler<'pratt> {
             }
         };
         let can_assign = precedence <= Precedence::Assignment;
-        let err_span = self.previous().span();
+        let err_span = self.previous().span().clone();
         prefix_rule(self, can_assign);
         loop {
             let token_type = self.current_tok_type();
@@ -867,10 +865,8 @@ impl<'pratt> Compiler<'pratt> {
             let infix_rule = self.get_rule(self.previous().tok_type()).infix;
             infix_rule.unwrap()(self, can_assign);
         }
-        let curr_span = self.previous().span();
+        let err_span = err_span.extend(self.previous().span());
         if can_assign && self.match_token(TokenType::Equal) {
-            let len = curr_span.offset() - err_span.offset() + curr_span.len();
-            let err_span = SourceSpan::new(err_span.offset().into(), len.into());
             self.error_at(
                 self.previous(),
                 "Invalid assignment target.".to_string(),
@@ -1084,7 +1080,7 @@ impl<'tok_iter> Compiler<'tok_iter> {
         self.error_at(token, msg, span);
     }
 
-    fn error_at(&mut self, token: Token, msg: impl Display, span: miette::SourceSpan) {
+    fn error_at(&mut self, token: Token, msg: impl Display, span: TokSpan) {
         if self.panic_mode {
             return;
         }
@@ -1092,7 +1088,7 @@ impl<'tok_iter> Compiler<'tok_iter> {
             CompileError {
                 token,
                 msg: msg.to_string(),
-                span,
+                span: span.into(),
             }
             .into(),
         );
@@ -1218,6 +1214,12 @@ mod test {
         }
         fun abc(){
             var x = Foo(x);
+        }
+
+        instance.
+
+        fun hejsan() {
+          nil
         }
         ";
         let r = compile(source, &heap);
