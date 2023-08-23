@@ -111,6 +111,7 @@ struct Compiler<'a> {
     current_class: Option<ClassCompiler>,
 
     heap: &'a Heap,
+    precedence_spans: Vec<TokSpan>,
 }
 
 struct ClassCompiler {
@@ -356,6 +357,7 @@ impl<'pratt> Compiler<'pratt> {
             current_class: None,
 
             heap,
+            precedence_spans: Vec::new(),
         }
     }
 
@@ -474,14 +476,17 @@ impl<'pratt> Compiler<'pratt> {
     fn binary(&mut self, _can_assign: bool) {
         let typ = self.previous().tok_type();
         let rule = self.get_rule(typ);
+        let runtime_span = self.get_precedence_span();
         self.parse_precedence(rule.precedence.next_higher());
+        let runtime_span = runtime_span.extend(self.previous().span());
         macro_rules! b {
             ($b1:ident) => {
-                self.emit_byte(OpCode::$b1)
+                self.emit_opcode_span(OpCode::$b1, &[], runtime_span)
             };
-            ($b1:ident, $b2:ident) => {
-                self.emit_bytes(OpCode::$b1, OpCode::$b2)
-            };
+            ($b1:ident, $b2:ident) => {{
+                self.emit_opcode_span(OpCode::$b1, &[], runtime_span);
+                self.emit_opcode_span(OpCode::$b2, &[], runtime_span);
+            }};
         }
 
         match typ {
@@ -501,22 +506,28 @@ impl<'pratt> Compiler<'pratt> {
     }
 
     fn call(&mut self, _can_assign: bool) {
+        let err_span = self.previous().span().clone();
         let arg_count = self.argument_list();
-        self.emit_bytes(OpCode::Call, arg_count);
+        let err_span = err_span.extend(self.previous().span());
+        self.emit_opcode_span(OpCode::Call, &[arg_count], err_span);
     }
 
     fn dot(&mut self, can_assign: bool) {
+        let instance_span = self.get_precedence_span();
         self.consume(TokenType::Identifier, "Expect property name after '.'.");
-        let name = self.identifier_constant(self.previous().lexeme().to_string());
+        let ident = self.previous();
+        let name = self.identifier_constant(ident.lexeme().to_string());
         if can_assign && self.match_token(TokenType::Equal) {
+            let span = instance_span.extend(ident.span());
             self.expression();
-            self.emit_bytes(OpCode::SetProperty, name);
+            self.emit_opcode_span(OpCode::SetProperty, &[name.idx], span);
         } else if self.match_token(TokenType::LeftParen) {
             let arg_cnt = self.argument_list();
-            self.emit_bytes(OpCode::Invoke, name);
-            self.emit_byte(arg_cnt);
+            let span = ident.span().extend(self.previous().span());
+            self.emit_opcode_span(OpCode::Invoke, &[name.idx, arg_cnt], span);
         } else {
-            self.emit_bytes(OpCode::GetProperty, name);
+            let span = instance_span.extend(ident.span());
+            self.emit_opcode_span(OpCode::GetProperty, &[name.idx], span);
         }
     }
 
@@ -595,6 +606,7 @@ impl<'pratt> Compiler<'pratt> {
     fn class_declaration(&mut self) {
         self.consume(TokenType::Identifier, "Expect class name.");
         let class_name = self.previous();
+        let class_name_span = class_name.span().clone();
         let class_name = class_name.lexeme();
         let name_constant = self.identifier_constant(class_name.to_string());
         self.declare_variable();
@@ -615,12 +627,12 @@ impl<'pratt> Compiler<'pratt> {
             self.add_local("super".to_string());
             self.define_variable(None);
 
-            self.named_variable(class_name, false);
+            self.named_variable(class_name, class_name_span, false);
             self.emit_byte(OpCode::Inherit);
             self.current_class.as_mut().unwrap().has_superclass = true;
         }
 
-        self.named_variable(class_name, false);
+        self.named_variable(class_name, class_name_span, false);
         self.consume(TokenType::LeftBrace, "Expect '{' before class body.");
         while !self.check(TokenType::RightBrace) && !self.check(TokenType::Eof) {
             self.method();
@@ -801,7 +813,9 @@ impl<'pratt> Compiler<'pratt> {
     }
 
     fn variable(&mut self, can_assign: bool) {
-        self.named_variable(self.previous().lexeme(), can_assign)
+        let tok = self.previous();
+        let span = tok.span().clone();
+        self.named_variable(tok.lexeme(), span, can_assign)
     }
 
     fn super_(&mut self, _can_assign: bool) {
@@ -814,15 +828,17 @@ impl<'pratt> Compiler<'pratt> {
         };
         self.consume(TokenType::Dot, "Expect '.' after 'super'.");
         self.consume(TokenType::Identifier, "Expect superclass method name.");
-        let name = self.identifier_constant(self.previous().lexeme().to_string());
-        self.named_variable("this", false);
+        let ident = self.previous();
+        let name = self.identifier_constant(ident.lexeme().to_string());
+        let zerospan = TokSpan::default();
+        self.named_variable("this", zerospan, false);
         if self.match_token(TokenType::LeftParen) {
             let arg_count = self.argument_list();
-            self.named_variable("super", false);
-            self.emit_bytes(OpCode::SuperInvoke, name);
-            self.emit_byte(arg_count);
+            let span = ident.span().extend(self.previous().span());
+            self.named_variable("super", zerospan, false);
+            self.emit_opcode_span(OpCode::SuperInvoke, &[name.idx, arg_count], span);
         } else {
-            self.named_variable("super", false);
+            self.named_variable("super", zerospan, false);
             self.emit_bytes(OpCode::GetSuper, name);
         }
     }
@@ -854,7 +870,7 @@ impl<'pratt> Compiler<'pratt> {
             }
         };
         let can_assign = precedence <= Precedence::Assignment;
-        let err_span = self.previous().span().clone();
+        self.precedence_spans.push(self.previous().span().clone());
         prefix_rule(self, can_assign);
         loop {
             let token_type = self.current_tok_type();
@@ -865,7 +881,11 @@ impl<'pratt> Compiler<'pratt> {
             let infix_rule = self.get_rule(self.previous().tok_type()).infix;
             infix_rule.unwrap()(self, can_assign);
         }
-        let err_span = err_span.extend(self.previous().span());
+        let err_span = self
+            .precedence_spans
+            .pop()
+            .unwrap()
+            .extend(self.previous().span());
         if can_assign && self.match_token(TokenType::Equal) {
             self.error_at(
                 self.previous(),
@@ -873,6 +893,12 @@ impl<'pratt> Compiler<'pratt> {
                 err_span,
             );
         }
+    }
+
+    fn get_precedence_span(&self) -> TokSpan {
+        self.precedence_spans
+            .last()
+            .map_or_else(|| self.previous().span().clone(), |s| s.clone())
     }
 }
 
@@ -951,7 +977,7 @@ impl<'helpers> Compiler<'helpers> {
         arg_count
     }
 
-    fn named_variable(&mut self, name: &str, can_assign: bool) {
+    fn named_variable(&mut self, name: &str, runtime_span: TokSpan, can_assign: bool) {
         let mut get_slot_and_ops = || -> Result<_> {
             Ok(if let Some(local) = self.func_scope.resolve_local(name)? {
                 (local.into(), OpCode::GetLocal, OpCode::SetLocal)
@@ -967,12 +993,13 @@ impl<'helpers> Compiler<'helpers> {
             self.error(e);
             (0, OpCode::BadOpCode, OpCode::BadOpCode)
         });
-        if can_assign && self.match_token(TokenType::Equal) {
+        let opcode = if can_assign && self.match_token(TokenType::Equal) {
             self.expression();
-            self.emit_bytes(set_op, frame_slot);
+            set_op
         } else {
-            self.emit_bytes(get_op, frame_slot);
-        }
+            get_op
+        };
+        self.emit_opcode_span(opcode, &[frame_slot], runtime_span);
     }
 
     fn function(&mut self, func_type: FunctionType) {
@@ -1120,7 +1147,16 @@ impl<'bytecode> Compiler<'bytecode> {
 
     fn emit_byte(&mut self, byte: impl Into<u8>) {
         let line = self.previous().line() as u16;
-        self.current_chunk().write_u8(byte, line);
+        let span = self.previous().span().clone();
+        self.current_chunk().write_u8(byte, line, span);
+    }
+
+    fn emit_opcode_span(&mut self, opcode: OpCode, data: &[u8], span: TokSpan) {
+        let line = self.previous().line() as u16;
+        self.current_chunk().write_u8(opcode as u8, line, span);
+        for byte in data {
+            self.current_chunk().write_u8(*byte, line, span);
+        }
     }
 
     fn emit_bytes(&mut self, b1: impl Into<u8>, b2: impl Into<u8>) {

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::ptr;
 use std::ptr::NonNull;
+use std::{iter, ptr};
 
 use anyhow::{anyhow, bail, Context, Result};
 use miette::LabeledSpan;
@@ -16,12 +16,17 @@ use crate::clox::value::{
     Upvalue, Value,
 };
 use crate::clox::{Chunk, OpCode};
+use crate::scanner::TokSpan;
 use crate::ErrorKind;
 
 #[derive(Debug)]
 pub enum VmError {
     CompileError(Vec<CompilerError>),
-    RuntimeError { line: isize, err: anyhow::Error },
+    RuntimeError {
+        line: isize,
+        span: TokSpan,
+        err: anyhow::Error,
+    },
 }
 
 impl VmError {
@@ -49,7 +54,9 @@ impl miette::Diagnostic for VmError {
                     .flatten();
                 Some(Box::new(labels))
             }
-            VmError::RuntimeError { .. } => None,
+            VmError::RuntimeError { span, err, .. } => Some(Box::new(iter::once(
+                LabeledSpan::new(Some(err.to_string()), span.offset(), span.len()),
+            ))),
         }
     }
 }
@@ -64,9 +71,52 @@ impl Display for VmError {
                 }
                 write!(f, "{}", errors.last().unwrap())
             }
-            VmError::RuntimeError { line, err } => write!(f, "{err}\n[line {line}] in script"),
+            VmError::RuntimeError { line, err, .. } => write!(f, "{err}\n[line {line}] in script"),
         }
     }
+}
+
+#[test]
+fn test_vm_miette_error() {
+    use crate::clox::{CloxSettings, SETTINGS};
+    let heap = Heap::new();
+    let mut vm = Vm::new(&heap);
+    if false {
+        SETTINGS
+            .set(CloxSettings {
+                output_ci_compliant: false,
+                trace_execution: false,
+                disassemble_compiler_output: false,
+                gc_stress_test: false,
+            })
+            .unwrap();
+    }
+    let source = "
+var x = 3;
+fun bar(x) { r = 4; }
+class Base {
+    foo() { this.nope(2); }
+    bar() { var x = this.nein; }
+}
+class Derived < Base {
+    dfoo() { super.nope(33); }
+    dbar() { var x = super.oops; }
+}
+var b = Base();
+var d = Derived();
+// d.dbar();
+// b.foo();
+// b.bar();
+// bar(x,x);
+// if( \"123\" >= 3 ){ print \"hej\"; }
+// print x.prop;
+// bar(1);
+// y = 4;
+123.foo;
+// 1234.foo = 123 + 2133;
+";
+    let _e = vm.interpret(source).unwrap_err();
+    // eprintln!("{:?}", miette::Report::new(_e).with_source_code(source))
 }
 
 pub struct Vm<'heap> {
@@ -107,7 +157,12 @@ impl CallFrame {
 
     fn current_line(&self) -> isize {
         let idx = unsafe { self.ip.offset_from(self.chunk().code.as_ptr()) } - 1;
-        self.chunk().lines[idx as usize] as _
+        self.chunk().line_at_idx(idx) as isize
+    }
+
+    fn current_span(&self) -> TokSpan {
+        let idx = unsafe { self.ip.offset_from(self.chunk().code.as_ptr()) } - 1;
+        self.chunk().span(idx)
     }
 }
 
@@ -214,6 +269,7 @@ impl<'heap> Vm<'heap> {
         self.run_inner(call_stack)
             .map_err(|err| VmError::RuntimeError {
                 line: call_stack.current_frame().current_line(),
+                span: call_stack.current_frame().current_span(),
                 err,
             })
     }

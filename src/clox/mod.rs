@@ -1,8 +1,10 @@
+use std::collections::HashMap;
 use std::fmt::{Debug, Formatter};
 use std::sync::OnceLock;
 
 use num_enum::FromPrimitive;
 
+use crate::scanner::TokSpan;
 pub use mm::Heap;
 use mm::ValueArray;
 use value::{Function, Value};
@@ -91,6 +93,7 @@ pub struct Chunk {
     code: Vec<u8>,
     constants: ValueArray,
     lines: Vec<u16>,
+    spans: HashMap<TokSpan, Vec<usize>>, // map token span to code index
 }
 
 impl Chunk {
@@ -99,6 +102,7 @@ impl Chunk {
             code: Vec::with_capacity(0),
             constants: ValueArray::new(),
             lines: vec![],
+            spans: HashMap::new(),
         }
     }
 
@@ -106,8 +110,12 @@ impl Chunk {
         self.constants.write(val.into())
     }
 
-    pub fn write_u8(&mut self, byte: impl Into<u8>, line: u16) {
+    pub fn write_u8(&mut self, byte: impl Into<u8>, line: u16, span: TokSpan) {
         self.code.push(byte.into());
+        self.spans
+            .entry(span)
+            .or_default()
+            .push(self.code.len() - 1);
         self.lines.push(line);
     }
 
@@ -117,6 +125,19 @@ impl Chunk {
         while offset < self.code.len() {
             offset = self.disassemble_instruction(offset);
         }
+    }
+
+    pub fn line_at_idx(&self, code_idx: isize) -> u16 {
+        self.lines[code_idx as usize]
+    }
+
+    pub fn span(&self, idx: isize) -> TokSpan {
+        self.spans
+            .iter()
+            .find(|(_span, idx_vec)| idx_vec.contains(&(idx as usize)))
+            .unwrap()
+            .0
+            .clone()
     }
 
     fn disassemble_instruction(&self, offset: usize) -> usize {

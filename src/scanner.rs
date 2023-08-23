@@ -90,7 +90,7 @@ enum Literal {
     String(String),
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone, Hash, Eq, PartialEq)]
 pub struct TokSpan {
     start: usize,
     length: usize,
