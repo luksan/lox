@@ -478,7 +478,7 @@ impl<'pratt> Compiler<'pratt> {
         let rule = self.get_rule(typ);
         let runtime_span = self.get_precedence_span();
         self.parse_precedence(rule.precedence.next_higher());
-        let runtime_span = runtime_span.extend(self.previous().span());
+        let runtime_span = runtime_span.extend(self.prev_span());
         macro_rules! b {
             ($b1:ident) => {
                 self.emit_opcode_span(OpCode::$b1, &[], runtime_span)
@@ -506,9 +506,9 @@ impl<'pratt> Compiler<'pratt> {
     }
 
     fn call(&mut self, _can_assign: bool) {
-        let err_span = self.previous().span().clone();
+        let err_span = self.prev_span().clone();
         let arg_count = self.argument_list();
-        let err_span = err_span.extend(self.previous().span());
+        let err_span = err_span.extend(self.prev_span());
         self.emit_opcode_span(OpCode::Call, &[arg_count], err_span);
     }
 
@@ -523,7 +523,7 @@ impl<'pratt> Compiler<'pratt> {
             self.emit_opcode_span(OpCode::SetProperty, &[name.idx], span);
         } else if self.match_token(TokenType::LeftParen) {
             let arg_cnt = self.argument_list();
-            let span = ident.span().extend(self.previous().span());
+            let span = ident.span().extend(self.prev_span());
             self.emit_opcode_span(OpCode::Invoke, &[name.idx, arg_cnt], span);
         } else {
             let span = instance_span.extend(ident.span());
@@ -746,7 +746,7 @@ impl<'pratt> Compiler<'pratt> {
         let return_token = self.previous();
         self.expression();
         if self.func_scope.func_type == FunctionType::Initializer {
-            let err_span = return_token.span().extend(self.previous().span());
+            let err_span = return_token.span().extend(self.prev_span());
             self.error_at(
                 return_token,
                 "Can't return a value from an initializer.".to_string(),
@@ -834,7 +834,7 @@ impl<'pratt> Compiler<'pratt> {
         self.named_variable("this", zerospan, false);
         if self.match_token(TokenType::LeftParen) {
             let arg_count = self.argument_list();
-            let span = ident.span().extend(self.previous().span());
+            let span = ident.span().extend(self.prev_span());
             self.named_variable("super", zerospan, false);
             self.emit_opcode_span(OpCode::SuperInvoke, &[name.idx, arg_count], span);
         } else {
@@ -870,7 +870,7 @@ impl<'pratt> Compiler<'pratt> {
             }
         };
         let can_assign = precedence <= Precedence::Assignment;
-        self.precedence_spans.push(self.previous().span().clone());
+        self.precedence_spans.push(self.prev_span().clone());
         prefix_rule(self, can_assign);
         loop {
             let token_type = self.current_tok_type();
@@ -885,7 +885,7 @@ impl<'pratt> Compiler<'pratt> {
             .precedence_spans
             .pop()
             .unwrap()
-            .extend(self.previous().span());
+            .extend(self.prev_span());
         if can_assign && self.match_token(TokenType::Equal) {
             self.error_at(
                 self.previous(),
@@ -898,7 +898,7 @@ impl<'pratt> Compiler<'pratt> {
     fn get_precedence_span(&self) -> TokSpan {
         self.precedence_spans
             .last()
-            .map_or_else(|| self.previous().span().clone(), |s| s.clone())
+            .map_or_else(|| self.prev_span().clone(), |s| s.clone())
     }
 }
 
@@ -1062,6 +1062,10 @@ impl<'tok_iter> Compiler<'tok_iter> {
         self.prev_tok.clone().unwrap()
     }
 
+    fn prev_span(&self) -> &TokSpan {
+        self.prev_tok.as_ref().unwrap().span()
+    }
+
     fn advance(&mut self) {
         match self.tokens.next() {
             Some(Ok(tok)) => {
@@ -1079,7 +1083,7 @@ impl<'tok_iter> Compiler<'tok_iter> {
         if self.current_tok_type() == typ {
             self.advance()
         } else {
-            let span = self.previous().span().point_end();
+            let span = self.prev_span().point_end();
             let token = self.current().clone();
             self.error_at(token, err_msg, span)
         }
@@ -1100,7 +1104,7 @@ impl<'tok_iter> Compiler<'tok_iter> {
     }
 
     fn error(&mut self, msg: impl Display) {
-        self.error_at(self.previous(), msg, self.previous().span().clone());
+        self.error_at(self.previous(), msg, self.prev_span().clone());
     }
 
     fn error_at_current(&mut self, msg: &str) {
@@ -1147,7 +1151,7 @@ impl<'bytecode> Compiler<'bytecode> {
 
     fn emit_byte(&mut self, byte: impl Into<u8>) {
         let line = self.previous().line() as u16;
-        let span = self.previous().span().clone();
+        let span = self.prev_span().clone();
         self.current_chunk().write_u8(byte, line, span);
     }
 
