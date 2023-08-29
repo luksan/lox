@@ -13,12 +13,12 @@ use crate::jlox::parser::{ParseError, Parser};
 use crate::jlox::resolver::{Resolver, ResolverError};
 use crate::{scanner, ErrorKind};
 
-pub mod ast;
-pub mod environment;
-pub mod interpreter;
-pub mod lox_types;
-pub mod parser;
-pub mod resolver;
+mod ast;
+mod environment;
+mod interpreter;
+mod lox_types;
+mod parser;
+mod resolver;
 
 #[derive(Debug)]
 pub enum JloxError {
