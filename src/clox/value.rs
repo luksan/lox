@@ -112,12 +112,11 @@ impl<O: Into<ObjTypes>> From<O> for ValuePacked {
     fn from(ptr: O) -> Self {
         let ptr = ptr.into();
         let neg_zero = (-0.0f64).to_bits();
-        let x = Self(
+        Self(
             ptr.as_ptr()
                 .map_addr(|int| int | (neg_zero | Self::NOT_FLOAT) as usize)
                 as *const _,
-        );
-        x
+        )
     }
 }
 
@@ -365,7 +364,7 @@ impl Upvalue {
             location: location.into(),
             next_open_upvalue: None.into(),
             closed: Value::Nil.into(),
-            _pinned: PhantomPinned::default(),
+            _pinned: PhantomPinned,
         }
     }
 

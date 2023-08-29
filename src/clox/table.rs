@@ -162,7 +162,7 @@ impl LoxMap {
     }
 
     fn entries_ref(&self) -> &[Entry] {
-        unsafe { &**self.entries.get() }
+        unsafe { &*self.entries.get() }
     }
 
     /// Returns the sum of live entries and tombstones

@@ -132,15 +132,14 @@ impl From<miette::SourceSpan> for TokSpan {
         }
     }
 }
-impl Into<miette::SourceSpan> for TokSpan {
-    fn into(self) -> SourceSpan {
-        SourceSpan::new(self.start.into(), self.length.into())
+impl From<TokSpan> for miette::SourceSpan {
+    fn from(value: TokSpan) -> Self {
+        Self::new(value.start.into(), value.length.into())
     }
 }
-
-impl Into<miette::SourceSpan> for &TokSpan {
-    fn into(self) -> SourceSpan {
-        SourceSpan::new(self.start.into(), self.length.into())
+impl From<&TokSpan> for miette::SourceSpan {
+    fn from(value: &TokSpan) -> Self {
+        Self::new(value.start.into(), value.length.into())
     }
 }
 
@@ -300,7 +299,7 @@ impl miette::Diagnostic for TokenizationError {
     fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
         Some(Box::new(iter::once(LabeledSpan::new(
             Some(self.msg.clone()),
-            self.span.offset().into(),
+            self.span.offset(),
             self.span.len(),
         ))))
     }

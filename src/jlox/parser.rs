@@ -389,10 +389,7 @@ impl<'s> Parser<'s> {
     }
 
     fn at_end(&mut self) -> bool {
-        match self.peek_type() {
-            Err(_) | Ok(TokenType::Eof) => true,
-            _ => false,
-        }
+        matches!(self.peek_type(), Err(_) | Ok(TokenType::Eof))
     }
 
     fn advance(&mut self) -> Option<Token> {

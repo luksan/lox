@@ -25,9 +25,9 @@ pub enum Upvalue {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct UpvalueIdx(u8);
 
-impl Into<u8> for UpvalueIdx {
-    fn into(self) -> u8 {
-        self.0
+impl From<UpvalueIdx> for u8 {
+    fn from(value: UpvalueIdx) -> Self {
+        value.0
     }
 }
 
@@ -47,9 +47,9 @@ impl Upvalue {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct LocalIdx(u8);
 
-impl Into<u8> for LocalIdx {
-    fn into(self) -> u8 {
-        self.0
+impl From<LocalIdx> for u8 {
+    fn from(value: LocalIdx) -> Self {
+        value.0
     }
 }
 
@@ -169,10 +169,8 @@ impl FunctionScope {
         if let Some(local) = enclosing.resolve_local(name).unwrap() {
             enclosing.capture_local(local);
             Some(Upvalue::Local(local))
-        } else if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
-            Some(Upvalue::Up(upvalue))
         } else {
-            None
+            enclosing.resolve_upvalue(name)?.map(Upvalue::Up)
         }
         .map(|upvalue| self.add_upvalue(upvalue))
         .transpose()

@@ -285,7 +285,7 @@ impl Heap {
         Self {
             objs: None.into(),
             strings: StringInterner::new().into(),
-            has_roots: Box::new(Default::default()),
+            has_roots: Box::default(),
             obj_count: 0.into(),
             next_gc: 100.into(),
         }
@@ -347,7 +347,7 @@ impl Heap {
         let _span_enter = span.enter();
         let mut gray_list = vec![];
         for root in self.has_roots.iter() {
-            let Some(r) = root.upgrade() else {continue};
+            let Some(r) = root.upgrade() else { continue };
             r.mark_roots(&mut |gray| {
                 gray_list.push(gray);
             });
@@ -479,7 +479,7 @@ where
     *const Obj<T>: Into<ObjTypes>,
     ObjTypes: From<*const Self>,
 {
-    fn new<'a, S: Into<T>>(from: S, next: Option<ObjTypes>) -> *mut Self {
+    fn new<S: Into<T>>(from: S, next: Option<ObjTypes>) -> *mut Self {
         Box::leak(Box::new(Obj {
             kind: ObjKind::new::<T>(),
             next: next.into(),

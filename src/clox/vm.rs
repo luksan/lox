@@ -85,8 +85,7 @@ impl RuntimeError {
             let data = std::str::from_utf8(span_contents.data())
                 .unwrap()
                 .split('\n')
-                .skip(skip)
-                .next()
+                .nth(skip)
                 .unwrap();
             writeln!(f, "[line {line} in {func}] {data}").unwrap();
         }
@@ -104,7 +103,7 @@ impl miette::Diagnostic for RuntimeError {
         Some(Box::new(iter::once(
             self.stacktrace
                 .last()
-                .map(|span| LabeledSpan::new_with_span(Some(self.err.to_string()), span.1))
+                .map(|span| LabeledSpan::new_with_span(Some(self.err.to_string()), &span.1))
                 .unwrap(),
         )))
     }

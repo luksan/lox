@@ -95,7 +95,7 @@ impl<'pratt> Compiler<'pratt> {
             errors: Vec::new(),
             panic_mode: false,
 
-            func_scope: FunctionScope::new(FunctionType::Script).into(),
+            func_scope: FunctionScope::new(FunctionType::Script),
             current_class: ClassCompiler::None,
 
             heap,
@@ -243,7 +243,7 @@ impl<'pratt> Compiler<'pratt> {
     }
 
     fn call(&mut self, _can_assign: bool) {
-        let err_span = self.prev_span().clone();
+        let err_span = *self.prev_span();
         let arg_count = self.argument_list();
         let err_span = err_span.extend(self.prev_span());
         self.emit_opcode_span(OpCode::Call, &[arg_count], err_span);
@@ -343,7 +343,7 @@ impl<'pratt> Compiler<'pratt> {
     fn class_declaration(&mut self) {
         self.consume(TokenType::Identifier, "Expect class name.");
         let class_name = self.previous();
-        let class_name_span = class_name.span().clone();
+        let class_name_span = *class_name.span();
         let class_name = class_name.lexeme();
         let name_constant = self.identifier_constant(class_name.to_string());
         self.declare_variable();
@@ -487,7 +487,7 @@ impl<'pratt> Compiler<'pratt> {
             self.error_at(
                 return_token,
                 "Can't return a value from an initializer.".to_string(),
-                err_span,
+                &err_span,
             );
         }
         self.consume(TokenType::Semicolon, "Expect ';' after return value.");
@@ -551,7 +551,7 @@ impl<'pratt> Compiler<'pratt> {
 
     fn variable(&mut self, can_assign: bool) {
         let tok = self.previous();
-        let span = tok.span().clone();
+        let span = *tok.span();
         self.named_variable(tok.lexeme(), span, can_assign)
     }
 
@@ -601,7 +601,7 @@ impl<'pratt> Compiler<'pratt> {
             return self.error("Expect expression.");
         };
         let can_assign = precedence <= Precedence::Assignment;
-        self.precedence_spans.push(self.prev_span().clone());
+        self.precedence_spans.push(*self.prev_span());
         prefix_rule(self, can_assign);
         loop {
             let token_type = self.current_tok_type();
@@ -621,7 +621,7 @@ impl<'pratt> Compiler<'pratt> {
             self.error_at(
                 self.previous(),
                 "Invalid assignment target.".to_string(),
-                err_span,
+                &err_span,
             );
         }
     }
@@ -629,7 +629,7 @@ impl<'pratt> Compiler<'pratt> {
     fn get_precedence_span(&self) -> TokSpan {
         self.precedence_spans
             .last()
-            .map_or_else(|| self.prev_span().clone(), |s| s.clone())
+            .map_or_else(|| *self.prev_span(), |s| *s)
     }
 }
 
@@ -814,7 +814,7 @@ impl<'tok_iter> Compiler<'tok_iter> {
         } else {
             let span = self.prev_span().point_end();
             let token = self.current().clone();
-            self.error_at(token, err_msg, span)
+            self.error_at(token, err_msg, &span)
         }
     }
 
@@ -833,16 +833,17 @@ impl<'tok_iter> Compiler<'tok_iter> {
     }
 
     fn error(&mut self, msg: impl Display) {
-        self.error_at(self.previous(), msg, self.prev_span().clone());
+        let span = *self.prev_span();
+        self.error_at(self.previous(), msg, &span);
     }
 
     fn error_at_current(&mut self, msg: &str) {
         let token = self.current().clone();
-        let span = token.span().clone();
-        self.error_at(token, msg, span);
+        let span = *token.span();
+        self.error_at(token, msg, &span);
     }
 
-    fn error_at(&mut self, token: Token, msg: impl Display, span: TokSpan) {
+    fn error_at(&mut self, token: Token, msg: impl Display, span: &TokSpan) {
         if self.panic_mode {
             return;
         }
@@ -856,9 +857,10 @@ impl<'tok_iter> Compiler<'tok_iter> {
 struct ChunkConst {
     idx: u8,
 }
-impl Into<u8> for ChunkConst {
-    fn into(self) -> u8 {
-        self.idx
+
+impl From<ChunkConst> for u8 {
+    fn from(value: ChunkConst) -> Self {
+        value.idx
     }
 }
 
@@ -870,7 +872,7 @@ impl<'bytecode> Compiler<'bytecode> {
 
     fn emit_byte(&mut self, byte: impl Into<u8>) {
         let line = self.previous().line() as u16;
-        let span = self.prev_span().clone();
+        let span = *self.prev_span();
         self.current_chunk().write_u8(byte, line, span);
     }
 

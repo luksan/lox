@@ -132,12 +132,12 @@ impl Chunk {
     }
 
     pub fn span(&self, idx: isize) -> TokSpan {
-        self.spans
+        *self
+            .spans
             .iter()
             .find(|(_span, idx_vec)| idx_vec.contains(&(idx as usize)))
             .unwrap()
             .0
-            .clone()
     }
 
     fn disassemble_instruction(&self, offset: usize) -> usize {

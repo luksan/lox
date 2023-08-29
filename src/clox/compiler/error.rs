@@ -83,7 +83,7 @@ impl miette::Diagnostic for CompileError {
     fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
         Some(Box::new(iter::once(LabeledSpan::new_with_span(
             Some(self.msg.clone()),
-            self.span.clone(),
+            self.span,
         ))))
     }
 }

@@ -27,13 +27,12 @@ struct CmdOpts {
     gc_stress_test: bool,
 }
 
-#[allow(unused)]
 fn main() -> miette::Result<()> {
     let opts = CmdOpts::parse();
 
     tracing_subscriber::fmt::init();
 
-    let mut clox_settings = CloxSettings {
+    let clox_settings = CloxSettings {
         disassemble_compiler_output: opts.print_comp_asm,
         output_ci_compliant: opts.ci_testsuite,
         gc_stress_test: opts.gc_stress_test,
@@ -42,7 +41,10 @@ fn main() -> miette::Result<()> {
 
     clox::set_settings(clox_settings);
 
-    let Some(ref path) = opts.script else { repl(); return Ok(()); };
+    let Some(ref path) = opts.script else {
+        repl();
+        return Ok(());
+    };
 
     let source = std::fs::read_to_string(path)
         .into_diagnostic()
@@ -50,7 +52,9 @@ fn main() -> miette::Result<()> {
 
     let heap = clox::Heap::new();
     let mut vm = Vm::new(&heap);
-    let Err(vm_err) = vm.interpret(source.as_ref()) else { return Ok(()) };
+    let Err(vm_err) = vm.interpret(source.as_ref()) else {
+        return Ok(());
+    };
 
     let exit_code = match vm_err.kind() {
         ErrorKind::CompilationError => 65,
