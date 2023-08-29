@@ -1,8 +1,8 @@
 use std::fmt::Write;
-use std::fs::DirEntry;
+use std::fs::{DirEntry, ReadDir};
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use lazy_regex::regex_captures;
 
 const UPSTREAM_TEST_DIR: &'static str =
@@ -10,9 +10,14 @@ const UPSTREAM_TEST_DIR: &'static str =
 
 #[test]
 fn run_all_upstream_tests() -> Result<()> {
-    let test_cnt = run_tests_recursive(UPSTREAM_TEST_DIR, &mut |entry| {
+    let filter = |entry: &DirEntry| {
         ["expressions", "scanning", "benchmark"].contains(&entry.file_name().to_str().unwrap())
-    })?;
+    };
+    let mut test_cnt = 0;
+    for test in UpstreamTestFinder::new(UPSTREAM_TEST_DIR, filter) {
+        test?.assert_cmd()?;
+        test_cnt += 1;
+    }
     println!("Successfully ran {test_cnt} tests.");
     Ok(())
 }
@@ -20,52 +25,61 @@ fn run_all_upstream_tests() -> Result<()> {
 #[test]
 fn run_single_named() -> Result<()> {
     let test_name = "literals.lox";
-    assert!(
-        run_tests_recursive(UPSTREAM_TEST_DIR, &mut |entry| {
-            entry.path().is_file() && entry.file_name().to_str().unwrap() != test_name
-        })? > 0,
-        "Didn't run a single test."
-    );
+
+    let filter = |entry: &DirEntry| {
+        entry.path().is_file() && entry.file_name().to_str().unwrap() != test_name
+    };
+    let mut test_cnt = 0;
+    for test in UpstreamTestFinder::new(UPSTREAM_TEST_DIR, filter) {
+        test?.assert_cmd()?;
+        test_cnt += 1;
+    }
+    assert!(test_cnt > 0, "Didn't run a single test.");
     Ok(())
 }
 
-fn run_tests_recursive(
-    p: impl AsRef<Path>,
-    reject_matching: &mut impl FnMut(&DirEntry) -> bool,
-) -> Result<usize> {
-    let mut test_cnt = 0;
-    for t in std::fs::read_dir(p)? {
-        let entry = t?;
-        if reject_matching(&entry) {
-            continue;
-        }
-        let path = entry.path();
-        if path.is_dir() {
-            test_cnt += run_tests_recursive(path, reject_matching)?;
-        } else {
-            test_cnt += 1;
-            run_single(path).with_context(|| format!("Testcase {entry:?} failed."))?;
-        }
-    }
-    Ok(test_cnt)
+struct UpstreamTestFinder<F: FnMut(&DirEntry) -> bool> {
+    reject_matching: F,
+    dirs: Vec<ReadDir>,
 }
 
-#[cfg(not(miri))]
-fn run_single<P: AsRef<Path>>(p: P) -> Result<()> {
-    let case = TestCase::from_path(p)?;
+impl<F: FnMut(&DirEntry) -> bool> UpstreamTestFinder<F> {
+    fn new(root: impl AsRef<Path>, filter: F) -> Self {
+        let dirs = vec![std::fs::read_dir(root.as_ref()).unwrap()];
+        Self {
+            reject_matching: filter,
+            dirs,
+        }
+    }
+}
 
-    (|| -> Result<()> {
-        assert_cmd::Command::cargo_bin("clox")?
-            .arg("--ci-testsuite")
-            .arg("--gc-stress-test")
-            .arg(&case.file)
-            .assert()
-            .try_stdout(case.expect_stdout.clone())?
-            .try_stderr(case.expect_stderr.clone())?
-            .try_code(case.expect_exit_code)?;
-        Ok(())
-    })()
-    .with_context(|| case.read_source())
+impl<F: FnMut(&DirEntry) -> bool> Iterator for UpstreamTestFinder<F> {
+    type Item = Result<TestCase>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let entry = loop {
+            match self.dirs.last_mut()?.next() {
+                None => {
+                    self.dirs.pop();
+                }
+                Some(Ok(entry)) if !(self.reject_matching)(&entry) => break entry,
+                Some(Err(err)) => return Some(Err(anyhow!(err))),
+                _ => {}
+            };
+        };
+        let path = entry.path();
+        if path.is_dir() {
+            match std::fs::read_dir(path) {
+                Ok(readdir) => {
+                    self.dirs.push(readdir);
+                    self.next()
+                }
+                Err(err) => return Some(Err(anyhow!(err))),
+            }
+        } else {
+            Some(TestCase::from_path(path))
+        }
+    }
 }
 
 #[cfg(miri)]
@@ -126,6 +140,31 @@ impl TestCase {
             expect_stderr,
             expect_exit_code,
         })
+    }
+
+    #[cfg(not(miri))]
+    fn assert_cmd(&self) -> Result<()> {
+        (|| -> Result<()> {
+            assert_cmd::Command::cargo_bin("clox")?
+                .arg("--ci-testsuite")
+                .arg("--gc-stress-test")
+                .arg(&self.file)
+                .assert()
+                .try_stdout(self.expect_stdout.clone())?
+                .try_stderr(self.expect_stderr.clone())?
+                .try_code(self.expect_exit_code)?;
+            Ok(())
+        })()
+        .with_context(|| self.read_source())
+    }
+
+    #[cfg(miri)]
+    fn assert_cmd(&self) -> Result<()> {
+        let source = self.read_source();
+        let heap = lox::clox::Heap::new();
+        let mut vm = lox::clox::Vm::new(&heap);
+        let _ = vm.interpret(source.as_ref()); // some tests are written to cause interpreter errors
+        Ok(())
     }
 
     pub fn read_source(&self) -> String {
