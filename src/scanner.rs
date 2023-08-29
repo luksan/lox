@@ -138,6 +138,12 @@ impl Into<miette::SourceSpan> for TokSpan {
     }
 }
 
+impl Into<miette::SourceSpan> for &TokSpan {
+    fn into(self) -> SourceSpan {
+        SourceSpan::new(self.start.into(), self.length.into())
+    }
+}
+
 #[derive(Clone)]
 pub struct Token {
     typ: TokenType,

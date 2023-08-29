@@ -1,10 +1,11 @@
+use core::fmt;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
 use std::ptr::NonNull;
 use std::{iter, ptr};
 
 use anyhow::{anyhow, bail, Context, Result};
-use miette::LabeledSpan;
+use miette::{Diagnostic, LabeledSpan, SourceCode, SourceSpan};
 use tracing::{span, Level};
 
 use crate::clox::compiler::{compile, CompilerError};
@@ -19,60 +20,93 @@ use crate::clox::{Chunk, OpCode};
 use crate::scanner::TokSpan;
 use crate::ErrorKind;
 
-#[derive(Debug)]
+#[derive(Debug, Diagnostic)]
 pub enum VmError {
-    CompileError(Vec<CompilerError>),
-    RuntimeError {
-        line: isize,
-        span: TokSpan,
-        err: anyhow::Error,
-    },
+    Compile(#[related] Vec<CompilerError>),
+    #[diagnostic(transparent)]
+    Runtime(RuntimeError),
 }
 
 impl VmError {
+    fn runtime(line: isize, err: anyhow::Error, stacktrace: StackTrace) -> Self {
+        Self::Runtime(RuntimeError {
+            line,
+            err,
+            stacktrace,
+        })
+    }
+
     pub fn kind(&self) -> ErrorKind {
         match self {
-            VmError::CompileError(_) => ErrorKind::CompilationError,
-            VmError::RuntimeError { .. } => ErrorKind::RuntimeError,
+            VmError::Compile(_) => ErrorKind::CompilationError,
+            VmError::Runtime(_) => ErrorKind::RuntimeError,
+        }
+    }
+}
+
+impl Error for VmError {}
+
+impl Display for VmError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            VmError::Compile(errors) => {
+                for e in &errors[0..errors.len() - 1] {
+                    writeln!(f, "{e}")?;
+                }
+                write!(f, "{}", errors.last().unwrap())
+            }
+            VmError::Runtime(err) => write!(f, "{err}"),
         }
     }
 }
 
 impl From<Vec<CompilerError>> for VmError {
     fn from(value: Vec<CompilerError>) -> Self {
-        Self::CompileError(value)
-    }
-}
-impl miette::Diagnostic for VmError {
-    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
-        match self {
-            VmError::CompileError(err) => {
-                let labels = err
-                    .iter()
-                    .map(|e| e.labels())
-                    .filter_map(|lab_iter| lab_iter)
-                    .flatten();
-                Some(Box::new(labels))
-            }
-            VmError::RuntimeError { span, err, .. } => Some(Box::new(iter::once(
-                LabeledSpan::new(Some(err.to_string()), span.offset(), span.len()),
-            ))),
-        }
+        Self::Compile(value)
     }
 }
 
-impl Error for VmError {}
-impl Display for VmError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            VmError::CompileError(errors) => {
-                for e in &errors[0..errors.len() - 1] {
-                    writeln!(f, "{e}")?;
-                }
-                write!(f, "{}", errors.last().unwrap())
-            }
-            VmError::RuntimeError { line, err, .. } => write!(f, "{err}\n[line {line}] in script"),
+type StackTrace = Vec<(String, TokSpan)>;
+
+#[derive(Debug)]
+pub struct RuntimeError {
+    line: isize,
+    stacktrace: Vec<(String, TokSpan)>,
+    err: anyhow::Error,
+}
+
+impl RuntimeError {
+    pub fn fmt_stacktrace(&self, source: &dyn SourceCode, f: &mut dyn fmt::Write) {
+        for (func, span) in self.stacktrace.iter().rev() {
+            let span: SourceSpan = span.into();
+            let span_contents = source.read_span(&span, 1, 1).unwrap();
+            let line = span_contents.line() + 1;
+            let skip: usize = (line > 1) as _;
+            let data = std::str::from_utf8(span_contents.data())
+                .unwrap()
+                .split('\n')
+                .skip(skip)
+                .next()
+                .unwrap();
+            writeln!(f, "[line {line} in {func}] {data}").unwrap();
         }
+    }
+}
+impl Error for RuntimeError {}
+impl Display for RuntimeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}\n[line {}] in script", self.err, self.line)
+    }
+}
+
+impl miette::Diagnostic for RuntimeError {
+    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+        Some(Box::new(iter::once(
+            self.stacktrace
+                .last()
+                .map(|span| LabeledSpan::new_with_span(Some(self.err.to_string()), span.1))
+                .unwrap(),
+        )))
     }
 }
 
@@ -151,6 +185,16 @@ impl CallFrame {
             .disassemble(closure.function().name());
     }
 
+    fn func_name(&self) -> String {
+        let called_value = unsafe { *self.stack_offset };
+        let func_name = &unsafe { self.closure.as_ref() }.function().name();
+        if let Some(method) = called_value.as_object::<Instance>() {
+            format!("{}::{}", method.get_class(), func_name)
+        } else {
+            func_name.to_string()
+        }
+    }
+
     fn chunk(&self) -> &'static Chunk {
         &unsafe { self.closure.as_ref() }.function().chunk
     }
@@ -188,6 +232,13 @@ impl CallStack {
     fn pop_frame(&mut self) -> Option<&mut CallFrame> {
         self.0.pop().unwrap();
         self.0.last_mut()
+    }
+
+    fn stacktrace(&self) -> StackTrace {
+        self.0
+            .iter()
+            .map(|frame| (frame.func_name(), frame.current_span()))
+            .collect()
     }
 }
 
@@ -266,12 +317,14 @@ impl<'heap> Vm<'heap> {
         let _token = self.heap.register_gc_root(call_stack);
 
         call_stack.push_frame(frame.clone()).unwrap();
-        self.run_inner(call_stack)
-            .map_err(|err| VmError::RuntimeError {
-                line: call_stack.current_frame().current_line(),
-                span: call_stack.current_frame().current_span(),
+        self.run_inner(call_stack).map_err(|err| {
+            // for slot in self.stack.iter().rev() { println!("{:#?}", slot); }
+            VmError::runtime(
+                call_stack.current_frame().current_line(),
                 err,
-            })
+                call_stack.stacktrace(),
+            )
+        })
     }
 
     fn run_inner(&mut self, call_stack: &mut CallStack) -> Result<()> {

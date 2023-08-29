@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use clap::Parser;
 use miette::{Context, IntoDiagnostic};
 
-use lox::clox::{self, CloxSettings, Vm};
+use lox::clox::{self, CloxSettings, Vm, VmError};
 use lox::ErrorKind;
 
 #[derive(Debug, Parser)]
@@ -59,7 +59,12 @@ fn main() -> miette::Result<()> {
     if opts.ci_testsuite {
         eprintln!("{vm_err}");
     } else {
+        let mut stacktrace = String::new();
+        if let VmError::Runtime(ref err) = vm_err {
+            err.fmt_stacktrace(&source, &mut stacktrace)
+        };
         eprintln!("{:?}", miette::Report::new(vm_err).with_source_code(source));
+        eprint!("Stack trace:\n{stacktrace}");
     }
     std::process::exit(exit_code);
 }
