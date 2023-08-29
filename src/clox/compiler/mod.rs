@@ -577,10 +577,10 @@ impl<'pratt> Compiler<'pratt> {
             self.emit_bytes(OpCode::GetSuper, name);
         }
     }
+
     fn this(&mut self, _can_assign: bool) {
         if self.current_class == ClassCompiler::None {
-            self.error("Can't use 'this' outside of a class.");
-            return;
+            return self.error("Can't use 'this' outside of a class.");
         }
         self.variable(false)
     }
@@ -597,12 +597,8 @@ impl<'pratt> Compiler<'pratt> {
 
     fn parse_precedence(&mut self, precedence: Precedence) {
         self.advance();
-        let prefix_rule = match self.get_rule(self.previous().tok_type()).prefix {
-            Some(p) => p,
-            None => {
-                self.error("Expect expression.");
-                return;
-            }
+        let Some(prefix_rule) = self.get_rule(self.previous().tok_type()).prefix else {
+            return self.error("Expect expression.");
         };
         let can_assign = precedence <= Precedence::Assignment;
         self.precedence_spans.push(self.prev_span().clone());
@@ -739,10 +735,9 @@ impl<'helpers> Compiler<'helpers> {
     fn function(&mut self, func_type: FunctionType) {
         let span = trace_span!("func", n = self.previous().lexeme());
         let _e = span.enter();
-        self.func_scope.create_inner_scope(func_type);
+        self.func_scope.make_inner_func_scope(func_type);
         self.func_scope.function().name =
             self.heap.new_string(self.previous().lexeme().to_string());
-        self.begin_scope();
         self.consume(TokenType::LeftParen, "Expect '(' after function name.");
         if !self.check(TokenType::RightParen) {
             loop {
@@ -768,7 +763,7 @@ impl<'helpers> Compiler<'helpers> {
         }
 
         // The compiler scope for the current function ends here
-        let new = self.func_scope.release_enclosing().unwrap();
+        let new = self.func_scope.end_inner_func_scope();
         let func_obj = self.heap.new_object(new.func_obj);
         let val = self.make_constant(func_obj);
         self.emit_bytes(OpCode::Closure, val);

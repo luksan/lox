@@ -100,13 +100,14 @@ impl FunctionScope {
             .map(|local| local.is_captured())
     }
 
-    pub fn create_inner_scope(self: &mut Box<Self>, func_type: FunctionType) {
+    pub fn make_inner_func_scope(self: &mut Box<Self>, func_type: FunctionType) {
         self.enclosing = Some(mem::replace(self, FunctionScope::new(func_type)));
+        self.scope_depth = 1; // Only the root function scope is global
     }
 
-    pub fn release_enclosing(self: &mut Box<Self>) -> Option<Box<Self>> {
-        let outer = self.enclosing.take()?;
-        Some(mem::replace(self, outer))
+    pub fn end_inner_func_scope(self: &mut Box<Self>) -> Box<Self> {
+        let outer = self.enclosing.take().unwrap();
+        mem::replace(self, outer)
     }
 
     pub fn add_local(&mut self, name: String) -> anyhow::Result<()> {
