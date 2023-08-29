@@ -9,7 +9,7 @@ use crate::scanner::Token;
 // This is struct Compiler in the book, Ch 22.
 pub struct FunctionScope {
     pub(super) func_obj: Function,
-    pub(super) func_type: FunctionType,
+    func_type: FunctionType,
     scope_depth: usize,
     locals: Vec<Local>,
     pub(super) upvalues: Vec<Upvalue>,
@@ -77,6 +77,10 @@ impl FunctionScope {
 
     pub fn function(&mut self) -> &mut Function {
         &mut self.func_obj
+    }
+
+    pub fn function_type(&self) -> FunctionType {
+        self.func_type
     }
 
     pub fn is_global_scope(&self) -> bool {

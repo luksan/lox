@@ -473,7 +473,7 @@ impl<'pratt> Compiler<'pratt> {
     }
 
     fn return_statement(&mut self) {
-        if self.func_scope.func_type == FunctionType::Script {
+        if self.func_scope.function_type() == FunctionType::Script {
             self.error("Can't return from top-level code.");
         }
         if self.match_token(TokenType::Semicolon) {
@@ -482,7 +482,7 @@ impl<'pratt> Compiler<'pratt> {
         }
         let return_token = self.previous();
         self.expression();
-        if self.func_scope.func_type == FunctionType::Initializer {
+        if self.func_scope.function_type() == FunctionType::Initializer {
             let err_span = return_token.span().extend(self.prev_span());
             self.error_at(
                 return_token,
@@ -906,7 +906,7 @@ impl<'bytecode> Compiler<'bytecode> {
     }
 
     fn emit_return(&mut self) {
-        if self.func_scope.func_type == FunctionType::Initializer {
+        if self.func_scope.function_type() == FunctionType::Initializer {
             self.emit_bytes(OpCode::GetLocal, 0);
         } else {
             self.emit_byte(OpCode::Nil);
