@@ -1,18 +1,22 @@
-use std::error::Error;
-use std::fmt::{Display, Formatter};
+use std::fmt::Display;
 use std::iter::Peekable;
-
-use anyhow::{bail, Result};
-use miette::LabeledSpan;
-use num_enum::{IntoPrimitive, TryFromPrimitive};
+use std::mem;
 use std::ptr::NonNull;
-use std::{iter, mem};
+
+use anyhow::Result;
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use tracing::trace_span;
+
+pub use error::{CompileError, CompilerError};
+use func_scope::{FunctionScope, FunctionType};
 
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::value::{Function, ValueEnum as Value};
 use crate::clox::{get_settings, Chunk, OpCode};
-use crate::scanner::{Scanner, TokSpan, Token, TokenIter, TokenType, TokenizationError};
+use crate::scanner::{Scanner, TokSpan, Token, TokenIter, TokenType};
+
+mod error;
+mod func_scope;
 
 pub fn compile(source: &str, heap: &Heap) -> Result<NonNull<Obj<Function>>, Vec<CompilerError>> {
     let span = trace_span!("compile()");
@@ -24,81 +28,6 @@ pub fn compile(source: &str, heap: &Heap) -> Result<NonNull<Obj<Function>>, Vec<
     compiler
         .compile()
         .map(|func_ptr| NonNull::new(func_ptr as *mut _).unwrap())
-}
-
-const U8_MAX_LEN: usize = 256;
-
-#[derive(Debug, Clone)]
-pub enum CompilerError {
-    Token(TokenizationError),
-    Compile(CompileError),
-}
-impl Error for CompilerError {}
-
-impl Display for CompilerError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let e = match self {
-            CompilerError::Token(e) => e as &dyn Display,
-            CompilerError::Compile(e) => e as &dyn Display,
-        };
-        write!(f, "{e}")
-    }
-}
-
-impl miette::Diagnostic for CompilerError {
-    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
-        match self {
-            CompilerError::Token(e) => e.labels(),
-            CompilerError::Compile(e) => e.labels(),
-        }
-    }
-}
-
-impl From<CompileError> for CompilerError {
-    fn from(value: CompileError) -> Self {
-        Self::Compile(value)
-    }
-}
-
-impl From<TokenizationError> for CompilerError {
-    fn from(value: TokenizationError) -> Self {
-        Self::Token(value)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct CompileError {
-    token: Token,
-    msg: String,
-    span: miette::SourceSpan,
-}
-
-impl Error for CompileError {}
-
-impl Display for CompileError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let token = &self.token;
-        if token.tok_type() == TokenType::Eof {
-            write!(f, "[line {}] Error at end: {}", token.line(), &self.msg)
-        } else {
-            write!(
-                f,
-                "[line {}] Error at '{}': {}",
-                token.line(),
-                token.lexeme(),
-                &self.msg
-            )
-        }
-    }
-}
-
-impl miette::Diagnostic for CompileError {
-    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
-        Some(Box::new(iter::once(LabeledSpan::new_with_span(
-            Some(self.msg.clone()),
-            self.span.clone(),
-        ))))
-    }
 }
 
 struct Compiler<'a> {
@@ -123,194 +52,6 @@ impl ClassCompiler {
         Self {
             has_superclass: false,
         }
-    }
-}
-
-// This is struct Compiler in the book, Ch 22.
-struct FunctionScope {
-    func_obj: Function,
-    func_type: FunctionType,
-    scope_depth: usize,
-    locals: Vec<Local>,
-    upvalues: Vec<Upvalue>,
-    enclosing: Option<Box<FunctionScope>>,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum Upvalue {
-    Local(LocalIdx),
-    Up(UpvalueIdx),
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct UpvalueIdx(u8);
-
-impl Into<u8> for UpvalueIdx {
-    fn into(self) -> u8 {
-        self.0
-    }
-}
-
-impl Upvalue {
-    pub fn is_local(&self) -> bool {
-        matches!(self, Self::Local(_))
-    }
-
-    pub fn index(&self) -> u8 {
-        match self {
-            Upvalue::Local(idx) => idx.0,
-            Upvalue::Up(idx) => idx.0,
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-struct LocalIdx(u8);
-
-impl Into<u8> for LocalIdx {
-    fn into(self) -> u8 {
-        self.0
-    }
-}
-
-impl<'compiler> FunctionScope {
-    pub fn new(func_type: FunctionType) -> Box<Self> {
-        let slot0_name = if func_type != FunctionType::Function {
-            "this"
-        } else {
-            ""
-        }
-        .to_string();
-        let this_slot = Local::new(slot0_name);
-        let mut scope = Self {
-            func_obj: Function::new(),
-            func_type,
-            scope_depth: 0,
-            locals: vec![this_slot],
-            upvalues: vec![],
-            enclosing: None,
-        };
-        // mark the "this" slot as initialized
-        scope.mark_local_initialized();
-        scope.into()
-    }
-    pub fn function(&mut self) -> &mut Function {
-        &mut self.func_obj
-    }
-
-    pub fn create_inner_scope(self: &mut Box<Self>, func_type: FunctionType) {
-        self.enclosing = Some(mem::replace(self, FunctionScope::new(func_type)));
-    }
-
-    pub fn release_enclosing(self: &mut Box<Self>) -> Option<Box<Self>> {
-        let outer = self.enclosing.take()?;
-        Some(mem::replace(self, outer))
-    }
-
-    fn add_local(&mut self, name: String) -> Result<()> {
-        if self.locals.len() > u8::MAX as usize {
-            bail!("Too many local variables in function.");
-        }
-        self.locals.push(Local::new(name));
-        Ok(())
-    }
-
-    /// Adds an upvalue to the upvalues array and returns the local index
-    /// in the array. If the upvalue already exists the existing slot is returned.
-    fn add_upvalue(&mut self, new: Upvalue) -> Result<UpvalueIdx> {
-        if let Some(i) = self.upvalues.iter().position(|&uv| uv == new) {
-            return Ok(UpvalueIdx(i as u8));
-        }
-        if self.upvalues.len() >= U8_MAX_LEN {
-            bail!("Too many closure variables in function.")
-        }
-        self.upvalues.push(new);
-        self.function().upvalue_count = self.upvalues.len();
-        Ok(UpvalueIdx((self.function().upvalue_count - 1) as u8))
-    }
-
-    /// Check that the variable isn't already declared in the current scope
-    fn declare_local(&mut self, name: &Token) -> Result<()> {
-        for local in self.locals.iter().rev() {
-            if local.depth < self.scope_depth {
-                break;
-            }
-            if local.name == name.lexeme() {
-                bail!("Already a variable with this name in this scope.");
-            }
-        }
-        Ok(())
-    }
-
-    /// Returns the stack slot of a local variable, or None if no such local variable exists.
-    /// Errors if the variable exists but isn't initialized.
-    fn resolve_local(&self, name: &str) -> Result<Option<LocalIdx>> {
-        for (i, local) in self.locals.iter().enumerate().rev() {
-            if local.name == name {
-                if !local.is_initialized() {
-                    bail!("Can't read local variable in its own initializer.");
-                }
-                return Ok(Some(LocalIdx(i as u8)));
-            }
-        }
-        Ok(None)
-    }
-
-    /// Create a chain of upvalues through the function scopes,
-    /// calling add_upvalue() in each scope and returning the result.
-    fn resolve_upvalue(&mut self, name: &str) -> Result<Option<UpvalueIdx>> {
-        let Some(enclosing) = self.enclosing.as_mut() else { return Ok(None) };
-
-        if let Some(local) = enclosing.resolve_local(name).unwrap() {
-            enclosing.capture_local(local);
-            Some(Upvalue::Local(local))
-        } else if let Some(upvalue) = enclosing.resolve_upvalue(name)? {
-            Some(Upvalue::Up(upvalue))
-        } else {
-            None
-        }
-        .map(|upvalue| self.add_upvalue(upvalue))
-        .transpose()
-    }
-
-    /// Mark the local variable as captured by an upvalue
-    fn capture_local(&mut self, idx: LocalIdx) {
-        self.locals[idx.0 as usize].is_captured = true;
-    }
-
-    /// Mark the newest local variable as initialized
-    pub fn mark_local_initialized(&mut self) {
-        self.locals
-            .last_mut()
-            .map(|local| local.depth = self.scope_depth);
-    }
-}
-
-#[derive(Copy, Clone, Debug, PartialEq)]
-enum FunctionType {
-    Function,
-    Initializer,
-    Method,
-    Script,
-}
-
-struct Local {
-    name: String,
-    depth: usize,
-    is_captured: bool,
-}
-
-impl Local {
-    pub fn new(name: String) -> Self {
-        Self {
-            name,
-            depth: usize::MAX,
-            is_captured: false,
-        }
-    }
-
-    pub fn is_initialized(&self) -> bool {
-        self.depth < usize::MAX
     }
 }
 
@@ -381,22 +122,17 @@ impl<'pratt> Compiler<'pratt> {
     }
 
     fn begin_scope(&mut self) {
-        self.func_scope.scope_depth += 1;
+        self.func_scope.begin_scope();
     }
 
     fn end_scope(&mut self) {
-        self.func_scope.scope_depth -= 1;
-        while let Some(local) = self.func_scope.locals.last() {
-            if local.depth <= self.scope_depth() {
-                break;
-            }
-            let op_code = if local.is_captured {
+        for is_captured in self.func_scope.end_scope() {
+            let op_code = if is_captured {
                 OpCode::CloseUpvalue
             } else {
                 OpCode::Pop
             };
             self.emit_byte(op_code);
-            self.func_scope.locals.pop();
         }
     }
 
@@ -919,8 +655,7 @@ impl<'helpers> Compiler<'helpers> {
     /// Declare a local variable, do nothing if current scope is global
     /// Chapter 22.3
     fn declare_variable(&mut self) {
-        if self.scope_depth() == 0 {
-            // Global scope
+        if self.func_scope.is_global_scope() {
             return;
         }
         let name = self.previous();
@@ -935,7 +670,7 @@ impl<'helpers> Compiler<'helpers> {
     fn parse_variable(&mut self, err: &str) -> Option<ChunkConst> {
         self.consume(TokenType::Identifier, err);
         self.declare_variable();
-        if self.func_scope.scope_depth > 0 {
+        if !self.func_scope.is_global_scope() {
             // We don't store the name of local variables.
             // Chapter 22.3
             return None;
@@ -944,14 +679,14 @@ impl<'helpers> Compiler<'helpers> {
     }
 
     fn mark_initialized(&mut self) {
-        if self.scope_depth() == 0 {
+        if self.func_scope.is_global_scope() {
             return;
         }
         self.func_scope.mark_local_initialized();
     }
 
     fn define_variable(&mut self, global: Option<ChunkConst>) {
-        if self.scope_depth() > 0 {
+        if !self.func_scope.is_global_scope() {
             self.mark_initialized();
             return;
         }
@@ -1117,14 +852,8 @@ impl<'tok_iter> Compiler<'tok_iter> {
         if self.panic_mode {
             return;
         }
-        self.errors.push(
-            CompileError {
-                token,
-                msg: msg.to_string(),
-                span: span.into(),
-            }
-            .into(),
-        );
+        self.errors
+            .push(CompileError::new(token, msg.to_string(), span).into());
         self.panic_mode = true;
     }
 }
@@ -1143,10 +872,6 @@ impl Into<u8> for ChunkConst {
 impl<'bytecode> Compiler<'bytecode> {
     fn current_chunk(&mut self) -> &mut Chunk {
         &mut self.func_scope.function().chunk
-    }
-
-    fn scope_depth(&self) -> usize {
-        self.func_scope.scope_depth
     }
 
     fn emit_byte(&mut self, byte: impl Into<u8>) {
@@ -1228,45 +953,6 @@ impl<'bytecode> Compiler<'bytecode> {
 
 impl HasRoots for Compiler<'_> {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
-        let mut scope = Some(&self.func_scope);
-        while let Some(s) = scope {
-            s.func_obj.mark_roots(mark_obj);
-            scope = s.enclosing.as_ref();
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
-
-    #[test]
-    fn test_miette_err() {
-        let heap = Heap::new();
-        let source = "
-        var a=1;
-        var b=2;
-        !a = 3;
-        a + b = 3;
-
-        class Foo {
-         init() {
-           return \"result\";
-         }
-        }
-        fun abc(){
-            var x = Foo(x);
-        }
-
-        instance.
-
-        fun hejsan() {
-          nil
-        }
-        ";
-        let r = compile(source, &heap);
-        for _e in r.unwrap_err() {
-            // eprintln!("{:?}", miette::Report::new(_e).with_source_code(source))
-        }
+        self.func_scope.mark_roots(mark_obj);
     }
 }
