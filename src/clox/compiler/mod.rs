@@ -37,21 +37,22 @@ struct Compiler<'a> {
     panic_mode: bool,
 
     func_scope: Box<FunctionScope>,
-    current_class: Option<ClassCompiler>,
+    current_class: ClassCompiler,
 
     heap: &'a Heap,
     precedence_spans: Vec<TokSpan>,
 }
 
-struct ClassCompiler {
-    has_superclass: bool,
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+enum ClassCompiler {
+    None,
+    Class,
+    HasSuper,
 }
 
 impl ClassCompiler {
-    fn new() -> Self {
-        Self {
-            has_superclass: false,
-        }
+    fn new_class(&mut self) -> Self {
+        mem::replace(self, Self::Class)
     }
 }
 
@@ -95,7 +96,7 @@ impl<'pratt> Compiler<'pratt> {
             panic_mode: false,
 
             func_scope: FunctionScope::new(FunctionType::Script).into(),
-            current_class: None,
+            current_class: ClassCompiler::None,
 
             heap,
             precedence_spans: Vec::new(),
@@ -350,7 +351,7 @@ impl<'pratt> Compiler<'pratt> {
         self.emit_bytes(OpCode::Class, name_constant);
         self.define_variable(Some(name_constant));
 
-        let enclosing_class_decl = self.current_class.replace(ClassCompiler::new());
+        let enclosing_class_decl = self.current_class.new_class();
 
         if self.match_token(TokenType::Less) {
             // Ch 29, superclasses
@@ -359,13 +360,13 @@ impl<'pratt> Compiler<'pratt> {
             if class_name == self.previous().lexeme() {
                 self.error("A class can't inherit from itself.");
             }
-            self.begin_scope();
+            self.begin_scope(); // Create a scope for the "super" variable
             self.add_local("super".to_string());
             self.define_variable(None);
 
             self.named_variable(class_name, class_name_span, false);
             self.emit_byte(OpCode::Inherit);
-            self.current_class.as_mut().unwrap().has_superclass = true;
+            self.current_class = ClassCompiler::HasSuper;
         }
 
         self.named_variable(class_name, class_name_span, false);
@@ -376,7 +377,7 @@ impl<'pratt> Compiler<'pratt> {
         self.consume(TokenType::RightBrace, "Expect '}' after class body.");
         self.emit_byte(OpCode::Pop);
 
-        if self.current_class.as_ref().unwrap().has_superclass {
+        if self.current_class == ClassCompiler::HasSuper {
             // close the scope created above for storing "super"
             self.end_scope();
         }
@@ -555,12 +556,10 @@ impl<'pratt> Compiler<'pratt> {
     }
 
     fn super_(&mut self, _can_assign: bool) {
-        match self.current_class.as_ref() {
-            None => self.error("Can't use 'super' outside of a class."),
-            Some(cls) if !cls.has_superclass => {
-                self.error("Can't use 'super' in a class with no superclass.")
-            }
-            _ => {}
+        match self.current_class {
+            ClassCompiler::None => self.error("Can't use 'super' outside of a class."),
+            ClassCompiler::Class => self.error("Can't use 'super' in a class with no superclass."),
+            ClassCompiler::HasSuper => {}
         };
         self.consume(TokenType::Dot, "Expect '.' after 'super'.");
         self.consume(TokenType::Identifier, "Expect superclass method name.");
@@ -579,7 +578,7 @@ impl<'pratt> Compiler<'pratt> {
         }
     }
     fn this(&mut self, _can_assign: bool) {
-        if self.current_class.is_none() {
+        if self.current_class == ClassCompiler::None {
             self.error("Can't use 'this' outside of a class.");
             return;
         }
