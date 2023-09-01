@@ -2,7 +2,7 @@ use std::mem;
 
 use anyhow::bail;
 
-use crate::clox::mm::{HasRoots, ObjTypes};
+use crate::clox::mm::{HasRoots, ObjMarker};
 use crate::clox::value::Function;
 
 // This is struct Compiler in the book, Ch 22.
@@ -215,7 +215,7 @@ impl FunctionScope {
 }
 
 impl HasRoots for FunctionScope {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         self.func_obj.mark_roots(mark_obj);
         if let Some(e) = self.enclosing.as_ref() {
             e.mark_roots(mark_obj);

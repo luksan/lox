@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::ptr::NonNull;
 
-use crate::clox::mm::{HasRoots, Obj, ObjTypes};
+use crate::clox::mm::{HasRoots, Obj, ObjMarker};
 use crate::clox::value::{LoxObject, LoxStr, Value};
 
 pub type StrPtr = *const Obj<LoxStr>;
@@ -219,7 +219,7 @@ impl LoxMap {
 }
 
 impl HasRoots for LoxMap {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         for (k, v) in self.iter() {
             k.mark(mark_obj);
             v.mark(mark_obj);
@@ -258,7 +258,7 @@ impl<T: LoxObject + 'static> TypedMap<T> {
         self.0.add_all(&other.0);
     }
 
-    pub fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    pub fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         self.0.mark_roots(mark_obj)
     }
 }

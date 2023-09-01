@@ -9,7 +9,7 @@ use std::ptr;
 
 use anyhow::Result;
 
-use crate::clox::mm::{HasRoots, Obj, ObjPtr, ObjTypes};
+use crate::clox::mm::{HasRoots, Obj, ObjMarker, ObjPtr, ObjTypes};
 use crate::clox::table::{LoxTable, Table, TypedMap};
 use crate::clox::Chunk;
 
@@ -79,7 +79,7 @@ impl ValuePacked {
         self == Self::Nil || self == Self::False
     }
 
-    pub(crate) fn mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
+    pub(crate) fn mark(&self, callback: &mut ObjMarker) {
         self.as_objtypes().map(|o| o.mark(callback));
     }
 }
@@ -236,7 +236,7 @@ impl ValueEnum {
         }
     }
 
-    pub(crate) fn mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
+    pub(crate) fn mark(&self, callback: &mut ObjMarker) {
         if let Self::Obj(obj) = self {
             obj.mark(callback);
         }
@@ -312,7 +312,7 @@ fn test_fnv1a() {
 impl LoxObject for LoxStr {}
 
 impl HasRoots for LoxStr {
-    fn mark_roots(&self, _mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, _mark_obj: &mut ObjMarker) {
         // no roots
     }
 }
@@ -396,7 +396,7 @@ impl Upvalue {
 }
 
 impl HasRoots for Upvalue {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         self.closed.get().mark(mark_obj);
     }
 }
@@ -441,7 +441,7 @@ impl Closure {
 }
 
 impl HasRoots for Closure {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         self.function.as_ref().mark(mark_obj);
         for uv in self.upvalues.iter() {
             let uv = uv.as_ref();
@@ -492,8 +492,8 @@ impl Display for Class {
 }
 
 impl HasRoots for Class {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
-        mark_obj(self.name.into());
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
+        self.name.as_ref().mark(mark_obj);
         self.methods.mark_roots(mark_obj);
     }
 }
@@ -534,8 +534,8 @@ impl Display for Instance {
 }
 
 impl HasRoots for Instance {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
-        mark_obj(self.class.into());
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
+        self.class.as_ref().mark(mark_obj);
         self.fields.mark_roots(mark_obj);
     }
 }
@@ -568,7 +568,7 @@ impl Display for BoundMethod {
 }
 
 impl HasRoots for BoundMethod {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         self.receiver.mark(mark_obj);
         self.method.as_ref().mark(mark_obj);
     }
@@ -585,7 +585,7 @@ pub struct Function {
 impl LoxObject for Function {}
 
 impl HasRoots for Function {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         for v in self.chunk.constants.iter() {
             v.mark(mark_obj);
         }
@@ -648,7 +648,7 @@ impl NativeFn {
 }
 
 impl HasRoots for NativeFn {
-    fn mark_roots(&self, _mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, _mark_obj: &mut ObjMarker) {
         // no roots
     }
 }

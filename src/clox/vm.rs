@@ -8,7 +8,7 @@ use miette::{Diagnostic, LabeledSpan, SourceCode, SourceSpan};
 use tracing::{span, Level};
 
 use crate::clox::compiler::{compile, CompilerError};
-use crate::clox::mm::{HasRoots, Heap, Obj, ObjPtr, ObjTypes};
+use crate::clox::mm::{HasRoots, Heap, Obj, ObjMarker, ObjPtr, ObjTypes};
 use crate::clox::stack::{Stack, FRAMES_MAX};
 use crate::clox::table::{LoxTable, Table};
 use crate::clox::value::{
@@ -254,7 +254,7 @@ impl CallStack {
 }
 
 impl HasRoots for CallStack {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         for frame in self.0.iter() {
             frame.closure().mark(mark_obj);
         }
@@ -761,7 +761,7 @@ impl<'heap> Vm<'heap> {
 }
 
 impl HasRoots for Vm<'_> {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         for val in self.stack.iter() {
             val.mark(mark_obj);
         }

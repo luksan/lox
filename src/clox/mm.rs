@@ -163,7 +163,7 @@ impl ObjTypes {
         for_all_objtypes!(self, down)
     }
 
-    pub(crate) fn mark(&self, callback: &mut dyn FnMut(Self)) {
+    pub(crate) fn mark(&self, callback: &mut ObjMarker) {
         macro_rules! set_mark {
             ($ptr:expr) => {
                 $ptr.mark(callback)
@@ -172,7 +172,7 @@ impl ObjTypes {
         for_all_objtypes!(self, set_mark)
     }
 
-    fn blacken(&self, callback: &mut dyn FnMut(Self)) {
+    fn blacken(&self, callback: &mut ObjMarker) {
         macro_rules! blacken {
             ($ptr:expr) => {
                 $ptr.mark_roots(callback)
@@ -240,12 +240,15 @@ impl Display for ObjTypes {
     }
 }
 
+#[repr(transparent)]
+pub struct ObjMarker<'a>(&'a mut dyn FnMut(ObjTypes));
+
 pub trait HasRoots {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes));
+    fn mark_roots(&self, mark_obj: &mut ObjMarker);
 }
 
 impl HasRoots for HashMap<StrPtr, Value> {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         for (k, v) in self.iter() {
             unsafe { &**k }.mark(mark_obj);
             v.mark(mark_obj);
@@ -357,22 +360,20 @@ impl Heap {
         let span = trace_span!("GC");
         let _span_enter = span.enter();
         let mut gray_list = Vec::with_capacity(self.obj_count.get());
+        let mut mark_closure = |obj| gray_list.push(obj);
+        let mut obj_marker = ObjMarker(&mut mark_closure);
         for root in self.has_roots.iter() {
             let Some(r) = root.upgrade() else { continue };
-            r.mark_roots(&mut |gray| {
-                gray_list.push(gray);
-            });
+            r.mark_roots(&mut obj_marker);
         }
 
         // Trace the not-yet-allocated object as well
-        new_obj.mark_roots(&mut |gray| {
-            gray_list.push(gray);
-        });
+        new_obj.mark_roots(&mut obj_marker);
 
         while let Some(obj) = gray_list.pop() {
-            obj.blacken(&mut |gray| {
-                gray_list.push(gray);
-            });
+            let mut mark_closure = |obj| gray_list.push(obj);
+            let mut obj_marker = ObjMarker(&mut mark_closure);
+            obj.blacken(&mut obj_marker);
         }
 
         // Clear interned strings about to be dropped
@@ -431,6 +432,7 @@ impl Drop for Heap {
 mod heap_test {
     use super::Heap;
     use crate::clox::value::Function;
+    use crate::clox::Vm;
 
     #[test]
     fn miri_heap_test() {
@@ -444,6 +446,25 @@ mod heap_test {
         let s1 = heap.new_string("asd".to_string());
         let s2 = heap.new_string("asd".to_string());
         assert_eq!(s1.as_value(), s2.as_value());
+    }
+
+    #[test]
+    fn gc_trace() -> anyhow::Result<()> {
+        let heap = Heap::new();
+        let mut vm = Vm::new(&heap);
+        let source = "
+class A {
+   func() {}
+}
+for (var i = 0; i < 100; i = i + 1) {
+   var a = A();
+}
+        ";
+        let mut runner = vm.compile(source)?;
+        for _ in 0..1000 {
+            runner.run().unwrap();
+        }
+        Ok(())
     }
 }
 
@@ -504,13 +525,13 @@ where
         unsafe { Box::from_raw(s.0.as_ptr()) }.next.get()
     }
 
-    pub(crate) fn mark(&self, callback: &mut dyn FnMut(ObjTypes)) {
+    pub(crate) fn mark(&self, callback: &mut ObjMarker) {
         if self.is_marked.get() {
             return;
         }
         trace!("Marked {:?}", self);
         self.is_marked.set(true);
-        callback(ObjTypes::from(self))
+        (callback.0)(ObjTypes::from(self))
     }
 
     pub(crate) fn is_marked(&self) -> bool {

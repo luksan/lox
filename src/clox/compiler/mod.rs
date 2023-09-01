@@ -10,7 +10,7 @@ pub use error::{CompileError, CompilerError};
 use func_scope::{FunctionScope, FunctionType};
 
 use crate::clox::compiler::func_scope::ResolvedVariable;
-use crate::clox::mm::{HasRoots, Heap, ObjPtr, ObjTypes};
+use crate::clox::mm::{HasRoots, Heap, ObjMarker, ObjPtr};
 use crate::clox::value::{Function, ValueEnum as Value};
 use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, TokSpan, Token, TokenIter, TokenType};
@@ -955,7 +955,7 @@ impl<'bytecode> Compiler<'bytecode> {
 }
 
 impl HasRoots for Compiler<'_> {
-    fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
+    fn mark_roots(&self, mark_obj: &mut ObjMarker) {
         self.func_scope.mark_roots(mark_obj);
     }
 }
