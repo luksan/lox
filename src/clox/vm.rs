@@ -1,7 +1,6 @@
 use core::fmt;
 use std::error::Error;
 use std::fmt::{Debug, Display, Formatter};
-use std::ptr::NonNull;
 use std::{iter, ptr};
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -170,14 +169,23 @@ impl Debug for Vm<'_> {
 
 #[derive(Clone, Debug)]
 pub struct CallFrame {
-    closure: NonNull<Obj<Closure>>,
+    closure: ObjPtr<Closure>,
     ip: *const u8,
     stack_offset: *mut Value,
 }
 
 impl CallFrame {
+    fn new(closure: ObjPtr<Closure>, stack_offset: *mut Value) -> Self {
+        let ip = closure.as_ref().function().chunk.code.as_ptr();
+        Self {
+            closure,
+            ip,
+            stack_offset,
+        }
+    }
+
     fn disassemble(&self) {
-        let closure = unsafe { self.closure.as_ref() };
+        let closure = self.closure.as_ref();
         closure
             .function()
             .chunk
@@ -194,12 +202,12 @@ impl CallFrame {
         }
     }
 
-    fn chunk(&self) -> &'static Chunk {
-        &unsafe { self.closure.as_ref() }.function().chunk
+    fn chunk(&self) -> &Chunk {
+        &self.closure.as_ref().function().chunk
     }
 
     fn closure(&self) -> &Obj<Closure> {
-        unsafe { self.closure.as_ref() }
+        self.closure.as_ref()
     }
 
     fn current_line(&self) -> isize {
@@ -360,9 +368,10 @@ impl<'heap> Vm<'heap> {
             }};
         }
         macro_rules! read_constant {
-            () => {
-                frame.chunk().constants[read_byte!()]
-            };
+            () => {{
+                let idx = read_byte!();
+                frame.chunk().constants[idx]
+            }};
         }
         macro_rules! read_string {
             () => {
@@ -719,11 +728,7 @@ impl<'heap> Vm<'heap> {
             );
         }
 
-        let frame = CallFrame {
-            closure: closure.into(),
-            ip: closure.function().chunk.code.as_ptr(),
-            stack_offset: self.stack.slot_ptr(arg_count),
-        };
+        let frame = CallFrame::new(closure.into(), self.stack.slot_ptr(arg_count));
         // frame.disassemble();
         Ok(frame)
     }
