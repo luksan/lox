@@ -410,16 +410,16 @@ impl Display for Upvalue {
 
 #[derive(Debug)]
 pub struct Closure {
-    pub function: NonNull<Obj<Function>>,
+    pub function: ObjPtr<Function>,
     pub upvalues: Box<[ObjPtr<Upvalue>]>,
 }
 
 impl LoxObject for Closure {}
 
 impl Closure {
-    pub fn new(function: NonNull<Obj<Function>>, uvg: &mut dyn FnMut() -> ObjPtr<Upvalue>) -> Self {
+    pub fn new(function: ObjPtr<Function>, uvg: &mut dyn FnMut() -> ObjPtr<Upvalue>) -> Self {
         let mut upvalues = vec![];
-        upvalues.resize_with(unsafe { function.as_ref().upvalue_count }, uvg);
+        upvalues.resize_with(function.as_ref().upvalue_count, uvg);
         Self {
             function,
             upvalues: upvalues.into_boxed_slice(),
@@ -427,7 +427,7 @@ impl Closure {
     }
 
     pub fn function(&self) -> &Function {
-        unsafe { self.function.as_ref() }
+        self.function.as_ref()
     }
 
     pub fn read_upvalue(&self, slot: u8) -> Value {
@@ -443,7 +443,7 @@ impl Closure {
 
 impl HasRoots for Closure {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
-        unsafe { self.function.as_ref() }.mark(mark_obj);
+        self.function.as_ref().mark(mark_obj);
         for uv in self.upvalues.iter() {
             let uv = uv.as_ref();
             uv.mark(mark_obj);

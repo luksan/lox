@@ -33,6 +33,10 @@ impl<O: LoxObject> ObjPtr<O> {
     pub fn as_ref(&self) -> &Obj<O> {
         unsafe { self.0.as_ref() }
     }
+
+    pub fn as_ptr(&self) -> *const Obj<O> {
+        self.0.as_ptr()
+    }
 }
 
 impl<O: LoxObject> Deref for ObjPtr<O> {
@@ -55,6 +59,12 @@ pub struct ObjTypes(NonNull<ObjKind>);
 impl<T: LoxObject> From<&Obj<T>> for ObjTypes {
     fn from(o: &Obj<T>) -> Self {
         Self::from(o as *const _)
+    }
+}
+
+impl<T: LoxObject> From<ObjPtr<T>> for ObjTypes {
+    fn from(o: ObjPtr<T>) -> Self {
+        o.0.into()
     }
 }
 

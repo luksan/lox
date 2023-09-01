@@ -1,7 +1,6 @@
 use std::fmt::Display;
 use std::iter::Peekable;
 use std::mem;
-use std::ptr::NonNull;
 
 use anyhow::Result;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
@@ -11,7 +10,7 @@ pub use error::{CompileError, CompilerError};
 use func_scope::{FunctionScope, FunctionType};
 
 use crate::clox::compiler::func_scope::ResolvedVariable;
-use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
+use crate::clox::mm::{HasRoots, Heap, ObjPtr, ObjTypes};
 use crate::clox::value::{Function, ValueEnum as Value};
 use crate::clox::{get_settings, Chunk, OpCode};
 use crate::scanner::{Scanner, TokSpan, Token, TokenIter, TokenType};
@@ -19,16 +18,14 @@ use crate::scanner::{Scanner, TokSpan, Token, TokenIter, TokenType};
 mod error;
 mod func_scope;
 
-pub fn compile(source: &str, heap: &Heap) -> Result<NonNull<Obj<Function>>, Vec<CompilerError>> {
+pub fn compile(source: &str, heap: &Heap) -> Result<ObjPtr<Function>, Vec<CompilerError>> {
     let span = trace_span!("compile()");
     let _e = span.enter();
     let mut scanner = Scanner::new(source);
     // The compiler has to be behind a mut ref, so it can't move in memory for the GC root ref
     let compiler = &mut Compiler::new(&mut scanner, heap);
     let _token = compiler.heap.register_gc_root(compiler as *const _);
-    compiler
-        .compile()
-        .map(|func_ptr| NonNull::new(func_ptr as *mut _).unwrap())
+    compiler.compile()
 }
 
 struct Compiler<'a> {
@@ -104,7 +101,7 @@ impl<'pratt> Compiler<'pratt> {
         }
     }
 
-    fn compile(&mut self) -> Result<*const Obj<Function>, Vec<CompilerError>> {
+    fn compile(&mut self) -> Result<ObjPtr<Function>, Vec<CompilerError>> {
         while !self.match_token(TokenType::Eof) {
             self.declaration()
         }
@@ -120,7 +117,8 @@ impl<'pratt> Compiler<'pratt> {
         }
         Ok(self
             .heap
-            .new_object(mem::take(&mut self.func_scope.func_obj)))
+            .new_object(mem::take(&mut self.func_scope.func_obj))
+            .into())
     }
 
     fn begin_scope(&mut self) {
