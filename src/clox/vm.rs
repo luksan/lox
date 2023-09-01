@@ -186,7 +186,7 @@ impl CallFrame {
 
     fn func_name(&self) -> String {
         let called_value = unsafe { *self.stack_offset };
-        let func_name = &unsafe { self.closure.as_ref() }.function().name();
+        let func_name = self.closure().function().name();
         if let Some(method) = called_value.as_object::<Instance>() {
             format!("{}::{}", method.get_class(), func_name)
         } else {
@@ -196,6 +196,10 @@ impl CallFrame {
 
     fn chunk(&self) -> &'static Chunk {
         &unsafe { self.closure.as_ref() }.function().chunk
+    }
+
+    fn closure(&self) -> &Obj<Closure> {
+        unsafe { self.closure.as_ref() }
     }
 
     fn current_line(&self) -> isize {
@@ -244,7 +248,7 @@ impl CallStack {
 impl HasRoots for CallStack {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         for frame in self.0.iter() {
-            unsafe { frame.closure.as_ref() }.mark(mark_obj);
+            frame.closure().mark(mark_obj);
         }
     }
 }
@@ -257,7 +261,7 @@ pub struct Runnable<'vm, 'heap: 'vm> {
 impl Runnable<'_, '_> {
     pub fn run(&mut self) -> Result<(), VmError> {
         self.vm.run(&self.frame)?;
-        self.vm.push(unsafe { self.frame.closure.as_ref() });
+        self.vm.push(self.frame.closure());
         Ok(())
     }
 }
@@ -424,12 +428,12 @@ impl<'heap> Vm<'heap> {
                 }
                 OpCode::GetUpvalue => {
                     let slot = read_byte!();
-                    self.push(unsafe { frame.closure.as_ref() }.read_upvalue(slot));
+                    self.push(frame.closure().read_upvalue(slot));
                 }
                 OpCode::SetUpvalue => {
                     let slot = read_byte!();
                     let value = self.peek(0);
-                    unsafe { frame.closure.as_ref() }.write_upvalue(slot, value);
+                    frame.closure().write_upvalue(slot, value);
                 }
                 OpCode::GetProperty => {
                     let instance = self
@@ -544,7 +548,7 @@ impl<'heap> Vm<'heap> {
                         if is_local {
                             self.capture_upvalue(unsafe { frame.stack_offset.add(index) })
                         } else {
-                            unsafe { frame.closure.as_ref() }.upvalues[index]
+                            frame.closure().upvalues[index]
                         }
                     });
                     let closure = self.heap.new_object(closure);
