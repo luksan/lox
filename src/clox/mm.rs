@@ -13,6 +13,7 @@ use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut, Index};
 use std::ptr::NonNull;
 
+#[repr(transparent)]
 pub struct ObjPtr<O: LoxObject>(NonNull<Obj<O>>);
 
 impl<O: LoxObject> From<&Obj<O>> for ObjPtr<O> {

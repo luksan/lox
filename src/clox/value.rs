@@ -6,7 +6,6 @@ use std::cell::Cell;
 use std::fmt::{Debug, Display, Formatter};
 use std::marker::PhantomPinned;
 use std::ptr;
-use std::ptr::NonNull;
 
 use anyhow::Result;
 
@@ -459,7 +458,7 @@ impl Display for Closure {
 
 #[derive(Debug)]
 pub struct Class {
-    name: *const Obj<LoxStr>,
+    name: ObjPtr<LoxStr>,
     methods: TypedMap<Closure>,
 }
 
@@ -468,7 +467,7 @@ impl LoxObject for Class {}
 impl Class {
     pub(crate) fn new(name: &Obj<LoxStr>) -> Self {
         Self {
-            name,
+            name: name.into(),
             methods: TypedMap::new(),
         }
     }
@@ -488,7 +487,7 @@ impl Class {
 
 impl Display for Class {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", unsafe { &*self.name })
+        write!(f, "{}", &*self.name)
     }
 }
 
@@ -501,7 +500,7 @@ impl HasRoots for Class {
 
 #[derive(Debug)]
 pub struct Instance {
-    class: NonNull<Obj<Class>>,
+    class: ObjPtr<Class>,
     fields: LoxTable,
 }
 
@@ -516,7 +515,7 @@ impl Instance {
     }
 
     pub(crate) fn get_class(&self) -> &Obj<Class> {
-        unsafe { self.class.as_ref() }
+        self.class.as_ref()
     }
 
     pub(crate) fn get_field(&self, field: &Obj<LoxStr>) -> Option<Value> {
@@ -530,7 +529,7 @@ impl Instance {
 
 impl Display for Instance {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} instance", unsafe { self.class.as_ref() })
+        write!(f, "{} instance", self.class.as_ref())
     }
 }
 
