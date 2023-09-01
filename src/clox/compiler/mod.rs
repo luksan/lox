@@ -10,6 +10,7 @@ use tracing::trace_span;
 pub use error::{CompileError, CompilerError};
 use func_scope::{FunctionScope, FunctionType};
 
+use crate::clox::compiler::func_scope::ResolvedVariable;
 use crate::clox::mm::{HasRoots, Heap, Obj, ObjTypes};
 use crate::clox::value::{Function, ValueEnum as Value};
 use crate::clox::{get_settings, Chunk, OpCode};
@@ -701,30 +702,35 @@ impl<'helpers> Compiler<'helpers> {
     }
 
     fn named_variable(&mut self, name: &str, runtime_span: TokSpan, can_assign: bool) {
-        let mut get_slot_and_ops = || -> Result<_> {
-            let ret = if let Some(local) = self.func_scope.resolve_local(name)? {
-                (local.into(), OpCode::GetLocal, OpCode::SetLocal)
-            } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name)? {
-                (upvalue.into(), OpCode::GetUpvalue, OpCode::SetUpvalue)
-            } else {
+        let resolved = self
+            .func_scope
+            .resolve_variable(name)
+            .map_err(|e| self.error(e)); // Resolver error should be reported before parsing the assignment expression
+
+        let assignment;
+        if can_assign && self.match_token(TokenType::Equal) {
+            self.expression();
+            assignment = true;
+        } else {
+            assignment = false;
+        }
+
+        let Ok(resolved) = resolved else { return };
+        let (slot, get_op, set_op) = match resolved {
+            None => {
                 let global_var_name = self.identifier_constant(name.to_string());
                 (global_var_name.into(), OpCode::GetGlobal, OpCode::SetGlobal)
-            };
-            Ok(ret)
+            }
+            Some(ResolvedVariable::Local(slot)) => {
+                (slot.into(), OpCode::GetLocal, OpCode::SetLocal)
+            }
+            Some(ResolvedVariable::UpValue(upvalue_idx)) => {
+                (upvalue_idx.into(), OpCode::GetUpvalue, OpCode::SetUpvalue)
+            }
         };
 
-        let (frame_slot, get_op, set_op) = get_slot_and_ops().unwrap_or_else(|e: _| {
-            self.error(e);
-            (0, OpCode::BadOpCode, OpCode::BadOpCode)
-        });
-
-        let opcode = if can_assign && self.match_token(TokenType::Equal) {
-            self.expression();
-            set_op
-        } else {
-            get_op
-        };
-        self.emit_opcode_span(opcode, &[frame_slot], runtime_span);
+        let opcode = if assignment { set_op } else { get_op };
+        self.emit_opcode_span(opcode, &[slot], runtime_span);
     }
 
     fn function(&mut self, func_type: FunctionType) {

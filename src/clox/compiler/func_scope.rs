@@ -52,6 +52,23 @@ impl From<LocalIdx> for u8 {
     }
 }
 
+pub enum ResolvedVariable {
+    Local(LocalIdx),
+    UpValue(UpvalueIdx),
+}
+
+impl From<LocalIdx> for ResolvedVariable {
+    fn from(value: LocalIdx) -> Self {
+        Self::Local(value)
+    }
+}
+
+impl From<UpvalueIdx> for ResolvedVariable {
+    fn from(value: UpvalueIdx) -> Self {
+        Self::UpValue(value)
+    }
+}
+
 impl FunctionScope {
     pub fn new(func_type: FunctionType) -> Box<Self> {
         let slot0_name = if func_type != FunctionType::Function {
@@ -90,7 +107,7 @@ impl FunctionScope {
         self.scope_depth += 1;
     }
 
-    pub(crate) fn end_scope(&mut self) -> impl Iterator<Item = bool> {
+    pub fn end_scope(&mut self) -> impl Iterator<Item = bool> {
         self.scope_depth -= 1;
         let local_pos = self
             .locals
@@ -148,15 +165,24 @@ impl FunctionScope {
         self.add_local(name)
     }
 
+    /// Find a named variable, either in the current stack frame or as an upvalue
+    pub fn resolve_variable(&mut self, name: &str) -> anyhow::Result<Option<ResolvedVariable>> {
+        if let Some(local) = self.resolve_local(name)? {
+            Ok(Some(local.into()))
+        } else {
+            self.resolve_upvalue(name).map(|o| o.map(|o| o.into()))
+        }
+    }
+
     /// Returns the stack slot of a local variable, or None if no such local variable exists.
     /// Errors if the variable exists but isn't initialized.
-    pub fn resolve_local(&self, name: &str) -> anyhow::Result<Option<LocalIdx>> {
+    fn resolve_local(&self, name: &str) -> anyhow::Result<Option<LocalIdx>> {
         for (i, local) in self.locals.iter().enumerate().rev() {
             if local.name == name {
                 if !local.is_initialized() {
                     bail!("Can't read local variable in its own initializer.");
                 }
-                return Ok(Some(LocalIdx(i as u8)));
+                return Ok(Some(LocalIdx(i as u8).into()));
             }
         }
         Ok(None)
@@ -164,24 +190,20 @@ impl FunctionScope {
 
     /// Create a chain of upvalues through the function scopes,
     /// calling add_upvalue() in each scope and returning the result.
-    pub fn resolve_upvalue(&mut self, name: &str) -> anyhow::Result<Option<UpvalueIdx>> {
+    fn resolve_upvalue(&mut self, name: &str) -> anyhow::Result<Option<UpvalueIdx>> {
         let Some(enclosing) = self.enclosing.as_mut() else {
             return Ok(None);
         };
 
         if let Some(local) = enclosing.resolve_local(name).unwrap() {
-            enclosing.capture_local(local);
+            // Mark the local variable as captured by an upvalue
+            enclosing.locals[local.0 as usize].is_captured = true;
             Some(Upvalue::Local(local))
         } else {
             enclosing.resolve_upvalue(name)?.map(Upvalue::Up)
         }
         .map(|upvalue| self.add_upvalue(upvalue))
         .transpose()
-    }
-
-    /// Mark the local variable as captured by an upvalue
-    fn capture_local(&mut self, idx: LocalIdx) {
-        self.locals[idx.0 as usize].is_captured = true;
     }
 
     /// Mark the newest local variable as initialized
