@@ -4,7 +4,6 @@ use anyhow::bail;
 
 use crate::clox::mm::{HasRoots, ObjTypes};
 use crate::clox::value::Function;
-use crate::scanner::Token;
 
 // This is struct Compiler in the book, Ch 22.
 pub struct FunctionScope {
@@ -137,16 +136,16 @@ impl FunctionScope {
     }
 
     /// Check that the variable isn't already declared in the current scope
-    pub fn declare_local(&mut self, name: &Token) -> anyhow::Result<()> {
+    pub fn declare_local(&mut self, name: String) -> anyhow::Result<()> {
         for local in self.locals.iter().rev() {
             if local.depth < self.scope_depth {
                 break;
             }
-            if local.name == name.lexeme() {
+            if local.name == name {
                 bail!("Already a variable with this name in this scope.");
             }
         }
-        Ok(())
+        self.add_local(name)
     }
 
     /// Returns the stack slot of a local variable, or None if no such local variable exists.

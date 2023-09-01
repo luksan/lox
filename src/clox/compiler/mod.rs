@@ -361,7 +361,8 @@ impl<'pratt> Compiler<'pratt> {
                 self.error("A class can't inherit from itself.");
             }
             self.begin_scope(); // Create a scope for the "super" variable
-            self.add_local("super".to_string());
+            let err = self.func_scope.add_local("super".to_string());
+            self.take_err(err);
             self.define_variable(None);
 
             self.named_variable(class_name, class_name_span, false);
@@ -641,23 +642,15 @@ impl<'helpers> Compiler<'helpers> {
         self.make_constant(v)
     }
 
-    fn add_local(&mut self, name: String) {
-        if let Err(e) = self.func_scope.add_local(name) {
-            self.error(e);
-        }
-    }
-
     /// Declare a local variable, do nothing if current scope is global
     /// Chapter 22.3
     fn declare_variable(&mut self) {
         if self.func_scope.is_global_scope() {
             return;
         }
-        let name = self.previous();
-        if let Err(e) = self.func_scope.declare_local(&name) {
-            self.error(e);
-        }
-        self.add_local(name.lexeme().to_string());
+        let name = self.previous().lexeme().to_string();
+        let err = self.func_scope.declare_local(name);
+        self.take_err(err);
     }
 
     /// Parse a global or local variable, return the ChunkConst if the
@@ -709,20 +702,22 @@ impl<'helpers> Compiler<'helpers> {
 
     fn named_variable(&mut self, name: &str, runtime_span: TokSpan, can_assign: bool) {
         let mut get_slot_and_ops = || -> Result<_> {
-            Ok(if let Some(local) = self.func_scope.resolve_local(name)? {
+            let ret = if let Some(local) = self.func_scope.resolve_local(name)? {
                 (local.into(), OpCode::GetLocal, OpCode::SetLocal)
             } else if let Some(upvalue) = self.func_scope.resolve_upvalue(name)? {
                 (upvalue.into(), OpCode::GetUpvalue, OpCode::SetUpvalue)
             } else {
                 let global_var_name = self.identifier_constant(name.to_string());
                 (global_var_name.into(), OpCode::GetGlobal, OpCode::SetGlobal)
-            })
+            };
+            Ok(ret)
         };
 
         let (frame_slot, get_op, set_op) = get_slot_and_ops().unwrap_or_else(|e: _| {
             self.error(e);
             (0, OpCode::BadOpCode, OpCode::BadOpCode)
         });
+
         let opcode = if can_assign && self.match_token(TokenType::Equal) {
             self.expression();
             set_op
@@ -830,6 +825,12 @@ impl<'tok_iter> Compiler<'tok_iter> {
 
     fn check(&mut self, token: TokenType) -> bool {
         self.current_tok_type() == token
+    }
+
+    fn take_err(&mut self, x: Result<()>) {
+        if let Err(e) = x {
+            self.error(e)
+        }
     }
 
     fn error(&mut self, msg: impl Display) {
