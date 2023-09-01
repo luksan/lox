@@ -735,8 +735,10 @@ impl<'helpers> Compiler<'helpers> {
         let span = trace_span!("func", n = self.previous().lexeme());
         let _e = span.enter();
         self.func_scope.make_inner_func_scope(func_type);
-        self.func_scope.function().name =
-            self.heap.new_string(self.previous().lexeme().to_string());
+        let func_name = self.previous().lexeme().to_string();
+        self.func_scope
+            .function()
+            .set_name(self.heap.new_string(func_name));
         self.consume(TokenType::LeftParen, "Expect '(' after function name.");
         if !self.check(TokenType::RightParen) {
             loop {

@@ -182,7 +182,7 @@ fn test_nanpack() {
 fn test_miri_value_packed() {
     let heap = crate::clox::Heap::new();
     let mut func = Function::new();
-    func.name = heap.new_string("func_name".to_string());
+    func.set_name(heap.new_string("func_name".to_string()));
     let obj_ref: &_ = heap.new_object(func);
     let val: ValuePacked = obj_ref.into();
     let obj2 = val.as_object::<Function>().unwrap();
@@ -544,7 +544,7 @@ impl HasRoots for Instance {
 #[derive(Debug)]
 pub struct BoundMethod {
     pub(crate) receiver: Value,
-    method: NonNull<Obj<Closure>>,
+    method: ObjPtr<Closure>,
 }
 
 impl LoxObject for BoundMethod {}
@@ -558,20 +558,20 @@ impl BoundMethod {
     }
 
     pub(crate) fn get_closure(&self) -> &Obj<Closure> {
-        unsafe { self.method.as_ref() }
+        self.method.as_ref()
     }
 }
 
 impl Display for BoundMethod {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", unsafe { self.method.as_ref() })
+        write!(f, "{}", self.method.as_ref())
     }
 }
 
 impl HasRoots for BoundMethod {
     fn mark_roots(&self, mark_obj: &mut dyn FnMut(ObjTypes)) {
         self.receiver.mark(mark_obj);
-        unsafe { self.method.as_ref() }.mark(mark_obj);
+        self.method.as_ref().mark(mark_obj);
     }
 }
 
@@ -579,7 +579,7 @@ impl HasRoots for BoundMethod {
 pub struct Function {
     pub(crate) arity: u8,
     pub(crate) chunk: Chunk,
-    pub(crate) name: *const Obj<LoxStr>,
+    name: Option<ObjPtr<LoxStr>>,
     pub(crate) upvalue_count: usize,
 }
 
@@ -590,9 +590,7 @@ impl HasRoots for Function {
         for v in self.chunk.constants.iter() {
             v.mark(mark_obj);
         }
-        if let Some(name) = unsafe { self.name.as_ref() } {
-            name.mark(mark_obj);
-        }
+        self.name.map(|name| name.as_ref().mark(mark_obj));
     }
 }
 
@@ -601,13 +599,18 @@ impl Function {
         Self {
             arity: 0,
             chunk: Chunk::new(),
-            name: ptr::null(),
+            name: None,
             upvalue_count: 0,
         }
     }
 
+    pub fn set_name(&mut self, name: &Obj<LoxStr>) {
+        self.name = Some(name.into())
+    }
+
     pub fn name(&self) -> &str {
-        unsafe { self.name.as_ref() }
+        self.name
+            .as_ref()
             .map(|ls| ls.as_str())
             .unwrap_or("<script>")
     }
@@ -628,9 +631,7 @@ impl Display for Function {
         write!(
             f,
             "<fn {}>",
-            unsafe { self.name.as_ref() }
-                .map(|s| s.as_str())
-                .unwrap_or("<script>")
+            self.name.as_ref().map(|s| s.as_str()).unwrap_or("<script>")
         )
     }
 }
