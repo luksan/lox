@@ -356,7 +356,7 @@ impl Heap {
     fn collect_garbage(&self, new_obj: &dyn HasRoots) {
         let span = trace_span!("GC");
         let _span_enter = span.enter();
-        let mut gray_list = vec![];
+        let mut gray_list = Vec::with_capacity(self.obj_count.get());
         for root in self.has_roots.iter() {
             let Some(r) = root.upgrade() else { continue };
             r.mark_roots(&mut |gray| {
