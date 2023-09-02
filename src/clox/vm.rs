@@ -405,7 +405,7 @@ impl<'heap> Vm<'heap> {
                 OpCode::True => self.push(Value::Bool(true)),
                 OpCode::False => self.push(Value::Bool(false)),
                 OpCode::Pop => {
-                    self.pop();
+                    self.stack.remove_cnt(1);
                 }
                 OpCode::GetLocal => {
                     let slot = read_byte!();
