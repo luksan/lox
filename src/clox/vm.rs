@@ -398,7 +398,11 @@ impl<'heap> Vm<'heap> {
         loop {
             // frame.chunk().disassemble_instruction(unsafe { frame.ip.offset_from(frame.chunk().code.as_ptr()) } as usize);
             let instr = read_byte!();
-            let op: OpCode = instr.into();
+            let op = if cfg!(debug_assertions) {
+                instr.into() // use FromPrimitive
+            } else {
+                unsafe { std::mem::transmute(instr) }
+            };
             match op {
                 OpCode::Constant => self.stack.push(read_constant!()),
                 OpCode::Nil => self.push(Value::Nil),
