@@ -67,12 +67,11 @@ impl ValuePacked {
     }
 
     pub fn as_object<'a, O: LoxObject + 'static>(self) -> Option<&'a Obj<O>> {
-        if !self.is_float() && f64::from_bits(self.0 as u64).is_sign_negative() {
-            let ptr = self.0.map_addr(|int| int & Self::PTR_MASK as usize) as *const Obj<O>;
-            ObjTypes::from(ptr).cast()
-        } else {
-            None
-        }
+        self.as_objtypes().and_then(|o| o.cast())
+    }
+
+    pub unsafe fn as_object_unchecked<'a, O: LoxObject>(&self) -> &'a Obj<O> {
+        unsafe { &*(self.0.map_addr(|int| int & Self::PTR_MASK as usize) as *const Obj<O>) }
     }
 
     pub fn is_falsey(self) -> bool {

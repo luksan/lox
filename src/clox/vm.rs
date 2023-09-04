@@ -374,9 +374,15 @@ impl<'heap> Vm<'heap> {
             }};
         }
         macro_rules! read_string {
-            () => {
-                read_constant!().as_object::<LoxStr>().unwrap()
-            };
+            () => {{
+                let val = read_constant!();
+                #[cfg(not(debug_assertions))]
+                unsafe {
+                    val.as_object_unchecked::<LoxStr>()
+                }
+                #[cfg(debug_assertions)]
+                val.as_object::<LoxStr>().unwrap()
+            }};
         }
 
         macro_rules! push_callframe {
