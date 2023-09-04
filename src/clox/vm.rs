@@ -420,7 +420,7 @@ impl<'heap> Vm<'heap> {
                     self.stack.set_local(frame.stack_offset, slot);
                 }
                 OpCode::GetGlobal => {
-                    let name = read_constant!().as_object().unwrap();
+                    let name = read_string!();
                     let v = self
                         .globals
                         .get_value(name)
@@ -428,12 +428,12 @@ impl<'heap> Vm<'heap> {
                     self.push(v);
                 }
                 OpCode::DefineGlobal => {
-                    let name = read_constant!().as_object().unwrap();
+                    let name = read_string!();
                     self.globals.set(name, self.peek(0));
                     self.pop();
                 }
                 OpCode::SetGlobal => {
-                    let name = read_constant!().as_object().unwrap();
+                    let name = read_string!();
                     if self.globals.set(name, self.peek(0)) {
                         self.globals.delete(name);
                         bail!("Undefined variable '{}'.", name);
@@ -453,7 +453,7 @@ impl<'heap> Vm<'heap> {
                         .peek(0)
                         .as_object::<Instance>()
                         .with_context(|| format!("Only instances have properties."))?;
-                    let name = read_constant!().as_object().unwrap();
+                    let name = read_string!();
                     if let Some(value) = instance.get_field(name) {
                         self.pop(); // instance
                         self.push(value);
@@ -464,7 +464,7 @@ impl<'heap> Vm<'heap> {
                 OpCode::SetProperty => {
                     self.peek_obj::<Instance>(1)
                         .with_context(|| format!("Only instances have fields."))?
-                        .set_field(read_constant!().as_object().unwrap(), self.peek(0));
+                        .set_field(read_string!(), self.peek(0));
                     let value = self.pop();
                     self.pop();
                     self.push(value);
@@ -584,7 +584,7 @@ impl<'heap> Vm<'heap> {
                     }
                 }
                 OpCode::Class => {
-                    let name = read_constant!().as_object().unwrap();
+                    let name = read_string!();
                     let cls = self.heap.new_object(Class::new(name));
                     self.push(cls as *const _);
                 }
