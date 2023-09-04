@@ -8,7 +8,7 @@ use miette::{Diagnostic, LabeledSpan, SourceCode, SourceSpan};
 use tracing::{span, Level};
 
 use crate::clox::compiler::{compile, CompilerError};
-use crate::clox::mm::{HasRoots, Heap, Obj, ObjMarker, ObjPtr, ObjTypes};
+use crate::clox::mm::{HasRoots, Heap, Obj, ObjMarker, ObjPtr, ObjType, ObjTypes};
 use crate::clox::stack::{Stack, FRAMES_MAX};
 use crate::clox::table::{LoxTable, Table};
 use crate::clox::value::{
@@ -665,29 +665,33 @@ impl<'heap> Vm<'heap> {
     }
 
     fn call_value(&mut self, callee: Value, arg_count: u8) -> Result<Option<CallFrame>> {
-        if let Some(closure) = callee.as_object() {
-            self.call(closure, arg_count).map(Some)
-        } else if let Some(bound) = callee.as_object::<BoundMethod>() {
-            self.stack.set_slot(arg_count, bound.receiver);
-            self.call(bound.get_closure(), arg_count).map(Some)
-        } else if let Some(class) = callee.as_object() {
-            let instance = Instance::new(class);
-            let o = self.heap.new_object(instance);
-            self.stack.set_slot(arg_count, o.into());
-            if let Some(init) = class.get_method(unsafe { &*self.init_string }) {
-                self.call(init, arg_count).map(Some)
-            } else if arg_count != 0 {
-                bail!("Expected 0 arguments but got {}.", arg_count)
-            } else {
+        let Some(objs) = callee.as_objtypes() else {
+            bail!("Can only call functions and classes.")
+        };
+        match objs.match_type() {
+            ObjType::BoundMethod(bound) => {
+                self.stack.set_slot(arg_count, bound.receiver);
+                self.call(bound.get_closure(), arg_count).map(Some)
+            }
+            ObjType::Class(class) => {
+                let o = self.heap.new_object(Instance::new(class));
+                self.stack.set_slot(arg_count, o.into());
+                if let Some(init) = class.get_method(unsafe { &*self.init_string }) {
+                    self.call(init, arg_count).map(Some)
+                } else if arg_count == 0 {
+                    Ok(None)
+                } else {
+                    bail!("Expected 0 arguments but got {}.", arg_count)
+                }
+            }
+            ObjType::Closure(closure) => self.call(closure, arg_count).map(Some),
+            ObjType::NativeFn(native) => {
+                let result = native.call_native(self.stack.slice_top(arg_count))?;
+                self.stack.remove_cnt(arg_count + 1);
+                self.push(result);
                 Ok(None)
             }
-        } else if let Some(native) = callee.as_object::<NativeFn>() {
-            let result = native.call_native(self.stack.slice_top(arg_count))?;
-            self.stack.remove_cnt(arg_count + 1);
-            self.push(result);
-            Ok(None)
-        } else {
-            bail!("Can only call functions and classes.")
+            _ => bail!("Can only call functions and classes."),
         }
     }
 

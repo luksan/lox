@@ -46,7 +46,7 @@ impl ValuePacked {
         self.0 as u64 & Self::NOT_FLOAT != Self::NOT_FLOAT
     }
 
-    fn as_objtypes(self) -> Option<ObjTypes> {
+    pub fn as_objtypes(self) -> Option<ObjTypes> {
         if !self.is_float() && f64::from_bits(self.0 as u64).is_sign_negative() {
             let ptr = self.0.map_addr(|int| int & Self::PTR_MASK as usize) as *const Obj<Function>;
             Some(ObjTypes::from(ptr))

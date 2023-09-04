@@ -126,6 +126,17 @@ macro_rules! objtypes_impl {
             }
         }
 
+        #[derive(Debug)]
+        pub enum ObjType<'a> {
+            $($typ(&'a Obj<$typ>),)+
+        }
+       $(
+        impl<'a> From<&'a Obj<$typ>> for ObjType<'a> {
+            fn from(objref: &'a Obj<$typ>) -> Self {
+                Self::$typ(objref)
+            }
+        }
+       )+
     }
 }
 
@@ -170,6 +181,15 @@ impl ObjTypes {
             };
         }
         for_all_objtypes!(self, set_mark)
+    }
+
+    pub fn match_type(&self) -> ObjType {
+        macro_rules! get_type {
+            ($ref:expr) => {
+                return $ref.into()
+            };
+        }
+        for_all_objtypes!(self, get_type)
     }
 
     fn blacken(&self, callback: &mut ObjMarker) {
