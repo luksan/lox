@@ -420,6 +420,7 @@ impl Heap {
     }
 
     unsafe fn free_objects(&mut self) {
+        trace!("Freeing all objects.");
         while let Some(next) = self.objs.get() {
             self.objs.set(unsafe { next.free_object() });
         }
@@ -541,7 +542,11 @@ where
     }
 
     unsafe fn free(s: ObjPtr<T>) -> Option<ObjTypes> {
-        trace!("Freeing {:?} @ {:?}", s, s.0.as_ptr());
+        trace!(
+            "Freeing Obj<{}> @ {:?}",
+            std::any::type_name::<T>().rsplit_once("::").unwrap().1,
+            s.0.as_ptr()
+        );
         unsafe { Box::from_raw(s.0.as_ptr()) }.next.get()
     }
 
