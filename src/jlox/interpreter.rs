@@ -11,7 +11,7 @@ use crate::jlox::ast::{
     stmt::{self, ListStmt, Stmt},
     Accepts, NodeId, Visitor,
 };
-use crate::jlox::environment::{Env, Environment};
+use crate::jlox::environment::Env;
 use crate::jlox::lox_types::{self, LoxType, NativeFn};
 use crate::scanner::{Token, TokenType};
 
@@ -24,7 +24,7 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
-        let env = Environment::new(None);
+        let env = Env::new();
         let globals = env.clone();
 
         globals.define("clock", NativeFn::new(0, Self::clock).into());
@@ -270,6 +270,7 @@ impl Visitor<expr::Grouping, ExprVisitResult> for Interpreter {
         node.expression.accept(self)
     }
 }
+
 impl Visitor<expr::Literal, ExprVisitResult> for Interpreter {
     fn visit(&mut self, node: &expr::Literal) -> ExprVisitResult {
         Ok(node.value.clone())

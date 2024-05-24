@@ -1,7 +1,7 @@
 use anyhow::{bail, Context, Result};
 
 use crate::jlox::ast::stmt;
-use crate::jlox::environment::{Env, Environment};
+use crate::jlox::environment::Env;
 use crate::jlox::interpreter::ExprVisitResult;
 use crate::jlox::Interpreter;
 use crate::scanner::Token;
@@ -231,7 +231,7 @@ impl Function {
 
     pub fn bind(&self, instance: &Instance) -> Function {
         let mut bound = self.clone();
-        bound.closure = Environment::new(Some(bound.closure));
+        bound.closure = bound.closure.create_local();
         bound
             .closure
             .define("this", LoxType::Instance(instance.clone()));

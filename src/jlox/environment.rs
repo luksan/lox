@@ -9,26 +9,32 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 #[derive(Clone, Debug)]
-pub struct Env(Rc<Environment>);
+pub struct Env {
+    env: Rc<Environment>,
+}
 
 impl Env {
-    pub fn new(env: Environment) -> Self {
-        Self(Rc::new(env))
+    pub fn new() -> Self {
+        Self {
+            env: Rc::new(Environment::default()),
+        }
     }
 
     pub fn create_local(&self) -> Self {
-        Environment::new(Some(self.clone()))
+        Self {
+            env: Rc::new(Environment::create_inner_env(self.clone())),
+        }
     }
 }
 
 // Drop impl to clear circular references caused by closures
 impl Drop for Env {
     fn drop(&mut self) {
-        let sc = Rc::strong_count(&self.0);
+        let sc = Rc::strong_count(&self.env);
         if sc < 2 {
             return;
         }
-        let hashmap = match self.0.values.try_borrow() {
+        let hashmap = match self.env.values.try_borrow() {
             Ok(v) => v,
             Err(_) => return, // Drop already running
         };
@@ -57,8 +63,8 @@ impl Drop for Env {
         std::mem::drop(hashmap);
         if sc - 1 <= circ_ref_cnt {
             // only circular references left. Purge the hashmap
-            self.0.values.borrow_mut().clear();
-            assert_eq!(Rc::strong_count(&self.0), 1);
+            self.env.values.borrow_mut().clear();
+            assert_eq!(Rc::strong_count(&self.env), 1);
         }
     }
 }
@@ -67,29 +73,28 @@ impl Deref for Env {
     type Target = Environment;
 
     fn deref(&self) -> &Self::Target {
-        &self.0
+        &self.env
     }
 }
 
 impl PartialEq for Env {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.0, &other.0)
+        Rc::ptr_eq(&self.env, &other.env)
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Environment {
     values: RefCell<HashMap<String, LoxType>>,
     parent: Option<Env>,
 }
 
 impl Environment {
-    #[allow(clippy::new_ret_no_self)]
-    pub fn new(parent: Option<Env>) -> Env {
-        Env::new(Environment {
-            values: HashMap::new().into(),
-            parent,
-        })
+    fn create_inner_env(parent: Env) -> Self {
+        Self {
+            parent: Some(parent),
+            ..Self::default()
+        }
     }
 
     fn ancestor(&self, distance: usize) -> &Environment {
