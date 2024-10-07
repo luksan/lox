@@ -37,8 +37,8 @@ impl EnvGcTracker {
         env
     }
 
-    pub fn run_gc(&self, current_env: &Env) {
-        let mut to_trace = vec![current_env.env.clone()];
+    fn run_gc(&self) {
+        let mut to_trace = vec![];
         {
             let envs = self.envs.borrow_mut();
             for e in envs.iter().filter_map(|w| w.upgrade()) {
@@ -110,29 +110,28 @@ impl Env {
     }
 
     pub fn run_gc(&self) {
-        self.gc.run_gc(self);
-    }
-
-    pub fn replace(&mut self, other: Env) -> ReplacedEnv {
-        let old_env = std::mem::replace(self, other);
-        ReplacedEnv::new(old_env)
-    }
-
-    pub fn restore(&mut self, mut env: ReplacedEnv) {
-        std::mem::swap(self, &mut env.0);
+        self.gc.run_gc();
     }
 }
 
-pub struct ReplacedEnv(Env);
+pub struct RootedEnv(Env);
 
-impl ReplacedEnv {
-    fn new(env: Env) -> Self {
+impl Deref for RootedEnv {
+    type Target = Env;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl RootedEnv {
+    pub fn new(env: Env) -> Self {
         env.pinned.set(true);
         Self(env)
     }
 }
 
-impl Drop for ReplacedEnv {
+impl Drop for RootedEnv {
     fn drop(&mut self) {
         self.0.pinned.set(false);
     }

@@ -11,21 +11,21 @@ use crate::jlox::ast::{
     stmt::{self, ListStmt, Stmt},
     Accepts, NodeId, Visitor,
 };
-use crate::jlox::environment::Env;
+use crate::jlox::environment::{Env, RootedEnv};
 use crate::jlox::lox_types::{self, LoxType, NativeFn};
 use crate::scanner::{Token, TokenType};
 
 pub struct Interpreter {
-    pub env: Env,
-    globals: Env,
+    pub env: RootedEnv,
+    globals: RootedEnv,
     locals: HashMap<NodeId, usize>,
     start_time: std::time::Instant,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        let env = Env::new_root_env();
-        let globals = env.clone();
+        let env = RootedEnv::new(Env::new_root_env());
+        let globals = RootedEnv::new(env.clone());
 
         globals.define("clock", NativeFn::new(0, Self::clock).into());
 
@@ -84,10 +84,10 @@ impl Interpreter {
     }
 
     pub fn execute_block(&mut self, statements: &ListStmt, env: Env) -> StmtVisitResult {
-        let old_env = self.env.replace(env);
+        let old_env = std::mem::replace(&mut self.env, RootedEnv::new(env));
         self.env.run_gc(); // GC must run before the block is executed, since ret might contain references to un-traced Envs.
         let ret = statements.iter().try_for_each(|stmt| stmt.accept(self));
-        self.env.restore(old_env);
+        self.env = old_env;
         ret
     }
 
