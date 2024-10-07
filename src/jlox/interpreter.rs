@@ -24,7 +24,7 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
-        let env = Env::new();
+        let env = Env::new_root_env();
         let globals = env.clone();
 
         globals.define("clock", NativeFn::new(0, Self::clock).into());
@@ -83,10 +83,11 @@ impl Interpreter {
         }
     }
 
-    pub fn execute_block(&mut self, statements: &ListStmt, mut env: Env) -> StmtVisitResult {
-        std::mem::swap(&mut env, &mut self.env);
+    pub fn execute_block(&mut self, statements: &ListStmt, env: Env) -> StmtVisitResult {
+        let old_env = self.env.replace(env);
+        self.env.run_gc(); // GC must run before the block is executed, since ret might contain references to un-traced Envs.
         let ret = statements.iter().try_for_each(|stmt| stmt.accept(self));
-        std::mem::swap(&mut env, &mut self.env);
+        self.env.restore(old_env);
         ret
     }
 

@@ -1,0 +1,49 @@
+@startuml
+
+class Env {
+    values
+    parent: Option<Env>
+}
+
+class Function {
+    declaration: Rc<stmt::Function>
+    ..
+    closure: Env
+}
+
+'Env::value o-- Function
+Function::closure *-- Env
+
+class Class {
+    name
+    superclass : Option<Class>
+    methods: Map<String, Function>
+}
+
+'Env::value o-- Class
+Class::methods o-- Function
+' Class::superclass *-- Class
+
+class Instance {
+    class : Class
+    ..
+    fields: Map<String, LoxObject>
+}
+
+'Env::value o-- Instance
+Instance::class *-- Class
+
+package A {
+    object Cls1 {
+        super: none
+        m1: Function
+    }
+}
+
+package B {}
+Cls1::m1 -- A
+
+
+note right: class A {\n    fun m1() {}\n}
+
+@enduml

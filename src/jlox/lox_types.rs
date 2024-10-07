@@ -47,6 +47,15 @@ impl LoxType {
             _ => true,
         }
     }
+
+    pub fn env_gc_trace(&self, callback: &mut dyn FnMut(&Env) -> ()) {
+        match &self {
+            Self::Class(cls) => cls.env_gc_trace(callback),
+            Self::Function(f) => callback(&f.closure),
+            Self::Instance(i) => i.env_gc_trace(callback),
+            _ => {} // No env links in these types
+        }
+    }
 }
 
 impl Display for LoxType {
@@ -144,6 +153,15 @@ impl Class {
                 .and_then(|sup| sup.find_method(name))
         })
     }
+
+    fn env_gc_trace(&self, mut callback: impl FnMut(&Env) -> ()) {
+        for m in self.methods.values() {
+            callback(&m.closure);
+        }
+        if let Some(s) = self.superclass.as_deref() {
+            s.env_gc_trace(callback)
+        }
+    }
 }
 
 impl PartialEq for Class {
@@ -200,6 +218,11 @@ impl Instance {
 
     pub fn set(&mut self, name: &Token, value: LoxType) {
         self.fields.define(name.lexeme(), value);
+    }
+
+    fn env_gc_trace(&self, callback: &mut dyn FnMut(&Env) -> ()) {
+        self.class.env_gc_trace(&mut *callback);
+        callback(&self.fields);
     }
 }
 
