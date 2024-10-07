@@ -138,48 +138,6 @@ impl Drop for ReplacedEnv {
     }
 }
 
-// Drop impl to clear circular references caused by closures
-impl Drop for Env {
-    fn drop(&mut self) {
-        let sc = Rc::strong_count(&self.env);
-        if sc < 2 {
-            return;
-        }
-        let hashmap = match self.env.values.try_borrow() {
-            Ok(v) => v,
-            Err(_) => return, // Drop already running
-        };
-
-        if sc - 1 > hashmap.len() {
-            return; // there can't be enough circular references to drop the count to zero
-        }
-        let mut circ_ref_cnt = 0;
-        for val in hashmap.values() {
-            match val {
-                LoxType::Class(cls) => {
-                    for fun in cls.methods.values() {
-                        if fun.closure == *self {
-                            circ_ref_cnt += 1;
-                        }
-                    }
-                }
-                LoxType::Function(fun) => {
-                    if fun.closure == *self {
-                        circ_ref_cnt += 1;
-                    }
-                }
-                _ => {}
-            }
-        }
-        std::mem::drop(hashmap);
-        if sc - 1 <= circ_ref_cnt {
-            // only circular references left. Purge the hashmap
-            self.env.values.borrow_mut().clear();
-            assert_eq!(Rc::strong_count(&self.env), 1);
-        }
-    }
-}
-
 impl Deref for Env {
     type Target = Environment;
 
