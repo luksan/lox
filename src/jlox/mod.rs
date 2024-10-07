@@ -127,6 +127,8 @@ impl Lox {
             JloxError::compile(e)
         })?;
 
+        // println!("{ast:#?}");
+
         Resolver::resolve(&mut self.interpreter, &ast)?;
         self.interpreter.interpret(&ast).map_err(JloxError::runtime)
     }

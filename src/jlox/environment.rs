@@ -5,12 +5,19 @@ use crate::scanner::Token;
 
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::{Debug, Formatter};
 use std::ops::Deref;
 use std::rc::Rc;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Env {
     env: Rc<Environment>,
+
+impl Debug for Env {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        self.env.fmt(f)
+    }
+}
 }
 
 impl Env {

@@ -204,6 +204,9 @@ impl Token {
 
 impl Debug for Token {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        if f.alternate() {
+            return write!(f, "{}", self.lexeme());
+        }
         if self.typ == TokenType::Eof {
             write!(f, "[line {}] Error at end:", self.line())
         } else {
@@ -296,7 +299,7 @@ pub struct TokenizationError {
 }
 
 impl miette::Diagnostic for TokenizationError {
-    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+    fn labels(&self) -> Option<Box<dyn Iterator<Item=LabeledSpan> + '_>> {
         Some(Box::new(iter::once(LabeledSpan::new(
             Some(self.msg.clone()),
             self.span.offset(),
@@ -322,7 +325,7 @@ pub struct Scanner<'src> {
     curr_literal: Option<Literal>,
 }
 
-pub type TokenIter<'s> = dyn Iterator<Item = Result<Token, TokenizationError>> + 's;
+pub type TokenIter<'s> = dyn Iterator<Item=Result<Token, TokenizationError>> + 's;
 
 impl Iterator for Scanner<'_> {
     type Item = Result<Token, TokenizationError>;

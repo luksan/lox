@@ -1,5 +1,6 @@
 #![allow(non_snake_case)]
 
+use std::fmt::{Debug, Formatter};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::jlox::LoxType;
@@ -13,8 +14,14 @@ pub trait Accepts<V, R> {
     fn accept(&self, visitor: &mut V) -> R;
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct NodeId(u64);
+
+impl Debug for NodeId {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 impl NodeId {
     fn new() -> Self {
@@ -25,9 +32,17 @@ impl NodeId {
 
 macro_rules! ast_nodes {
     { [$enum_name:ident] $($node_type:ident : $($member_type:ident $member_name:ident),* ; )+ } => {
-        #[derive(Clone, Debug)]
+        #[derive(Clone)]
         pub enum $enum_name {
             $( $node_type ( $node_type ) ),+
+        }
+
+        impl Debug for $enum_name {
+            fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+                match self {
+                    $(Self::$node_type(typ) => typ.fmt(f) ),+
+                }
+            }
         }
 
         impl $enum_name {

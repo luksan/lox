@@ -213,11 +213,17 @@ impl PartialEq for Instance {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Function {
     declaration: Rc<stmt::Function>,
     pub closure: Env,
     pub is_init: bool,
+}
+
+impl Debug for Function {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "Function {{ name: {}, closure: {:#?}}}", self.declaration.name.lexeme(), self.closure)
+    }
 }
 
 impl Function {
