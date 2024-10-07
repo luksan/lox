@@ -6,7 +6,6 @@ use crate::jlox::interpreter::ExprVisitResult;
 use crate::jlox::Interpreter;
 use crate::scanner::Token;
 
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::{ControlFlow, Not};
@@ -159,7 +158,8 @@ impl Callable for Class {
     }
 
     fn call(&mut self, interpreter: &mut Interpreter, arguments: &[LoxType]) -> ExprVisitResult {
-        let instance = Instance::new(self.clone());
+        let field_env = interpreter.env.new_orphan();
+        let instance = Instance::new(self.clone(), field_env);
         if let Some(init) = self.find_method("init") {
             init.bind(&instance).call(interpreter, arguments)?;
         }
@@ -170,22 +170,20 @@ impl Callable for Class {
 #[derive(Clone, Debug)]
 pub struct Instance {
     class: Class,
-    fields: Rc<RefCell<HashMap<String, LoxType>>>,
+    fields: Env,
 }
 
 impl Instance {
-    pub fn new(class: Class) -> Self {
+    pub fn new(class: Class, fields: Env) -> Self {
         Self {
             class,
-            fields: Rc::new(RefCell::new(HashMap::new())),
+            fields,
         }
     }
 
     pub fn get(&self, name: &Token) -> Result<LoxType> {
         self.fields
-            .borrow()
-            .get(name.lexeme())
-            .cloned()
+            .get(name).ok()
             .or_else(|| {
                 self.class
                     .find_method(name.lexeme())
@@ -201,15 +199,13 @@ impl Instance {
     }
 
     pub fn set(&mut self, name: &Token, value: LoxType) {
-        self.fields
-            .borrow_mut()
-            .insert(name.lexeme().to_string(), value);
+        self.fields.define(name.lexeme(), value);
     }
 }
 
 impl PartialEq for Instance {
     fn eq(&self, other: &Self) -> bool {
-        Rc::ptr_eq(&self.fields, &other.fields)
+        self.fields == other.fields
     }
 }
 
