@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 
 use crate::jlox::LoxType;
 use crate::scanner::Token;
@@ -146,12 +146,14 @@ impl Environment {
         Ok(())
     }
 
-    pub fn get_at(&self, name: &str, depth: usize) -> Result<LoxType> {
+    /// Get a variable at a certain environment depth.
+    /// If this returns None there is a bug in the Lox implementation,
+    /// probably in the resolver pass or the garbage collection.
+    pub fn get_at(&self, name: &str, depth: usize) -> Option<LoxType> {
         self.ancestor(depth)
             .values
             .borrow_mut()
             .get(name)
             .cloned()
-            .with_context(|| format!("Resolver failure! Undefined variable '{}'.", name))
     }
 }

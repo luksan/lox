@@ -61,6 +61,7 @@ impl Interpreter {
     fn lookup_variable(&mut self, name: &Token, expr: NodeId) -> ExprVisitResult {
         if let Some(depth) = self.locals.get(&expr) {
             self.env.get_at(name.lexeme(), *depth)
+                .with_context(|| format!("{:?} JLox bug. Failed to lookup variable {:?} at depth {depth}.", name, name.lexeme()))
         } else {
             self.globals.get(name)
         }
