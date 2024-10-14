@@ -3,6 +3,8 @@
 use std::fmt::{Debug, Formatter};
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use paste::paste;
+
 use crate::jlox::LoxType;
 use crate::scanner::Token;
 
@@ -11,6 +13,10 @@ pub trait Visitor<NodeType, R> {
 }
 
 pub trait Accepts<V, R> {
+    fn accept(&self, visitor: &mut V) -> R;
+}
+
+pub trait AcceptsVisitor<V, R> {
     fn accept(&self, visitor: &mut V) -> R;
 }
 
@@ -53,6 +59,40 @@ macro_rules! ast_nodes {
                         $($node_type(typ) => visitor.visit(typ) ),+
                     }
             }
+        }
+
+        paste!{
+        pub trait [< $enum_name Visitor >] {
+            type Ret;
+           $( fn [<visit_ $node_type:snake>] (&mut self, node: & $node_type) -> Self::Ret; )+
+        }
+
+        impl $enum_name {
+            pub fn accept_visitor<V: [<$enum_name Visitor>]>(&self, visitor: &mut V) -> V::Ret {
+                match self {
+                    $(Self::$node_type(typ) => visitor.[<visit_ $node_type:snake>] (typ) ),+
+                }
+            }
+        }
+        impl<V:[<$enum_name Visitor>]> AcceptsVisitor<V, V::Ret> for Box<$enum_name> {
+            fn accept(&self, visitor: &mut V) -> V::Ret {
+                match **self {
+                    $(
+                    $enum_name::$node_type(ref node) => visitor.[<visit_ $node_type:snake>](node)
+                    ),+
+                }
+            }
+        }
+
+        $(
+        impl <V> AcceptsVisitor<V, V::Ret> for $node_type where
+            V: [<$enum_name Visitor>]
+        {
+            fn accept(&self, visitor: &mut V) -> V::Ret {
+                visitor.[<visit_ $node_type:snake>](self)
+            }
+        }
+        )+
         }
 
         impl<V, R> Accepts<V, R> for Box<$enum_name> where

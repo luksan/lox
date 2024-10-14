@@ -4,15 +4,9 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 
-use crate::jlox::ast::expr::{
-    Binary, Call, Get, Grouping, Literal, Logical, Super, This, Unary, Variable,
-};
-use crate::jlox::ast::stmt::{Expression, If, Print, Return, While};
-use crate::jlox::ast::{
-    expr,
-    stmt::{self, ListStmt, Stmt},
-    Accepts, NodeId, Visitor,
-};
+use crate::jlox::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
+use crate::jlox::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
+use crate::jlox::ast::{expr, stmt::{self, ListStmt, Stmt}, AcceptsVisitor, NodeId};
 use crate::jlox::Interpreter;
 use crate::scanner::Token;
 
@@ -107,12 +101,12 @@ impl<'i> Resolver<'i> {
             .map(|scope| scope.insert(name.lexeme().to_string(), true));
     }
 
-    fn resolve_stmt_list(&mut self, statements: &ListStmt) -> Ret {
+    fn resolve_stmt_list(&mut self, statements: &ListStmt) {
         for s in statements {
             self.resolve_stmt(s);
         }
     }
-    fn resolve_stmt(&mut self, statement: &Stmt) -> Ret {
+    fn resolve_stmt(&mut self, statement: &Stmt) {
         statement.accept(self)
     }
     fn resolve_function(&mut self, fun: &stmt::Function, typ: FunctionType) {
@@ -130,7 +124,7 @@ impl<'i> Resolver<'i> {
         self.curr_func_type = prev_func;
     }
 
-    fn resolve_expr(&mut self, expr: &dyn Accepts<Self, Ret>) -> Ret {
+    fn resolve_expr(&mut self, expr: &dyn AcceptsVisitor<Self, ()>) {
         expr.accept(self)
     }
 
@@ -161,18 +155,16 @@ impl<'a> From<&'a expr::Variable> for ExprRef<'a> {
     }
 }
 
-type Ret = ();
+impl stmt::StmtTypesVisitor for Resolver<'_> {
+    type Ret = ();
 
-impl Visitor<stmt::Block, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &stmt::Block) -> Ret {
+    fn visit_block(&mut self, node: &Block) -> Self::Ret {
         self.begin_scope();
         self.resolve_stmt_list(&node.statements);
         self.end_scope();
     }
-}
 
-impl Visitor<stmt::Class, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &stmt::Class) -> Ret {
+    fn visit_class(&mut self, node: &Class) -> Self::Ret {
         let enclosing_class = self.curr_class;
         self.curr_class = ClassType::Class;
 
@@ -211,41 +203,31 @@ impl Visitor<stmt::Class, Ret> for Resolver<'_> {
         }
         self.curr_class = enclosing_class;
     }
-}
 
-impl Visitor<stmt::Expression, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Expression) -> Ret {
+    fn visit_expression(&mut self, node: &Expression) -> Self::Ret {
         self.resolve_expr(&node.expression);
     }
-}
 
-impl Visitor<stmt::Function, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &stmt::Function) -> Ret {
+    fn visit_function(&mut self, node: &Function) -> Self::Ret {
         self.declare(&node.name);
         self.define(&node.name);
 
         self.resolve_function(node, FunctionType::Function);
     }
-}
 
-impl Visitor<stmt::If, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &If) -> Ret {
+    fn visit_if(&mut self, node: &If) -> Self::Ret {
         self.resolve_expr(&node.condition);
         self.resolve_stmt(&node.thenBranch);
         if let Some(stmt) = &node.elseBranch {
             self.resolve_stmt(stmt);
         }
     }
-}
 
-impl Visitor<stmt::Print, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Print) -> Ret {
+    fn visit_print(&mut self, node: &Print) -> Self::Ret {
         self.resolve_expr(&node.expression);
     }
-}
 
-impl Visitor<stmt::Return, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Return) -> Ret {
+    fn visit_return(&mut self, node: &Return) -> Self::Ret {
         if self.curr_func_type == FunctionType::None {
             self.error(&node.keyword, "Can't return from top-level code.");
         }
@@ -256,78 +238,60 @@ impl Visitor<stmt::Return, Ret> for Resolver<'_> {
             self.resolve_expr(expr);
         }
     }
-}
 
-impl Visitor<stmt::Var, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &stmt::Var) -> Ret {
+    fn visit_var(&mut self, node: &Var) -> Self::Ret {
         self.declare(&node.name);
         self.resolve_expr(&node.initializer);
         self.define(&node.name);
     }
-}
 
-impl Visitor<stmt::While, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &While) -> Ret {
+    fn visit_while(&mut self, node: &While) -> Self::Ret {
         self.resolve_expr(&node.condition);
         self.resolve_stmt(&node.body);
     }
 }
 
-impl Visitor<expr::Assign, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &expr::Assign) -> Ret {
+impl expr::ExprTypesVisitor for Resolver<'_> {
+    type Ret = ();
+
+    fn visit_assign(&mut self, node: &Assign) -> Self::Ret {
         self.resolve_expr(&node.value);
         self.resolve_local(node.id, &node.name)
     }
-}
 
-impl Visitor<expr::Binary, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Binary) -> Ret {
+    fn visit_binary(&mut self, node: &Binary) -> Self::Ret {
         self.resolve_expr(&node.left);
         self.resolve_expr(&node.right);
     }
-}
 
-impl Visitor<expr::Call, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Call) -> Ret {
+    fn visit_call(&mut self, node: &Call) -> Self::Ret {
         self.resolve_expr(&node.callee);
         for arg in &node.arguments {
             self.resolve_expr(arg);
         }
     }
-}
 
-impl Visitor<expr::Get, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Get) -> Ret {
+    fn visit_get(&mut self, node: &Get) -> Self::Ret {
         self.resolve_expr(&node.object);
     }
-}
 
-impl Visitor<expr::Grouping, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Grouping) -> Ret {
+    fn visit_grouping(&mut self, node: &Grouping) -> Self::Ret {
         self.resolve_expr(&node.expression);
     }
-}
 
-impl Visitor<expr::Literal, Ret> for Resolver<'_> {
-    fn visit(&mut self, _node: &Literal) -> Ret {}
-}
+    fn visit_literal(&mut self, _node: &Literal) -> Self::Ret {}
 
-impl Visitor<expr::Logical, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Logical) -> Ret {
+    fn visit_logical(&mut self, node: &Logical) -> Self::Ret {
         self.resolve_expr(&node.left);
         self.resolve_expr(&node.right);
     }
-}
 
-impl Visitor<expr::Set, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &expr::Set) -> Ret {
+    fn visit_set(&mut self, node: &Set) -> Self::Ret {
         self.resolve_expr(&node.value);
         self.resolve_expr(&node.object);
     }
-}
 
-impl Visitor<expr::Super, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Super) -> Ret {
+    fn visit_super(&mut self, node: &Super) -> Self::Ret {
         match &self.curr_class {
             ClassType::Class => self.error(
                 &node.keyword,
@@ -337,26 +301,20 @@ impl Visitor<expr::Super, Ret> for Resolver<'_> {
             ClassType::None => self.error(&node.keyword, "Can't use 'super' outside of a class."),
         }
     }
-}
 
-impl Visitor<expr::This, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &This) -> Ret {
+    fn visit_this(&mut self, node: &This) -> Self::Ret {
         if self.curr_class == ClassType::None {
             self.error(&node.keyword, "Can't use 'this' outside of a class.");
             return;
         }
         self.resolve_local(node.id, &node.keyword)
     }
-}
 
-impl Visitor<expr::Unary, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &Unary) -> Ret {
+    fn visit_unary(&mut self, node: &Unary) -> Self::Ret {
         self.resolve_expr(&node.right)
     }
-}
 
-impl Visitor<expr::Variable, Ret> for Resolver<'_> {
-    fn visit(&mut self, node: &expr::Variable) -> Ret {
+    fn visit_variable(&mut self, node: &Variable) -> Self::Ret {
         if self
             .peek()
             .map(|scope| scope.get(node.name.lexeme()) == Some(&false))
