@@ -1,0 +1,48 @@
+// http://craftinginterpreters.com/appendix-i.html
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "#" ~ (!NEWLINE ~ ANY)* }
+
+char = { !("\"" | "\\") ~ ANY  }
+
+lox = _{ SOI ~ declaration* ~ EOI }
+
+identifier = ${ !(keywords ~ !( ASCII_ALPHANUMERIC | "_")) ~  (ASCII_ALPHA|"_") ~ ( ASCII_ALPHANUMERIC | "_" )* }
+number = { ASCII_DIGIT ~ ("." ~  ASCII_DIGIT+)? }
+string = ${ "\"" ~ char* ~ "\"" }
+
+declaration = { class_decl | fun_decl | var_decl | statement }
+class_decl = { "class" ~ identifier ~ ("<" ~ identifier)? ~ "{" ~ function* ~ "}"}
+fun_decl = { "fun" ~ function }
+var_decl = { "var" ~ identifier ~ ( "=" ~ expression)? ~ ";" }
+
+statement = { expr_stmt | for_stmt | if_stmt | print_stmt | return_stmt | while_stmt | block }
+expr_stmt = { expression ~ ";" }
+for_stmt = { "for" ~ "(" ~ (var_decl | expr_stmt | ";" ) ~ expression? ~ ";" ~ expression? ~ ")" ~ statement }
+if_stmt = { "if" ~ "(" ~ expression ~ ")" ~ statement ~ ("else" ~ statement)? }
+print_stmt = { "print" ~ expression ~ ";" }
+return_stmt = { "return" ~ expression? ~ ";" }
+while_stmt = { "whi le" ~ "(" ~ expression ~ ")" ~ statement }
+block = { "{" ~ declaration* ~ "}" }
+
+function = { identifier ~ "(" ~ parameters? ~ ")" ~ block }
+parameters = { identifier ~ ( "," ~ identifier)* }
+arguments = { expression ~ ("," ~ expression)* }
+
+expression = { assignment }
+assignment = { (call ~ ".")? ~ identifier ~ "=" ~ assignment | logic_or }
+logic_or = { logic_and ~ ("or" ~ logic_and)* }
+logic_and = { equality ~ ("and" ~ equality)* }
+equality = { comparison ~ (( "!=" | "==") ~ comparison)* }
+comparison = { term ~ ((">"|">="|"<"|"<=") ~ term )* }
+term = { factor ~ (("-"|"+") ~ factor)* }
+factor = { unary ~ (("/" | "*") ~ unary)* }
+unary = { ("!"|"-") ~unary | call }
+call = { primary ~( "(" ~ arguments? ~ ")" | "." ~ identifier)* }
+primary = { "true" | "false" | "nil" | "this" |
+            number | string | identifier | "(" ~ expression ~ ")" | "super" ~ "." ~ identifier }
+
+
+keywords = { "class"|"fun"|"var"|"for"|"if"|"print"|"return"|"while"|
+            "true"|"false"|"nil"|"this"}
+

@@ -9,6 +9,7 @@
 pub mod clox;
 pub mod jlox;
 mod scanner;
+mod pest;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum ErrorKind {
