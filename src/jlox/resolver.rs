@@ -6,7 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::jlox::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
 use crate::jlox::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
-use crate::jlox::ast::{expr, stmt::{self, ListStmt, Stmt}, AcceptsVisitor, NodeId};
+use crate::jlox::ast::{expr, stmt::{self, ListStmt, Stmt}, Accepts, NodeId};
 use crate::jlox::Interpreter;
 use crate::scanner::Token;
 
@@ -124,7 +124,7 @@ impl<'i> Resolver<'i> {
         self.curr_func_type = prev_func;
     }
 
-    fn resolve_expr(&mut self, expr: &dyn AcceptsVisitor<Self, ()>) {
+    fn resolve_expr(&mut self, expr: &dyn Accepts<Self, ()>) {
         expr.accept(self)
     }
 

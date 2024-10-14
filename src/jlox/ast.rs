@@ -8,15 +8,7 @@ use paste::paste;
 use crate::jlox::LoxType;
 use crate::scanner::Token;
 
-pub trait Visitor<NodeType, R> {
-    fn visit(&mut self, node: &NodeType) -> R;
-}
-
 pub trait Accepts<V, R> {
-    fn accept(&self, visitor: &mut V) -> R;
-}
-
-pub trait AcceptsVisitor<V, R> {
     fn accept(&self, visitor: &mut V) -> R;
 }
 
@@ -51,16 +43,6 @@ macro_rules! ast_nodes {
             }
         }
 
-        impl $enum_name {
-            pub fn accept<V, R>(&self, visitor: &mut V) -> R where
-                $( V: Visitor<$node_type, R> ),+ {
-                use $enum_name::*;
-                    match self {
-                        $($node_type(typ) => visitor.visit(typ) ),+
-                    }
-            }
-        }
-
         paste!{
         pub trait [< $enum_name Visitor >] {
             type Ret;
@@ -74,7 +56,7 @@ macro_rules! ast_nodes {
                 }
             }
         }
-        impl<V:[<$enum_name Visitor>]> AcceptsVisitor<V, V::Ret> for Box<$enum_name> {
+        impl<V:[<$enum_name Visitor>]> Accepts<V, V::Ret> for Box<$enum_name> {
             fn accept(&self, visitor: &mut V) -> V::Ret {
                 match **self {
                     $(
@@ -85,8 +67,7 @@ macro_rules! ast_nodes {
         }
 
         $(
-        impl <V> AcceptsVisitor<V, V::Ret> for $node_type where
-            V: [<$enum_name Visitor>]
+        impl <V: [<$enum_name Visitor>]> Accepts<V, V::Ret> for $node_type 
         {
             fn accept(&self, visitor: &mut V) -> V::Ret {
                 visitor.[<visit_ $node_type:snake>](self)
@@ -95,24 +76,7 @@ macro_rules! ast_nodes {
         )+
         }
 
-        impl<V, R> Accepts<V, R> for Box<$enum_name> where
-                $( V: Visitor<$node_type, R> ),+ {
-            fn accept(&self, visitor: &mut V) -> R {
-                use $enum_name::*;
-                    match **self {
-                        $($node_type(ref typ) => visitor.visit(typ) ),+
-                    }
-            }
-        }
-
         $(
-        impl<V, R> Accepts<V, R> for $node_type where
-            V: Visitor<$node_type, R>  {
-            fn accept(&self, visitor: &mut V) -> R {
-                visitor.visit(self)
-            }
-        }
-
         #[derive(Clone, Debug)]
         pub struct $node_type {
             pub id: NodeId,
