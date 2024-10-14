@@ -6,11 +6,9 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
 
-use crate::jlox::ast::{
-    expr,
-    stmt::{self, ListStmt, Stmt},
-    Accepts, NodeId, Visitor,
-};
+use crate::jlox::ast::{expr, stmt::{self, ListStmt, Stmt}, AcceptsVisitor as Accepts, NodeId};
+use crate::jlox::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
+use crate::jlox::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
 use crate::jlox::environment::{Env, RootedEnv};
 use crate::jlox::lox_types::{self, LoxType, NativeFn};
 use crate::scanner::{Token, TokenType};
@@ -50,7 +48,7 @@ impl Interpreter {
         Ok(self.start_time.elapsed().as_secs_f64().into())
     }
 
-    fn execute(&mut self, statement: &Stmt) -> StmtVisitResult {
+    fn execute(&mut self, statement: &Stmt) -> ControlFlow<Result<LoxType>> {
         statement.accept(self)
     }
 
@@ -83,7 +81,7 @@ impl Interpreter {
         }
     }
 
-    pub fn execute_block(&mut self, statements: &ListStmt, env: Env) -> StmtVisitResult {
+    pub fn execute_block(&mut self, statements: &ListStmt, env: Env) -> ControlFlow<Result<LoxType>> {
         let old_env = std::mem::replace(&mut self.env, RootedEnv::new(env));
         self.env.run_gc(); // GC must run before the block is executed, since ret might contain references to un-traced Envs.
         let ret = statements.iter().try_for_each(|stmt| stmt.accept(self));
@@ -110,18 +108,17 @@ impl Interpreter {
     }
 }
 
-/* stmt Visitors */
-type StmtVisitResult = ControlFlow<ExprVisitResult>;
+pub type ExprVisitResult = Result<LoxType>;
 
-impl Visitor<stmt::Block, StmtVisitResult> for Interpreter {
-    fn visit(&mut self, node: &stmt::Block) -> StmtVisitResult {
+impl stmt::StmtTypesVisitor for Interpreter {
+    type Ret = ControlFlow<Result<LoxType>>;
+
+    fn visit_block(&mut self, node: &Block) -> Self::Ret {
         let env = self.env.create_local();
         self.execute_block(&node.statements, env)
     }
-}
 
-impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
-    fn visit(&mut self, node: &stmt::Class) -> StmtVisitResult {
+    fn visit_class(&mut self, node: &Class) -> Self::Ret {
         let superclass: Option<lox_types::Class> = self.get_superclass(node)?;
         self.env.define(node.name.lexeme(), LoxType::Nil);
 
@@ -148,25 +145,19 @@ impl Visitor<stmt::Class, StmtVisitResult> for Interpreter {
             .expect("This doesn't fail, since the variable name was defined above.");
         Continue(())
     }
-}
 
-impl Visitor<stmt::Expression, StmtVisitResult> for Interpreter {
-    fn visit(&mut self, node: &stmt::Expression) -> StmtVisitResult {
+    fn visit_expression(&mut self, node: &Expression) -> Self::Ret {
         self.evaluate_for_stmt(&node.expression)?;
         Continue(())
     }
-}
 
-impl Visitor<stmt::Function, StmtVisitResult> for Interpreter {
-    fn visit(&mut self, node: &stmt::Function) -> StmtVisitResult {
+    fn visit_function(&mut self, node: &Function) -> Self::Ret {
         let function = lox_types::Function::new(node, self.env.clone());
         self.env.define(node.name.lexeme(), function.into());
         Continue(())
     }
-}
 
-impl Visitor<stmt::If, StmtVisitResult> for Interpreter {
-    fn visit(&mut self, node: &stmt::If) -> StmtVisitResult {
+    fn visit_if(&mut self, node: &If) -> Self::Ret {
         if self.evaluate_for_stmt(&node.condition)?.is_truthy() {
             self.execute(&node.thenBranch)
         } else if let Some(els) = &node.elseBranch {
@@ -175,35 +166,27 @@ impl Visitor<stmt::If, StmtVisitResult> for Interpreter {
             Continue(())
         }
     }
-}
 
-impl Visitor<stmt::Print, StmtVisitResult> for Interpreter {
-    fn visit(&mut self, node: &stmt::Print) -> StmtVisitResult {
+    fn visit_print(&mut self, node: &Print) -> Self::Ret {
         let val = self.evaluate_for_stmt(&node.expression)?;
         println!("{}", val);
         Continue(())
     }
-}
 
-impl Visitor<stmt::Return, StmtVisitResult> for Interpreter {
-    fn visit(&mut self, node: &stmt::Return) -> StmtVisitResult {
+    fn visit_return(&mut self, node: &Return) -> Self::Ret {
         ControlFlow::Break(Ok(match &node.value {
             Some(v) => self.evaluate_for_stmt(v)?,
             None => LoxType::Nil,
         }))
     }
-}
 
-impl Visitor<stmt::Var, StmtVisitResult> for Interpreter {
-    fn visit(&mut self, node: &stmt::Var) -> StmtVisitResult {
+    fn visit_var(&mut self, node: &Var) -> Self::Ret {
         let value = self.evaluate_for_stmt(&node.initializer)?;
         self.env.define(node.name.lexeme(), value);
         Continue(())
     }
-}
 
-impl Visitor<stmt::While, StmtVisitResult> for Interpreter {
-    fn visit(&mut self, node: &stmt::While) -> StmtVisitResult {
+    fn visit_while(&mut self, node: &While) -> Self::Ret {
         while self.evaluate_for_stmt(&node.condition)?.is_truthy() {
             self.execute(&node.body)?;
         }
@@ -211,11 +194,10 @@ impl Visitor<stmt::While, StmtVisitResult> for Interpreter {
     }
 }
 
-/* expr Visitors */
-pub type ExprVisitResult = Result<LoxType>;
+impl expr::ExprTypesVisitor for Interpreter {
+    type Ret = Result<LoxType>;
 
-impl Visitor<expr::Assign, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Assign) -> ExprVisitResult {
+    fn visit_assign(&mut self, node: &Assign) -> Self::Ret {
         let value = self.evaluate(&node.value)?;
         if let Some(&depth) = self.locals.get(&node.id) {
             self.env.assign_at(depth, &node.name, value.clone())?;
@@ -224,10 +206,8 @@ impl Visitor<expr::Assign, ExprVisitResult> for Interpreter {
         }
         Ok(value)
     }
-}
 
-impl Visitor<expr::Binary, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Binary) -> ExprVisitResult {
+    fn visit_binary(&mut self, node: &Binary) -> Self::Ret {
         let left = self.evaluate(&node.left)?;
         let right = self.evaluate(&node.right)?;
 
@@ -265,22 +245,53 @@ impl Visitor<expr::Binary, ExprVisitResult> for Interpreter {
             _ => unreachable!(),
         })
     }
-}
 
-impl Visitor<expr::Grouping, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Grouping) -> ExprVisitResult {
+    fn visit_call(&mut self, node: &Call) -> Self::Ret {
+        let mut callee = self.evaluate(&node.callee)?;
+        let function = callee.as_callable().with_context(|| {
+            format!(
+                "Can only call functions and classes.\n[line {}]",
+                node.paren.line()
+            )
+        })?;
+        if node.arguments.len() != function.arity() {
+            bail!(
+                "Expected {} arguments but got {}.\n[line {}]",
+                function.arity(),
+                node.arguments.len(),
+                node.paren.line(),
+            );
+        }
+
+        let args = node
+            .arguments
+            .iter()
+            .map(|expr| self.evaluate(expr))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        function.call(self, &args)
+    }
+
+    fn visit_get(&mut self, node: &Get) -> Self::Ret {
+        if let LoxType::Instance(object) = self.evaluate(&node.object)? {
+            Ok(object.get(&node.name)?)
+        } else {
+            bail!(
+                "Only instances have properties.\n[line {}]",
+                node.name.line()
+            )
+        }
+    }
+
+    fn visit_grouping(&mut self, node: &Grouping) -> Self::Ret {
         node.expression.accept(self)
     }
-}
 
-impl Visitor<expr::Literal, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Literal) -> ExprVisitResult {
+    fn visit_literal(&mut self, node: &Literal) -> Self::Ret {
         Ok(node.value.clone())
     }
-}
 
-impl Visitor<expr::Logical, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Logical) -> ExprVisitResult {
+    fn visit_logical(&mut self, node: &Logical) -> Self::Ret {
         let left = self.evaluate(&node.left)?;
         match node.operator.tok_type() {
             TokenType::Or => {
@@ -297,10 +308,8 @@ impl Visitor<expr::Logical, ExprVisitResult> for Interpreter {
         }
         self.evaluate(&node.right)
     }
-}
 
-impl Visitor<expr::Set, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Set) -> ExprVisitResult {
+    fn visit_set(&mut self, node: &Set) -> Self::Ret {
         if let LoxType::Instance(mut obj) = self.evaluate(&node.object)? {
             let value = self.evaluate(&node.value)?;
             obj.set(&node.name, value.clone());
@@ -309,10 +318,8 @@ impl Visitor<expr::Set, ExprVisitResult> for Interpreter {
             bail!("Only instances have fields.\n[line {}]", node.name.line())
         }
     }
-}
 
-impl Visitor<expr::Super, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Super) -> ExprVisitResult {
+    fn visit_super(&mut self, node: &Super) -> Self::Ret {
         let distance = self
             .locals
             .get(&node.id)
@@ -340,16 +347,12 @@ impl Visitor<expr::Super, ExprVisitResult> for Interpreter {
             bail!("Superclass is not a class.")
         }
     }
-}
 
-impl Visitor<expr::This, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::This) -> ExprVisitResult {
+    fn visit_this(&mut self, node: &This) -> Self::Ret {
         self.lookup_variable(&node.keyword, node.id)
     }
-}
 
-impl Visitor<expr::Unary, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Unary) -> ExprVisitResult {
+    fn visit_unary(&mut self, node: &Unary) -> Self::Ret {
         let right = node.right.accept(self)?;
 
         match node.operator.tok_type() {
@@ -360,51 +363,8 @@ impl Visitor<expr::Unary, ExprVisitResult> for Interpreter {
             _ => unreachable!(),
         }
     }
-}
 
-impl Visitor<expr::Variable, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Variable) -> ExprVisitResult {
+    fn visit_variable(&mut self, node: &Variable) -> Self::Ret {
         self.lookup_variable(&node.name, node.id)
-    }
-}
-
-impl Visitor<expr::Call, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Call) -> ExprVisitResult {
-        let mut callee = self.evaluate(&node.callee)?;
-        let function = callee.as_callable().with_context(|| {
-            format!(
-                "Can only call functions and classes.\n[line {}]",
-                node.paren.line()
-            )
-        })?;
-        if node.arguments.len() != function.arity() {
-            bail!(
-                "Expected {} arguments but got {}.\n[line {}]",
-                function.arity(),
-                node.arguments.len(),
-                node.paren.line(),
-            );
-        }
-
-        let args = node
-            .arguments
-            .iter()
-            .map(|expr| self.evaluate(expr))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        function.call(self, &args)
-    }
-}
-
-impl Visitor<expr::Get, ExprVisitResult> for Interpreter {
-    fn visit(&mut self, node: &expr::Get) -> ExprVisitResult {
-        if let LoxType::Instance(object) = self.evaluate(&node.object)? {
-            Ok(object.get(&node.name)?)
-        } else {
-            bail!(
-                "Only instances have properties.\n[line {}]",
-                node.name.line()
-            )
-        }
     }
 }
