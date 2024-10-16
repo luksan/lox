@@ -10,7 +10,9 @@ use crate::jlox::ast::{expr, stmt::{self, ListStmt, Stmt}, Accepts, NodeId};
 use crate::jlox::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
 use crate::jlox::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
 use crate::jlox::environment::{Env, RootedEnv};
+use crate::jlox::JloxError;
 use crate::jlox::lox_types::{self, LoxType, NativeFn};
+use crate::jlox::resolver::Resolver;
 use crate::scanner::{Token, TokenType};
 
 pub struct Interpreter {
@@ -35,10 +37,12 @@ impl Interpreter {
         }
     }
 
-    pub fn interpret(&mut self, statements: &[Stmt]) -> Result<()> {
+    pub fn interpret(&mut self, statements: &[Stmt]) -> Result<(), JloxError> {
+        let resolved = Resolver::resolve(statements)?;
+        self.locals.extend(resolved);
         for stmt in statements {
             if let ControlFlow::Break(result) = self.execute(stmt) {
-                result?;
+                result.map_err(JloxError::RuntimeError)?;
             }
         }
         Ok(())
@@ -50,10 +54,6 @@ impl Interpreter {
 
     fn execute(&mut self, statement: &Stmt) -> ControlFlow<Result<LoxType>> {
         statement.accept(self)
-    }
-
-    pub fn resolve(&mut self, expr: NodeId, scope_idx: usize) {
-        self.locals.insert(expr, scope_idx);
     }
 
     fn lookup_variable(&mut self, name: &Token, expr: NodeId) -> ExprVisitResult {

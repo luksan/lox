@@ -6,8 +6,7 @@ use std::fmt::{Display, Formatter};
 
 use crate::jlox::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
 use crate::jlox::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
-use crate::jlox::ast::{expr, stmt::{self, ListStmt, Stmt}, Accepts, NodeId};
-use crate::jlox::Interpreter;
+use crate::jlox::ast::{expr, stmt::{self, Stmt}, Accepts, NodeId};
 use crate::scanner::Token;
 
 #[derive(Debug)]
@@ -22,12 +21,12 @@ impl Display for ResolverError {
     }
 }
 
-pub struct Resolver<'i> {
-    interpreter: &'i mut Interpreter,
+pub struct Resolver {
     curr_func_type: FunctionType,
     curr_class: ClassType,
     scopes: Vec<HashMap<String, bool>>,
     errors: Vec<ResolverError>,
+    resolved: HashMap<NodeId, usize>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -45,23 +44,20 @@ enum ClassType {
     None,
 }
 
-impl<'i> Resolver<'i> {
-    pub fn resolve(
-        interpreter: &'i mut Interpreter,
-        statements: &ListStmt,
-    ) -> Result<(), Vec<ResolverError>> {
+impl Resolver {
+    pub fn resolve(statements: &[Stmt]) -> Result<HashMap<NodeId, usize>, Vec<ResolverError>> {
         let mut me = Self {
-            interpreter,
             curr_func_type: FunctionType::None,
             curr_class: ClassType::None,
             scopes: vec![],
             errors: vec![],
+            resolved: Default::default(),
         };
 
         me.resolve_stmt_list(statements);
 
         if me.errors.is_empty() {
-            Ok(())
+            Ok(me.resolved)
         } else {
             Err(me.errors)
         }
@@ -101,7 +97,7 @@ impl<'i> Resolver<'i> {
             .map(|scope| scope.insert(name.lexeme().to_string(), true));
     }
 
-    fn resolve_stmt_list(&mut self, statements: &ListStmt) {
+    fn resolve_stmt_list(&mut self, statements: &[Stmt]) {
         for s in statements {
             self.resolve_stmt(s);
         }
@@ -131,7 +127,7 @@ impl<'i> Resolver<'i> {
     fn resolve_local(&mut self, expr: NodeId, name: &Token) {
         for (idx, scope) in self.scopes.iter().rev().enumerate() {
             if scope.contains_key(name.lexeme()) {
-                self.interpreter.resolve(expr, idx);
+                self.resolved.insert(expr, idx);
                 return;
             }
         }
@@ -155,7 +151,7 @@ impl<'a> From<&'a expr::Variable> for ExprRef<'a> {
     }
 }
 
-impl stmt::StmtTypesVisitor for Resolver<'_> {
+impl stmt::StmtTypesVisitor for Resolver {
     type Ret = ();
 
     fn visit_block(&mut self, node: &Block) -> Self::Ret {
@@ -251,7 +247,7 @@ impl stmt::StmtTypesVisitor for Resolver<'_> {
     }
 }
 
-impl expr::ExprTypesVisitor for Resolver<'_> {
+impl expr::ExprTypesVisitor for Resolver {
     type Ret = ();
 
     fn visit_assign(&mut self, node: &Assign) -> Self::Ret {

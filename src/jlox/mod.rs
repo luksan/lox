@@ -10,7 +10,7 @@ use lox_types::LoxType;
 
 use crate::jlox::interpreter::Interpreter;
 use crate::jlox::parser::{ParseError, Parser};
-use crate::jlox::resolver::{Resolver, ResolverError};
+use crate::jlox::resolver::{ResolverError};
 use crate::{scanner, ErrorKind};
 
 mod ast;
@@ -129,7 +129,6 @@ impl Lox {
 
         // println!("{ast:#?}");
 
-        Resolver::resolve(&mut self.interpreter, &ast)?;
-        self.interpreter.interpret(&ast).map_err(JloxError::runtime)
+        self.interpreter.interpret(&ast)
     }
 }
