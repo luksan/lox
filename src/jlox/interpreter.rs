@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
 
-use crate::jlox::ast::{expr, stmt::{self, ListStmt, Stmt}, Accepts, NodeId};
+use crate::jlox::ast::{expr, stmt::{self, Stmt}, Accepts, NodeId};
 use crate::jlox::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
 use crate::jlox::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
 use crate::jlox::environment::{Env, RootedEnv};
@@ -81,7 +81,7 @@ impl Interpreter {
         }
     }
 
-    pub fn execute_block(&mut self, statements: &ListStmt, env: Env) -> ControlFlow<Result<LoxType>> {
+    pub fn execute_block(&mut self, statements: &[Stmt], env: Env) -> ControlFlow<Result<LoxType>> {
         let old_env = std::mem::replace(&mut self.env, RootedEnv::new(env));
         self.env.run_gc(); // GC must run before the block is executed, since ret might contain references to un-traced Envs.
         let ret = statements.iter().try_for_each(|stmt| stmt.accept(self));

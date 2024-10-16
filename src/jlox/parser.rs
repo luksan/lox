@@ -4,7 +4,7 @@ use std::iter::Peekable;
 
 use crate::jlox::ast::{
     expr::{self, Expr},
-    stmt::{self, ListStmt, Stmt},
+    stmt::{self, Stmt},
 };
 use crate::jlox::LoxType;
 use crate::scanner::TokenType::*;
@@ -60,7 +60,7 @@ impl<'s> Parser<'s> {
             tokens: scanner.peekable(),
             errors: Vec::new(),
         }
-        .parse_self()
+            .parse_self()
     }
 
     fn parse_self(&mut self) -> Result<Vec<Stmt>, Vec<ParseError>> {
@@ -246,8 +246,8 @@ impl<'s> Parser<'s> {
         Ok(stmt::Function::new_bare(name, parameters, body))
     }
 
-    fn block(&mut self) -> Result<ListStmt> {
-        let mut statements = ListStmt::new();
+    fn block(&mut self) -> Result<Vec<Stmt>> {
+        let mut statements = Vec::new();
         while !self.check(RightBrace) && !self.at_end() {
             statements.push(self.declaration()?);
         }

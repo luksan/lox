@@ -128,7 +128,7 @@ pub mod expr {
     }
 
     pub type Expr = Box<ExprTypes>;
-    pub type ListExpr = Vec<Expr>;
+    type ListExpr = Vec<Expr>;
     type Object = LoxType;
 }
 
@@ -149,7 +149,7 @@ pub mod stmt {
     }
 
     pub type Stmt = Box<StmtTypes>;
-    pub type ListStmt = Vec<Stmt>;
+    type ListStmt = Vec<Stmt>;
     type OptionExpr = Option<Expr>;
     type OptionStmt = Option<Stmt>;
     type ListToken = Vec<Token>;
