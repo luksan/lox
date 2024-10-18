@@ -1,9 +1,8 @@
 use anyhow::{bail, Context, Result};
 
-use crate::jlox::ast::stmt;
 use crate::jlox::environment::Env;
 use crate::jlox::interpreter::ExprVisitResult;
-use crate::jlox::Interpreter;
+use crate::jlox::{ast, Interpreter};
 use crate::scanner::Token;
 
 use std::collections::HashMap;
@@ -24,6 +23,15 @@ pub enum LoxType {
 }
 
 impl LoxType {
+    pub fn from_literal(value: &ast::LiteralValue) -> Self {
+        match value {
+            ast::LiteralValue::Bool(b) => Self::Bool(*b),
+            ast::LiteralValue::Nil => Self::Nil,
+            ast::LiteralValue::Number(n) => Self::Number(*n),
+            ast::LiteralValue::String(s) => Self::String(s.clone()),
+        }
+    }
+
     pub fn as_f64(&self) -> anyhow::Result<f64> {
         match self {
             Self::Number(num) => Ok(*num),
@@ -234,7 +242,7 @@ impl PartialEq for Instance {
 
 #[derive(Clone)]
 pub struct Function {
-    declaration: Rc<stmt::Function>,
+    declaration: Rc<ast::stmt::Function>,
     pub closure: Env,
     pub is_init: bool,
 }
@@ -246,7 +254,7 @@ impl Debug for Function {
 }
 
 impl Function {
-    pub fn new(declaration: &stmt::Function, closure: Env) -> Self {
+    pub fn new(declaration: &ast::stmt::Function, closure: Env) -> Self {
         Self {
             declaration: Rc::from(declaration.clone()),
             closure,

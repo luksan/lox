@@ -5,8 +5,8 @@ use std::iter::Peekable;
 use crate::jlox::ast::{
     expr::{self, Expr},
     stmt::{self, Stmt},
+    LiteralValue,
 };
-use crate::jlox::LoxType;
 use crate::scanner::TokenType::*;
 use crate::scanner::{Token, TokenIter, TokenType, TokenizationError};
 
@@ -122,7 +122,7 @@ impl<'s> Parser<'s> {
         let init = if self.match_advance(&[Equal]).is_some() {
             self.expression()?
         } else {
-            expr::Literal::new(LoxType::Nil)
+            expr::Literal::new(LiteralValue::Nil)
         };
         self.consume(Semicolon, "Expect ';' after variable declaration.")?;
         Ok(stmt::Var::new(name, init))
@@ -167,7 +167,7 @@ impl<'s> Parser<'s> {
         let condition = if !self.check(Semicolon) {
             self.expression()?
         } else {
-            expr::Literal::new(LoxType::Bool(true))
+            expr::Literal::new(LiteralValue::Bool(true))
         };
         self.consume(Semicolon, "Expect ';' after loop condition.")?;
         let increment = if !self.check(RightParen) {
@@ -366,11 +366,11 @@ impl<'s> Parser<'s> {
     fn primary(&mut self) -> ParseResult {
         let token = self.tokens.next().unwrap()?;
         Ok(expr::Literal::new(match token.tok_type() {
-            TokenType::False => LoxType::Bool(false),
-            TokenType::True => LoxType::Bool(true),
-            TokenType::Nil => LoxType::Nil,
-            TokenType::Number => LoxType::Number(token.number_literal()),
-            TokenType::String => LoxType::String(token.string_literal().to_owned().into()),
+            TokenType::False => LiteralValue::Bool(false),
+            TokenType::True => LiteralValue::Bool(true),
+            TokenType::Nil => LiteralValue::Nil,
+            TokenType::Number => LiteralValue::Number(token.number_literal()),
+            TokenType::String => LiteralValue::String(token.string_literal().to_owned().into()),
             TokenType::Super => {
                 let _dot = self.consume(Dot, "Expect '.' after 'super'.")?;
                 let method = self.consume(Identifier, "Expect superclass method name.")?;

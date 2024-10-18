@@ -1,12 +1,19 @@
 #![allow(non_snake_case)]
 
 use std::fmt::{Debug, Formatter};
+use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use paste::paste;
-
-use crate::jlox::LoxType;
 use crate::scanner::Token;
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum LiteralValue {
+    Bool(bool),
+    Nil,
+    Number(f64),
+    String(Rc<str>),
+}
 
 pub trait Accepts<V, R> {
     fn accept(&self, visitor: &mut V) -> R;
@@ -118,7 +125,7 @@ pub mod expr {
         Call     : Expr callee, Token paren, ListExpr arguments;
         Get      : Expr object, Token name;
         Grouping : Expr expression;
-        Literal  : Object value;
+        Literal  : LiteralValue value;
         Logical  : Expr left, Token operator, Expr right;
         Set      : Expr object, Token name, Expr value;
         Super    : Token keyword, Token method;
@@ -129,7 +136,6 @@ pub mod expr {
 
     pub type Expr = Box<ExprTypes>;
     type ListExpr = Vec<Expr>;
-    type Object = LoxType;
 }
 
 pub mod stmt {

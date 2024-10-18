@@ -288,7 +288,7 @@ impl expr::ExprTypesVisitor for Interpreter {
     }
 
     fn visit_literal(&mut self, node: &Literal) -> Self::Ret {
-        Ok(node.value.clone())
+        Ok(LoxType::from_literal(&node.value))
     }
 
     fn visit_logical(&mut self, node: &Logical) -> Self::Ret {
