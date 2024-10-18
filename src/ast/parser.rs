@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::iter::Peekable;
 
-use crate::jlox::ast::{
+use crate::ast::{
     expr::{self, Expr},
     stmt::{self, Stmt},
     LiteralValue,

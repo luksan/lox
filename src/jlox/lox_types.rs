@@ -1,8 +1,9 @@
 use anyhow::{bail, Context, Result};
 
+use crate::ast;
 use crate::jlox::environment::Env;
 use crate::jlox::interpreter::ExprVisitResult;
-use crate::jlox::{ast, Interpreter};
+use crate::jlox::Interpreter;
 use crate::scanner::Token;
 
 use std::collections::HashMap;

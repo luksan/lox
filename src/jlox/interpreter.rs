@@ -6,9 +6,9 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
 
-use crate::jlox::ast::{expr, stmt::{self, Stmt}, Accepts, NodeId};
-use crate::jlox::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
-use crate::jlox::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
+use crate::ast::{expr, stmt::{self, Stmt}, Accepts, NodeId};
+use crate::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
+use crate::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
 use crate::jlox::environment::{Env, RootedEnv};
 use crate::jlox::JloxError;
 use crate::jlox::lox_types::{self, LoxType, NativeFn};

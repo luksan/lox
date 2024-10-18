@@ -9,15 +9,13 @@ use anyhow::Context;
 use lox_types::LoxType;
 
 use crate::jlox::interpreter::Interpreter;
-use crate::jlox::parser::{ParseError, Parser};
-use crate::jlox::resolver::{ResolverError};
+use crate::ast::parser::{ParseError, Parser};
+use crate::jlox::resolver::ResolverError;
 use crate::{scanner, ErrorKind};
 
-mod ast;
 mod environment;
 mod interpreter;
 mod lox_types;
-mod parser;
 mod resolver;
 
 #[derive(Debug)]

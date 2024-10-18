@@ -6,6 +6,7 @@
     clippy::try_err
 )]
 
+mod ast;
 pub mod clox;
 pub mod jlox;
 mod scanner;
