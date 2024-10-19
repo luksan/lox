@@ -1,5 +1,3 @@
-#![allow(clippy::ptr_arg)]
-
 use anyhow::{anyhow, bail, Context, Result};
 
 use std::collections::HashMap;

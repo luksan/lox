@@ -1,5 +1,3 @@
-#![allow(clippy::ptr_arg)]
-
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
