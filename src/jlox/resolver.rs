@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-
 use crate::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
 use crate::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
 use crate::ast::{expr, stmt::{self, Stmt}, Accepts, NodeId};
@@ -21,10 +20,37 @@ impl Display for ResolverError {
     }
 }
 
+struct Scope(HashMap<String, (usize, VariableState)>);
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum VariableState {
+    Declared,
+    Defined,
+}
+
+impl Scope {
+    fn new() -> Self {
+        Self(HashMap::new())
+    }
+
+    fn insert(&mut self, name: &str, state: VariableState) -> bool {
+        self.0.insert(name.to_string(), (self.0.len(), state)).is_some()
+    }
+
+    fn defines_variable(&self, name: &str) -> bool {
+        self.0.contains_key(name)
+    }
+
+    fn variable_is_being_initialized(&self, name: &str) -> bool {
+        self.0.get(name).map(|(_, b)| *b) == Some(VariableState::Declared)
+    }
+}
+
+
 pub struct Resolver {
     curr_func_type: FunctionType,
     curr_class: ClassType,
-    scopes: Vec<HashMap<String, bool>>,
+    scopes: Vec<Scope>,
     errors: Vec<ResolverError>,
     resolved: HashMap<NodeId, usize>,
 }
@@ -70,12 +96,8 @@ impl Resolver {
         });
     }
 
-    fn peek(&mut self) -> Option<&mut HashMap<String, bool>> {
-        self.scopes.last_mut()
-    }
-
     fn begin_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+        self.scopes.push(Scope::new());
     }
 
     fn end_scope(&mut self) {
@@ -84,7 +106,7 @@ impl Resolver {
 
     fn declare(&mut self, name: &Token) {
         if let Some(scope) = self.scopes.last_mut() {
-            if let Some(_exists) = scope.insert(name.lexeme().to_string(), false) {
+            if scope.insert(name.lexeme(), VariableState::Declared) {
                 // Variable already declared
                 self.error(name, "Already a variable with this name in this scope.");
             }
@@ -94,7 +116,7 @@ impl Resolver {
     fn define(&mut self, name: &Token) {
         self.scopes
             .last_mut()
-            .map(|scope| scope.insert(name.lexeme().to_string(), true));
+            .map(|scope| scope.insert(name.lexeme(), VariableState::Defined));
     }
 
     fn resolve_stmt_list(&mut self, statements: &[Stmt]) {
@@ -126,28 +148,11 @@ impl Resolver {
 
     fn resolve_local(&mut self, expr: NodeId, name: &Token) {
         for (idx, scope) in self.scopes.iter().rev().enumerate() {
-            if scope.contains_key(name.lexeme()) {
+            if scope.defines_variable(name.lexeme()) {
                 self.resolved.insert(expr, idx);
                 return;
             }
         }
-    }
-}
-
-pub enum ExprRef<'a> {
-    Assign(&'a expr::Assign),
-    Variable(&'a expr::Variable),
-}
-
-impl<'a> From<&'a expr::Assign> for ExprRef<'a> {
-    fn from(val: &'a expr::Assign) -> Self {
-        Self::Assign(val)
-    }
-}
-
-impl<'a> From<&'a expr::Variable> for ExprRef<'a> {
-    fn from(val: &'a Variable) -> Self {
-        Self::Variable(val)
     }
 }
 
@@ -177,13 +182,13 @@ impl stmt::StmtTypesVisitor for Resolver {
             self.scopes
                 .last_mut()
                 .unwrap()
-                .insert("super".to_string(), true);
+                .insert("super", VariableState::Defined);
         }
         self.begin_scope();
         self.scopes
             .last_mut()
             .unwrap()
-            .insert("this".to_string(), true);
+            .insert("this", VariableState::Defined);
 
         for method in &node.methods {
             let decl = if method.name.lexeme() == "init" {
@@ -311,11 +316,8 @@ impl expr::ExprTypesVisitor for Resolver {
     }
 
     fn visit_variable(&mut self, node: &Variable) -> Self::Ret {
-        if self
-            .peek()
-            .map(|scope| scope.get(node.name.lexeme()) == Some(&false))
-            == Some(true)
-        {
+        let Some(curr_scope) = self.scopes.last_mut() else { return; };
+        if curr_scope.variable_is_being_initialized(node.name.lexeme()) {
             self.error(
                 &node.name,
                 "Can't read local variable in its own initializer.",
