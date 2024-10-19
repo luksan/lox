@@ -96,8 +96,9 @@ impl Resolver {
         });
     }
 
-    fn begin_scope(&mut self) {
+    fn begin_scope(&mut self) -> &mut Scope {
         self.scopes.push(Scope::new());
+        self.scopes.last_mut().unwrap()
     }
 
     fn end_scope(&mut self) {
@@ -178,17 +179,10 @@ impl stmt::StmtTypesVisitor for Resolver {
             }
             self.curr_class = ClassType::Subclass;
             self.resolve_expr(sup);
-            self.begin_scope(); // "super" env
-            self.scopes
-                .last_mut()
-                .unwrap()
-                .insert("super", VariableState::Defined);
+            // "super" env
+            self.begin_scope().insert("super", VariableState::Defined);
         }
-        self.begin_scope();
-        self.scopes
-            .last_mut()
-            .unwrap()
-            .insert("this", VariableState::Defined);
+        self.begin_scope().insert("this", VariableState::Defined);
 
         for method in &node.methods {
             let decl = if method.name.lexeme() == "init" {
