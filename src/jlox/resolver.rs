@@ -18,7 +18,7 @@ impl Display for ResolverError {
     }
 }
 
-struct Scope(HashMap<String, (usize, VariableState)>);
+struct Scope(Vec<(String, VariableState)>);
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 enum VariableState {
@@ -28,19 +28,27 @@ enum VariableState {
 
 impl Scope {
     fn new() -> Self {
-        Self(HashMap::new())
+        Self(Vec::new())
     }
 
     fn insert(&mut self, name: &str, state: VariableState) -> bool {
-        self.0.insert(name.to_string(), (self.0.len(), state)).is_some()
+        if let Some(slot) = self.0.iter_mut().find(|(n, _)| n == name) {
+            slot.1 = state;
+            true
+        } else {
+            self.0.push((name.to_string(), state));
+            false
+        }
     }
 
     fn defines_variable(&self, name: &str) -> bool {
-        self.0.contains_key(name)
+        self.0.iter().find(|(n, _)| name == n).is_some()
     }
 
     fn variable_is_being_initialized(&self, name: &str) -> bool {
-        self.0.get(name).map(|(_, b)| *b) == Some(VariableState::Declared)
+        if let Some((_, state)) = self.0.iter().find(|(n, _)| n == name) {
+            state == &VariableState::Declared
+        } else { false }
     }
 }
 
