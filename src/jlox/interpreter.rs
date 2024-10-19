@@ -16,7 +16,7 @@ use crate::scanner::{Token, TokenType};
 pub struct Interpreter {
     pub env: RootedEnv,
     globals: RootedEnv,
-    locals: HashMap<NodeId, usize>,
+    locals: HashMap<NodeId, (usize, usize)>, // (scope depth, env slot)
     start_time: std::time::Instant,
 }
 
@@ -55,7 +55,7 @@ impl Interpreter {
     }
 
     fn lookup_variable(&mut self, name: &Token, expr: NodeId) -> ExprVisitResult {
-        if let Some(depth) = self.locals.get(&expr) {
+        if let Some((depth, _)) = self.locals.get(&expr) {
             self.env.get_at(name.lexeme(), *depth)
                 .with_context(|| format!("{:?} JLox bug. Failed to lookup variable {:?} at depth {depth}.", name, name.lexeme()))
         } else {
@@ -197,8 +197,8 @@ impl expr::ExprTypesVisitor for Interpreter {
 
     fn visit_assign(&mut self, node: &Assign) -> Self::Ret {
         let value = self.evaluate(&node.value)?;
-        if let Some(&depth) = self.locals.get(&node.id) {
-            self.env.assign_at(depth, &node.name, value.clone())?;
+        if let Some((depth, _)) = self.locals.get(&node.id) {
+            self.env.assign_at(*depth, &node.name, value.clone())?;
         } else {
             self.globals.assign(&node.name, value.clone())?;
         }
@@ -318,7 +318,7 @@ impl expr::ExprTypesVisitor for Interpreter {
     }
 
     fn visit_super(&mut self, node: &Super) -> Self::Ret {
-        let distance = self
+        let (distance, _slot) = self
             .locals
             .get(&node.id)
             .expect("Resolver error! 'super' node missing in locals.");

@@ -41,8 +41,8 @@ impl Scope {
         }
     }
 
-    fn defines_variable(&self, name: &str) -> bool {
-        self.0.iter().find(|(n, _)| name == n).is_some()
+    fn defines_variable(&self, name: &str) -> Option<usize> {
+        self.0.iter().position(|(n, _)| name == n)
     }
 
     fn variable_is_being_initialized(&self, name: &str) -> bool {
@@ -58,7 +58,7 @@ pub struct Resolver {
     curr_class: ClassType,
     scopes: Vec<Scope>,
     errors: Vec<ResolverError>,
-    resolved: HashMap<NodeId, usize>,
+    resolved: HashMap<NodeId, (usize, usize)>, // (scope depth, slot)
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -77,7 +77,7 @@ enum ClassType {
 }
 
 impl Resolver {
-    pub fn resolve(statements: &[Stmt]) -> Result<HashMap<NodeId, usize>, Vec<ResolverError>> {
+    pub fn resolve(statements: &[Stmt]) -> Result<HashMap<NodeId, (usize, usize)>, Vec<ResolverError>> {
         let mut me = Self {
             curr_func_type: FunctionType::None,
             curr_class: ClassType::None,
@@ -154,9 +154,9 @@ impl Resolver {
     }
 
     fn resolve_local(&mut self, expr: NodeId, name: &Token) {
-        for (idx, scope) in self.scopes.iter().rev().enumerate() {
-            if scope.defines_variable(name.lexeme()) {
-                self.resolved.insert(expr, idx);
+        for (scope_depth, scope) in self.scopes.iter().rev().enumerate() {
+            if let Some(slot) = scope.defines_variable(name.lexeme()) {
+                self.resolved.insert(expr, (scope_depth, slot));
                 return;
             }
         }
