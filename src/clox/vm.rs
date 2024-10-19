@@ -614,6 +614,7 @@ impl<'heap> Vm<'heap> {
         }
     }
 
+    #[allow(unused)]
     fn print_stack(&self, hdr: &str) {
         println!("Stack dump: {}\n{:?}", hdr, self.stack);
     }

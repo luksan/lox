@@ -235,6 +235,8 @@ impl ValueEnum {
         }
     }
 
+    #[allow(unused)]
+    // this is used when not using the PackedEnum representation
     pub(crate) fn mark(&self, callback: &mut ObjMarker) {
         if let Self::Obj(obj) = self {
             obj.mark(callback);

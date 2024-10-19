@@ -427,6 +427,7 @@ impl Heap {
         self.obj_count.set(0);
     }
 
+    #[allow(unused)]
     pub(crate) fn print_heap(&self) {
         println!("Heap objects");
         let mut next_obj = self.objs.get();
