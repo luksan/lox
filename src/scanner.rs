@@ -134,12 +134,12 @@ impl From<miette::SourceSpan> for TokSpan {
 }
 impl From<TokSpan> for miette::SourceSpan {
     fn from(value: TokSpan) -> Self {
-        Self::new(value.start.into(), value.length.into())
+        Self::new(value.start.into(), value.length)
     }
 }
 impl From<&TokSpan> for miette::SourceSpan {
     fn from(value: &TokSpan) -> Self {
-        Self::new(value.start.into(), value.length.into())
+        Self::new(value.start.into(), value.length)
     }
 }
 

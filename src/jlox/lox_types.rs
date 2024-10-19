@@ -57,7 +57,7 @@ impl LoxType {
         }
     }
 
-    pub fn env_gc_trace(&self, callback: &mut dyn FnMut(&Env) -> ()) {
+    pub fn env_gc_trace(&self, callback: &mut dyn FnMut(&Env)) {
         match &self {
             Self::Class(cls) => cls.env_gc_trace(callback),
             Self::Function(f) => callback(&f.closure),
@@ -163,7 +163,7 @@ impl Class {
         })
     }
 
-    fn env_gc_trace(&self, mut callback: impl FnMut(&Env) -> ()) {
+    fn env_gc_trace(&self, mut callback: impl FnMut(&Env)) {
         for m in self.methods.values() {
             callback(&m.closure);
         }
@@ -229,7 +229,7 @@ impl Instance {
         self.fields.define(name.lexeme(), value);
     }
 
-    fn env_gc_trace(&self, callback: &mut dyn FnMut(&Env) -> ()) {
+    fn env_gc_trace(&self, callback: &mut dyn FnMut(&Env)) {
         self.class.env_gc_trace(&mut *callback);
         callback(&self.fields);
     }

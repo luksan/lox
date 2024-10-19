@@ -98,11 +98,11 @@ impl Display for RuntimeError {
 }
 
 impl miette::Diagnostic for RuntimeError {
-    fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
+    fn labels(&self) -> Option<Box<dyn Iterator<Item=LabeledSpan> + '_>> {
         Some(Box::new(iter::once(
             self.stacktrace
                 .last()
-                .map(|span| LabeledSpan::new_with_span(Some(self.err.to_string()), &span.1))
+                .map(|span| LabeledSpan::new_with_span(Some(self.err.to_string()), span.1))
                 .unwrap(),
         )))
     }
@@ -407,7 +407,7 @@ impl<'heap> Vm<'heap> {
             let op = if cfg!(debug_assertions) {
                 instr.into() // use FromPrimitive
             } else {
-                unsafe { std::mem::transmute(instr) }
+                unsafe { std::mem::transmute::<u8, OpCode>(instr) }
             };
             match op {
                 OpCode::Constant => self.stack.push(read_constant!()),

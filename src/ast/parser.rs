@@ -447,20 +447,16 @@ impl<'s> Parser<'s> {
                 break;
             }
 
-            match self.peek_type() {
-                Ok(
-                    TokenType::Class
-                    | TokenType::Fun
-                    | TokenType::Var
-                    | TokenType::For
-                    | TokenType::If
-                    | TokenType::While
-                    | TokenType::Print
-                    | TokenType::Return,
-                ) => break,
-
-                _ => {}
-            }
+            if let Ok(
+                TokenType::Class
+                | TokenType::Fun
+                | TokenType::Var
+                | TokenType::For
+                | TokenType::If
+                | TokenType::While
+                | TokenType::Print
+                | TokenType::Return,
+            ) = self.peek_type() { break; }
         }
     }
 }

@@ -76,7 +76,7 @@ impl FunctionScope {
         } else {
             ""
         }
-        .to_string();
+            .to_string();
         let this_slot = Local::new(slot0_name);
         let mut scope = Self {
             func_obj: Function::new(),
@@ -107,7 +107,7 @@ impl FunctionScope {
         self.scope_depth += 1;
     }
 
-    pub fn end_scope(&mut self) -> impl Iterator<Item = bool> {
+    pub fn end_scope(&mut self) -> impl Iterator<Item=bool> {
         self.scope_depth -= 1;
         let local_pos = self
             .locals
@@ -182,7 +182,7 @@ impl FunctionScope {
                 if !local.is_initialized() {
                     bail!("Can't read local variable in its own initializer.");
                 }
-                return Ok(Some(LocalIdx(i as u8).into()));
+                return Ok(Some(LocalIdx(i as u8)));
             }
         }
         Ok(None)
@@ -202,8 +202,8 @@ impl FunctionScope {
         } else {
             enclosing.resolve_upvalue(name)?.map(Upvalue::Up)
         }
-        .map(|upvalue| self.add_upvalue(upvalue))
-        .transpose()
+            .map(|upvalue| self.add_upvalue(upvalue))
+            .transpose()
     }
 
     /// Mark the newest local variable as initialized

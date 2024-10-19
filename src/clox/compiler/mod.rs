@@ -705,13 +705,13 @@ impl<'helpers> Compiler<'helpers> {
             .resolve_variable(name)
             .map_err(|e| self.error(e)); // Resolver error should be reported before parsing the assignment expression
 
-        let assignment;
-        if can_assign && self.match_token(TokenType::Equal) {
-            self.expression();
-            assignment = true;
-        } else {
-            assignment = false;
-        }
+        let assignment =
+            if can_assign && self.match_token(TokenType::Equal) {
+                self.expression();
+                true
+            } else {
+                false
+            };
 
         let Ok(resolved) = resolved else { return };
         let (slot, get_op, set_op) = match resolved {
