@@ -39,8 +39,8 @@ impl EnvGcTracker {
 
     fn run_gc(&self) {
         let mut to_trace = vec![];
-        {
-            let envs = self.envs.borrow_mut();
+        { // Find the root environments
+            let envs = self.envs.borrow();
             for e in envs.iter().filter_map(|w| w.upgrade()) {
                 if e.pinned.get() {
                     to_trace.push(e);
@@ -58,7 +58,7 @@ impl EnvGcTracker {
             }
 
             let mut cb = |env: &Env| { if !env.reachable.get() { to_trace.push(env.env.clone()) } };
-            for v in env.values.borrow().values() {
+            for v in env.values.borrow().values().chain(env.locals.borrow().iter()) {
                 v.env_gc_trace(&mut cb);
             }
         }
@@ -154,6 +154,7 @@ impl PartialEq for Env {
 #[derive(Default)]
 pub struct Environment {
     values: RefCell<HashMap<String, LoxType>>,
+    locals: RefCell<Vec<LoxType>>,
     parent: Option<Env>,
     reachable: Cell<bool>,
     pinned: Cell<bool>, // considered as GC root
@@ -180,9 +181,15 @@ impl Environment {
         }
     }
 
+    pub fn parent(&self) -> Option<&Env> {
+        self.parent.as_ref()
+    }
+
     fn purge_values(&self) {
         let mut x = self.values.borrow_mut();
         // println!("Purging env {:p}", self);
+        x.clear();
+        let mut x = self.locals.borrow_mut();
         x.clear();
     }
 
@@ -213,6 +220,13 @@ impl Environment {
         self.values.borrow_mut().insert(name.to_owned(), value);
     }
 
+    /// Returns the slot the value was put in
+    pub fn define_local(&self, value: LoxType) -> usize {
+        let mut x = self.locals.borrow_mut();
+        x.push(value);
+        x.len() - 1
+    }
+
     pub fn get(&self, name: &Token) -> Result<LoxType> {
         if let Some(val) = self.values.borrow().get(name.lexeme()) {
             Ok(val.clone())
@@ -227,22 +241,20 @@ impl Environment {
         }
     }
 
-    pub fn assign_at(&self, distance: usize, name: &Token, value: LoxType) -> Result<()> {
+    pub fn assign_at(&self, distance: usize, slot: usize, value: LoxType) {
+        // No need to check locals length since we have eval'd a "var" statement or similar before reaching this.
         self.ancestor(distance)
-            .values
-            .borrow_mut()
-            .insert(name.lexeme().to_string(), value);
-        Ok(())
+            .locals
+            .borrow_mut()[slot] = value;
     }
 
     /// Get a variable at a certain environment depth.
     /// If this returns None there is a bug in the Lox implementation,
     /// probably in the resolver pass or the garbage collection.
-    pub fn get_at(&self, name: &str, depth: usize) -> Option<LoxType> {
+    pub fn get_at(&self, slot: usize, depth: usize) -> LoxType {
         self.ancestor(depth)
-            .values
+            .locals
             .borrow_mut()
-            .get(name)
-            .cloned()
+            [slot].clone()
     }
 }

@@ -268,7 +268,7 @@ impl Function {
         bound.closure = bound.closure.create_local();
         bound
             .closure
-            .define("this", LoxType::Instance(instance.clone()));
+            .define_local(LoxType::Instance(instance.clone()));
         bound
     }
 }
@@ -286,8 +286,8 @@ impl Callable for Function {
 
     fn call(&mut self, interpreter: &mut Interpreter, arguments: &[LoxType]) -> ExprVisitResult {
         let env = self.closure.create_local();
-        for (arg, name) in arguments.iter().zip(self.declaration.params.iter()) {
-            env.define(name.lexeme(), arg.clone());
+        for arg in arguments.iter() {
+            env.define_local(arg.clone());
         }
         let val = match interpreter.execute_block(&self.declaration.body, env) {
             ControlFlow::Continue(()) => LoxType::Nil,
@@ -295,7 +295,7 @@ impl Callable for Function {
         };
         if self.is_init {
             // Return "self" from the class initializer, not the value of the initializer body.
-            Ok(self.closure.get_at("this", 0).unwrap())
+            Ok(self.closure.get_at(0, 0))
         } else {
             Ok(val)
         }

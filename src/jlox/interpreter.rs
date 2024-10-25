@@ -54,10 +54,19 @@ impl Interpreter {
         statement.accept(self)
     }
 
+    fn define_variable(&mut self, name: &str, value: LoxType) -> Option<usize> {
+        if self.env.parent().is_none() {
+            // global env
+            self.env.define(name, value);
+            None
+        } else {
+            Some(self.env.define_local(value))
+        }
+    }
+
     fn lookup_variable(&mut self, name: &Token, expr: NodeId) -> ExprVisitResult {
-        if let Some((depth, _)) = self.locals.get(&expr) {
-            self.env.get_at(name.lexeme(), *depth)
-                .with_context(|| format!("{:?} JLox bug. Failed to lookup variable {:?} at depth {depth}.", name, name.lexeme()))
+        if let Some((depth, slot)) = self.locals.get(&expr) {
+            Ok(self.env.get_at(*slot, *depth))
         } else {
             self.globals.get(name)
         }
@@ -118,11 +127,11 @@ impl stmt::StmtTypesVisitor for Interpreter {
 
     fn visit_class(&mut self, node: &Class) -> Self::Ret {
         let superclass: Option<lox_types::Class> = self.get_superclass(node)?;
-        self.env.define(node.name.lexeme(), LoxType::Nil);
+        let slot = self.define_variable(node.name.lexeme(), LoxType::Nil);
 
         let method_env = if let Some(superclass) = superclass.as_ref() {
             let env = self.env.create_local();
-            env.define("super", superclass.clone().into());
+            env.define_local(superclass.clone().into());
             env
         } else {
             self.env.clone()
@@ -138,9 +147,13 @@ impl stmt::StmtTypesVisitor for Interpreter {
         }
 
         let class = lox_types::Class::new(node.name.lexeme(), superclass, methods);
-        self.env
-            .assign(&node.name, class.into())
-            .expect("This doesn't fail, since the variable name was defined above.");
+        if let Some(class_slot) = slot {
+            self.env
+                .assign_at(0, class_slot, class.into())
+        } else {
+            self.env.assign(&node.name, class.into())
+                .expect("This doesn't fail, since the variable name was defined above.");
+        }
         Continue(())
     }
 
@@ -151,7 +164,7 @@ impl stmt::StmtTypesVisitor for Interpreter {
 
     fn visit_function(&mut self, node: &Function) -> Self::Ret {
         let function = lox_types::Function::new(node, self.env.clone());
-        self.env.define(node.name.lexeme(), function.into());
+        self.define_variable(node.name.lexeme(), function.into());
         Continue(())
     }
 
@@ -180,7 +193,7 @@ impl stmt::StmtTypesVisitor for Interpreter {
 
     fn visit_var(&mut self, node: &Var) -> Self::Ret {
         let value = self.evaluate_for_stmt(&node.initializer)?;
-        self.env.define(node.name.lexeme(), value);
+        self.define_variable(node.name.lexeme(), value);
         Continue(())
     }
 
@@ -197,8 +210,8 @@ impl expr::ExprTypesVisitor for Interpreter {
 
     fn visit_assign(&mut self, node: &Assign) -> Self::Ret {
         let value = self.evaluate(&node.value)?;
-        if let Some((depth, _)) = self.locals.get(&node.id) {
-            self.env.assign_at(*depth, &node.name, value.clone())?;
+        if let Some((depth, slot)) = self.locals.get(&node.id) {
+            self.env.assign_at(*depth, *slot, value.clone());
         } else {
             self.globals.assign(&node.name, value.clone())?;
         }
@@ -318,15 +331,14 @@ impl expr::ExprTypesVisitor for Interpreter {
     }
 
     fn visit_super(&mut self, node: &Super) -> Self::Ret {
-        let (distance, _slot) = self
+        let (distance, slot) = self
             .locals
             .get(&node.id)
             .expect("Resolver error! 'super' node missing in locals.");
-        let superclass = self.env.get_at("super", *distance).unwrap();
+        let superclass = self.env.get_at(*slot, *distance);
         let object = self
             .env
-            .get_at("this", *distance - 1)
-            .expect("Resolver error! 'this' not at dist -1.");
+            .get_at(0, *distance - 1);
 
         if let LoxType::Class(sup) = superclass {
             let method = sup.find_method(node.method.lexeme()).with_context(|| {
