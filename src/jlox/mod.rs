@@ -8,10 +8,10 @@ use anyhow::Context;
 
 use lox_types::LoxType;
 
+use crate::ast::{self, ParseError};
 use crate::jlox::interpreter::Interpreter;
-use crate::ast::parser::{ParseError, Parser};
 use crate::jlox::resolver::ResolverError;
-use crate::{scanner, ErrorKind};
+use crate::ErrorKind;
 
 mod environment;
 mod interpreter;
@@ -119,8 +119,7 @@ impl Lox {
     }
 
     fn run(&mut self, source: impl AsRef<str>) -> Result<(), JloxError> {
-        let mut scanner = scanner::Scanner::new(source.as_ref());
-        let ast = Parser::parse(&mut scanner).map_err(|e| {
+        let ast = ast::parse(source.as_ref()).map_err(|e| {
             self.had_error = true;
             JloxError::compile(e)
         })?;
