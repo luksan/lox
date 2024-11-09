@@ -1,8 +1,11 @@
-use crate::scanner::{Token, TokenType, TokenizationError};
 use miette::LabeledSpan;
+
 use std::error::Error;
 use std::fmt::{Display, Formatter};
 use std::iter;
+
+use crate::ast;
+use crate::scanner::{Token, TokenType, TokenizationError};
 
 #[derive(Debug, Clone)]
 pub enum CompilerError {
@@ -27,6 +30,21 @@ impl miette::Diagnostic for CompilerError {
         match self {
             CompilerError::Token(e) => e.labels(),
             CompilerError::Compile(e) => e.labels(),
+        }
+    }
+}
+
+impl From<ast::ParseError> for CompilerError {
+    fn from(value: ast::ParseError) -> Self {
+        match value {
+            ast::ParseError::Token(tok) => CompilerError::Token(tok),
+            ast::ParseError::Parsing { token, msg } => {
+                let span = *token.span();
+                CompilerError::Compile(CompileError::new(token, msg, span))
+            }
+            ast::ParseError::UnexpectedEndOfStream => {
+                todo!("this error kind should be removed from the parser")
+            }
         }
     }
 }
