@@ -1,9 +1,16 @@
 use std::collections::HashMap;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
-use crate::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
-use crate::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
-use crate::ast::{expr, stmt::{self, Stmt}, Accepts, NodeId};
+
+use super::expr::{
+    Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable,
+};
+use super::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
+use super::{
+    expr,
+    stmt::{self, Stmt},
+    Accepts, NodeId,
+};
 use crate::scanner::Token;
 
 #[derive(Debug)]

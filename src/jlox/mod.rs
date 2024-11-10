@@ -8,15 +8,14 @@ use anyhow::Context;
 
 use lox_types::LoxType;
 
+use crate::ast::ResolverError;
 use crate::ast::{self, ParseError};
 use crate::jlox::interpreter::Interpreter;
-use crate::jlox::resolver::ResolverError;
 use crate::ErrorKind;
 
 mod environment;
 mod interpreter;
 mod lox_types;
-mod resolver;
 
 #[derive(Debug)]
 pub enum JloxError {

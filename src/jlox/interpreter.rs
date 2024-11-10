@@ -4,13 +4,19 @@ use std::collections::HashMap;
 use std::ops::ControlFlow;
 use std::ops::ControlFlow::Continue;
 
-use crate::ast::{expr, stmt::{self, Stmt}, Accepts, NodeId};
-use crate::ast::expr::{Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable};
+use crate::ast::expr::{
+    Assign, Binary, Call, Get, Grouping, Literal, Logical, Set, Super, This, Unary, Variable,
+};
 use crate::ast::stmt::{Block, Class, Expression, Function, If, Print, Return, Var, While};
+use crate::ast::Resolver;
+use crate::ast::{
+    expr,
+    stmt::{self, Stmt},
+    Accepts, NodeId,
+};
 use crate::jlox::environment::{Env, RootedEnv};
-use crate::jlox::JloxError;
 use crate::jlox::lox_types::{self, LoxType, NativeFn};
-use crate::jlox::resolver::Resolver;
+use crate::jlox::JloxError;
 use crate::scanner::{Token, TokenType};
 
 pub struct Interpreter {
@@ -336,9 +342,7 @@ impl expr::ExprTypesVisitor for Interpreter {
             .get(&node.id)
             .expect("Resolver error! 'super' node missing in locals.");
         let superclass = self.env.get_at(*slot, *distance);
-        let object = self
-            .env
-            .get_at(0, *distance - 1);
+        let object = self.env.get_at(0, *distance - 1);
 
         if let LoxType::Class(sup) = superclass {
             let method = sup.find_method(node.method.lexeme()).with_context(|| {
