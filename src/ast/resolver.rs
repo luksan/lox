@@ -11,13 +11,20 @@ use super::{
     stmt::{self, Stmt},
     Accepts, NodeId,
 };
-use crate::scanner::Token;
+use crate::scanner::{TokSpan, Token};
 
 #[derive(Debug)]
 pub struct ResolverError {
-    token: Token,
-    msg: String,
+    pub token: Token,
+    pub msg: String,
 }
+
+impl ResolverError {
+    pub fn span(&self) -> TokSpan {
+        *self.token.span()
+    }
+}
+
 impl Error for ResolverError {}
 impl Display for ResolverError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {

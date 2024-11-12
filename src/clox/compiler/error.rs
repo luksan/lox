@@ -49,6 +49,13 @@ impl From<ast::ParseError> for CompilerError {
     }
 }
 
+impl From<ast::ResolverError> for CompilerError {
+    fn from(value: ast::ResolverError) -> Self {
+        let span = value.span();
+        CompilerError::Compile(CompileError::new(value.token, value.msg, span))
+    }
+}
+
 impl From<CompileError> for CompilerError {
     fn from(value: CompileError) -> Self {
         Self::Compile(value)
